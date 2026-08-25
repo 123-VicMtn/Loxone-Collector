@@ -207,8 +207,10 @@ class LoxoneClient:
                 f"README si le Miniserver impose une auth par token."
             )
         if resp.status_code != 200:
+            body_snippet = resp.text[:200].replace("\n", " ") if resp.text else "(corps vide)"
             raise LoxoneError(
-                f"[{self.name}] réponse HTTP {resp.status_code} inattendue pour {url}"
+                f"[{self.name}] réponse HTTP {resp.status_code} inattendue pour {url} "
+                f"— corps de la réponse: {body_snippet!r}"
             )
         return resp
 

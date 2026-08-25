@@ -1,0 +1,32 @@
+# Config de DÉMO : dashboard alimenté par des données synthétiques (voir
+# scripts/seed_demo_data.py), pour valider l'affichage des graphs sans
+# dépendre d'un accès à un vrai Miniserver Loxone.
+#
+# Le miniserver ci-dessous ne sera JAMAIS interrogé avec succès (host/port
+# bidons) — ce n'est pas un problème : la base est déjà pré-remplie par le
+# script de seed, le poller échouera juste silencieusement en arrière-plan
+# (visible dans les logs / sur /health), sans impact sur le dashboard.
+#
+# Utilisation :
+#   python3 scripts/seed_demo_data.py config.demo.yaml
+#   python3 app.py config.demo.yaml
+#   -> http://127.0.0.1:8082
+
+poll_interval_seconds: 3600
+db_path: "data/demo.db"
+raw_retention_days: 3
+hourly_retention_days: 0
+maintenance_hour_utc: 3
+include_types: ["*"]
+exclude_types: []
+exclude_rooms: []
+host_bind: "127.0.0.1"
+port: 8082
+
+miniservers:
+  - name: "demo"
+    host: "127.0.0.1"
+    port: 1
+    scheme: "http"
+    username: "${LOXONE_DEMO_USER}"
+    password: "${LOXONE_DEMO_PASSWORD}"
