@@ -30,6 +30,42 @@ calculer ces décomptes.
 4. Le dashboard web (Flask) lit cette base SQLite et affiche des graphs
    (Chart.js, servi en local, aucune dépendance internet nécessaire une
    fois installé).
+5. Chaque capteur est aussi classé automatiquement par appartement et type
+   de ressource (voir section suivante), pour un dashboard organisé façon
+   Climkit : appartement > type de ressource > capteur.
+
+## Classification par appartement / type de ressource
+
+Loxone ne fournit pas de métadonnée "appartement" ou "type de ressource" —
+seul le nom du capteur, tel que défini dans Loxone Config, est disponible.
+Le projet devine ces deux informations automatiquement à chaque poll :
+
+- **Appartement** : extrait par expression régulière depuis le nom du
+  capteur. Par défaut, reconnaît un motif `APPxx` (`APP01`, `App 12`, ...),
+  qui d'après l'installation en place est la seule convention qui se répète
+  de façon fiable.
+- **Type de ressource** (eau chaude/froide, énergie solaire/réseau/injectée/
+  consommée) : deviné par mots-clés dans le nom (`ECS`, `PV`, `réseau`,
+  ...), avec un fallback raisonnable ("Meter" sans mot-clé reconnu =
+  énergie consommée générique).
+
+Ces règles sont **best-effort** : vu l'absence de convention de nommage
+fiable côté Loxone, il ne faut pas s'attendre à 100% de réussite d'entrée
+de jeu. Les règles (regex) sont personnalisables dans `config.yaml` (voir
+`config.example.yaml`, section commentée en bas du fichier) si les valeurs
+par défaut ne correspondent pas à ta nomenclature.
+
+Pour corriger les cas mal classés (ou en ajouter manuellement), va sur
+**`http://<ip-du-pi>:8080/admin`** : chaque capteur y est listé avec un
+champ appartement (texte libre, avec autocomplétion sur les appartements
+déjà connus) et un menu déroulant type de ressource. Une fois enregistrée,
+une correction manuelle est mémorisée et **n'est plus jamais écrasée** par
+la reclassification automatique du poller (marquée "manuel" dans la table) ;
+le bouton ↺ permet de revenir à la classification automatique si besoin.
+
+Le dashboard principal (`/`) regroupe par défaut les capteurs par
+**appartement puis type de ressource**. Le lien "Par pièce" en haut de la
+barre latérale bascule sur l'ancien regroupement par pièce Loxone.
 
 ## Installation sur le Raspberry Pi
 
@@ -127,10 +163,14 @@ config :
 ## API JSON
 
 - `GET /api/series` — liste des capteurs suivis (id, label, pièce,
-  catégorie, unité).
+  catégorie, unité, appartement, type de ressource).
 - `GET /api/series/<series_id>/data?range=24h` — points `{ts, value}` pour
   une série. `range` accepte `1h`, `24h`, `7d`, `30d`, `1y`, ou bien
   `start`/`end` en timestamps Unix explicites.
+- `POST /api/series/<series_id>/classify` — corrige la classification d'un
+  capteur. Body JSON `{"apartment": "APP01", "resource_type": "eau_chaude"}`
+  (un seul des deux champs suffit), ou `{"reset": true}` pour revenir à la
+  classification automatique. Utilisé par la page `/admin`.
 - `GET /health` — dernier statut de poll par miniserver.
 
 Cette API peut être réutilisée plus tard par le module de génération de

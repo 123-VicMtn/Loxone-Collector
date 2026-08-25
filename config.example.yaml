@@ -36,6 +36,45 @@ include_types: ["*"]
 exclude_types: []       # ex: ["Jalousie", "LightControllerV2"]
 exclude_rooms: []       # ex: ["Technique", "Extérieur"]
 
+# Classification automatique par appartement + type de ressource, utilisée
+# pour regrouper le dashboard façon "Climkit" (appartement > type de
+# ressource > capteur). Les valeurs ci-dessous sont les défauts intégrés à
+# l'appli (tu peux ne pas les mettre du tout dans config.yaml, ceci sert de
+# documentation) — adapte-les si tes noms de capteurs ne suivent pas ce
+# schéma. Toute correction faite à la main via /admin est mémorisée et
+# n'est plus jamais écrasée par ces règles.
+#
+# apartment_pattern : expression régulière avec UN groupe capturant,
+# appliquée au nom du capteur pour en extraire l'appartement.
+# apartment_pattern: '(?i)(APP\s*\d+)'
+#
+# resource_type_rules : liste ordonnée, la première règle dont le motif
+# matche le nom du capteur l'emporte. "type" doit être une des clés de
+# resource_type_labels ci-dessous (ou une nouvelle clé de ton choix).
+# resource_type_rules:
+#   - match: '(?i)(ecs\b|eau[ _-]?chaude|ww\b)'
+#     type: "eau_chaude"
+#   - match: '(?i)(eau[ _-]?froide|kw\b)'
+#     type: "eau_froide"
+#   - match: '(?i)(pv\b|photovolta|solaire|solar)'
+#     type: "energie_solaire"
+#   - match: '(?i)(injection|export)'
+#     type: "energie_injectee"
+#   - match: '(?i)(réseau|grid|import)'
+#     type: "energie_reseau"
+#   - match: '(?i)(eau|water)'
+#     type: "eau_froide"
+#
+# resource_type_labels : libellés affichés dans le dashboard/l'admin.
+# resource_type_labels:
+#   eau_chaude: "Eau chaude"
+#   eau_froide: "Eau froide"
+#   energie_solaire: "Énergie solaire"
+#   energie_reseau: "Énergie réseau (import)"
+#   energie_injectee: "Énergie injectée (export)"
+#   energie_consommee: "Énergie consommée"
+#   autre: "Autre"
+
 # Interface d'écoute du dashboard web.
 host_bind: "0.0.0.0"
 port: 8080
