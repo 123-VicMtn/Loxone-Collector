@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Loxone Collector — Classification{% endblock %}
+{% block body %}
+<div class="admin-page">
+  <p class="back-link"><a href="{{ url_for('index') }}">&larr; Retour au dashboard</a></p>
+  <h1>Classification des capteurs</h1>
+  <p class="subtitle">
+    Appartement et type de ressource sont devinés automatiquement (préfixe
+    APPxx dans le nom, mots-clés pour le type). Corrige les lignes qui ne
+    sont pas bonnes : une fois enregistrée, une correction n'est plus jamais
+    écrasée automatiquement (icône <span class="badge-manual">manuel</span>).
+    Le bouton ↺ repasse une ligne en devinette automatique.
+  </p>
+
+  <datalist id="apartments-datalist">
+    {% for apt in known_apartments %}<option value="{{ apt }}">{% endfor %}
+  </datalist>
+
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Capteur</th>
+        <th>Pièce</th>
+        <th>Miniserver</th>
+        <th>Appartement</th>
+        <th>Type de ressource</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in series %}
+      <tr data-series-id="{{ s.series_id }}">
+        <td>
+          {{ s.label }}
+          {% if s.unit %}<span class="unit">({{ s.unit }})</span>{% endif %}
+        </td>
+        <td>{{ s.room }}</td>
+        <td>{{ s.miniserver }}</td>
+        <td>
+          <input type="text" class="apartment-input" list="apartments-datalist"
+                 value="{{ s.apartment }}" placeholder="ex: APP01">
+          {% if s.apartment_manual %}<span class="badge-manual" title="Corrigé manuellement">manuel</span>{% endif %}
+        </td>
+        <td>
+          <select class="resource-type-select">
+            <option value="">— aucun —</option>
+            {% for key, label in labels.items() %}
+              <option value="{{ key }}" {% if s.resource_type == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          {% if s.resource_type_manual %}<span class="badge-manual" title="Corrigé manuellement">manuel</span>{% endif %}
+        </td>
+        <td class="actions-cell">
+          <button type="button" class="save-btn">Enregistrer</button>
+          <button type="button" class="reset-btn" title="Revenir à la classification automatique">↺</button>
+          <span class="save-status"></span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}

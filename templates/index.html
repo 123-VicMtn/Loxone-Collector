@@ -1,12 +1,36 @@
 {% extends "base.html" %}
 {% block title %}Loxone Collector — Dashboard{% endblock %}
 {% block body %}
+
+{% macro sensor_li(s) %}
+  <li>
+    <label>
+      <input type="checkbox"
+             class="series-checkbox"
+             data-series-id="{{ s.series_id }}"
+             data-label="{{ s.label }}{% if s.unit %} ({{ s.unit }}){% endif %}"
+             data-miniserver="{{ s.miniserver }}">
+      {{ s.label }}
+      {% if s.unit %}<span class="unit">{{ s.unit }}</span>{% endif %}
+    </label>
+  </li>
+{% endmacro %}
+
 <div class="layout">
   <aside class="sidebar">
     <h1>Loxone</h1>
     <p class="subtitle">Capteurs suivis</p>
 
-    {% if not grouped_series %}
+    <div class="nav-toolbar">
+      <span>
+        <a href="{{ url_for('index', group_by='apartment') }}" class="{% if group_mode == 'apartment' %}active{% endif %}">Par appartement</a>
+        &nbsp;·&nbsp;
+        <a href="{{ url_for('index', group_by='room') }}" class="{% if group_mode == 'room' %}active{% endif %}">Par pièce</a>
+      </span>
+      <a href="{{ url_for('admin') }}" title="Corriger la classification des capteurs">⚙ Classification</a>
+    </div>
+
+    {% if not grouped %}
       <p class="empty-hint">
         Aucun capteur en base pour l'instant. Le poller n'a peut-être pas
         encore terminé son premier cycle — recharge cette page dans
@@ -14,26 +38,32 @@
       </p>
     {% endif %}
 
-    {% for room, series_list in grouped_series.items() %}
-      <details class="room-group" open>
-        <summary>{{ room }} <span class="count">({{ series_list|length }})</span></summary>
-        <ul>
-          {% for s in series_list %}
-            <li>
-              <label>
-                <input type="checkbox"
-                       class="series-checkbox"
-                       data-series-id="{{ s.series_id }}"
-                       data-label="{{ s.label }}{% if s.unit %} ({{ s.unit }}){% endif %}"
-                       data-miniserver="{{ s.miniserver }}">
-                {{ s.label }}
-                {% if s.unit %}<span class="unit">{{ s.unit }}</span>{% endif %}
-              </label>
-            </li>
+    {% if group_mode == 'apartment' %}
+      {% for apt, type_groups in grouped.items() %}
+        {% set ns = namespace(total=0) %}
+        {% for _, lst in type_groups.items() %}{% set ns.total = ns.total + lst|length %}{% endfor %}
+        <details class="room-group" open>
+          <summary>{{ apt }} <span class="count">({{ ns.total }})</span></summary>
+          {% for type_label, series_list in type_groups.items() %}
+            <details class="type-group" open>
+              <summary>{{ type_label }} <span class="count">({{ series_list|length }})</span></summary>
+              <ul>
+                {% for s in series_list %}{{ sensor_li(s) }}{% endfor %}
+              </ul>
+            </details>
           {% endfor %}
-        </ul>
-      </details>
-    {% endfor %}
+        </details>
+      {% endfor %}
+    {% else %}
+      {% for room, series_list in grouped.items() %}
+        <details class="room-group" open>
+          <summary>{{ room }} <span class="count">({{ series_list|length }})</span></summary>
+          <ul>
+            {% for s in series_list %}{{ sensor_li(s) }}{% endfor %}
+          </ul>
+        </details>
+      {% endfor %}
+    {% endif %}
   </aside>
 
   <main class="content">
