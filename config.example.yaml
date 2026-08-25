@@ -1,0 +1,59 @@
+# Copie ce fichier vers config.yaml puis adapte-le.
+# config.yaml n'est PAS versionné (voir .gitignore) mais les mots de passe
+# ne doivent quand même pas y être écrits en clair : utilise la syntaxe
+# ${NOM_VARIABLE} et mets les vraies valeurs dans .env (copie de .env.example).
+
+# Intervalle entre deux cycles de lecture des Miniservers, en secondes.
+# 60s est un bon compromis pour un Pi 4B/2Go : suffisant pour du suivi de
+# charges/énergie, sans surcharger le Miniserver ni écrire trop souvent sur
+# la carte SD.
+poll_interval_seconds: 60
+
+# Emplacement de la base SQLite (chemin relatif au dossier du projet, ou
+# absolu). Pense à faire pointer ce chemin vers la carte SD (par défaut) ou,
+# si tu ajoutes une clé USB/SSD plus tard, vers ce support pour ménager la
+# carte SD sur le long terme.
+db_path: "data/loxone.db"
+
+# Rétention des données brutes (résolution native du poll_interval) avant
+# qu'elles soient résumées en moyennes horaires puis supprimées. Les
+# moyennes horaires, elles, sont conservées indéfiniment par défaut
+# (hourly_retention_days: 0) — utile pour les décomptes de charges annuels.
+raw_retention_days: 30
+hourly_retention_days: 0
+
+# Heure (UTC) à laquelle la tâche de maintenance quotidienne (résumé horaire
+# + purge + checkpoint WAL) s'exécute. 3 = 3h UTC = ~5h heure d'été suisse,
+# période creuse.
+maintenance_hour_utc: 3
+
+# Filtrage des points suivis.
+# include_types: ["*"] suit TOUTES les valeurs mesurables de chaque
+# contrôle Loxone (comportement choisi par défaut ici). Pour te limiter à
+# certains types, remplace par une liste explicite, ex:
+#   include_types: ["InfoOnlyAnalog", "Meter", "IRoomControllerV2"]
+include_types: ["*"]
+exclude_types: []       # ex: ["Jalousie", "LightControllerV2"]
+exclude_rooms: []       # ex: ["Technique", "Extérieur"]
+
+# Interface d'écoute du dashboard web.
+host_bind: "0.0.0.0"
+port: 8080
+
+# Un ou plusieurs Miniservers Loxone à interroger.
+miniservers:
+  - name: "maison"
+    host: "192.168.1.50"    # IP locale du Miniserver
+    port: 80
+    scheme: "http"
+    username: "${LOXONE_MAISON_USER}"
+    password: "${LOXONE_MAISON_PASSWORD}"
+    verify_ssl: true
+
+  # Décommente et duplique pour un 2e miniserver :
+  # - name: "chalet"
+  #   host: "192.168.1.51"
+  #   port: 80
+  #   scheme: "http"
+  #   username: "${LOXONE_CHALET_USER}"
+  #   password: "${LOXONE_CHALET_PASSWORD}"

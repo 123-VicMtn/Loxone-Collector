@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Loxone Collector — Dashboard{% endblock %}
+{% block body %}
+<div class="layout">
+  <aside class="sidebar">
+    <h1>Loxone</h1>
+    <p class="subtitle">Capteurs suivis</p>
+
+    {% if not grouped_series %}
+      <p class="empty-hint">
+        Aucun capteur en base pour l'instant. Le poller n'a peut-être pas
+        encore terminé son premier cycle — recharge cette page dans
+        quelques instants, ou consulte <a href="/health">/health</a>.
+      </p>
+    {% endif %}
+
+    {% for room, series_list in grouped_series.items() %}
+      <details class="room-group" open>
+        <summary>{{ room }} <span class="count">({{ series_list|length }})</span></summary>
+        <ul>
+          {% for s in series_list %}
+            <li>
+              <label>
+                <input type="checkbox"
+                       class="series-checkbox"
+                       data-series-id="{{ s.series_id }}"
+                       data-label="{{ s.label }}{% if s.unit %} ({{ s.unit }}){% endif %}"
+                       data-miniserver="{{ s.miniserver }}">
+                {{ s.label }}
+                {% if s.unit %}<span class="unit">{{ s.unit }}</span>{% endif %}
+              </label>
+            </li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% endfor %}
+  </aside>
+
+  <main class="content">
+    <div class="toolbar">
+      <div class="range-buttons" id="range-buttons">
+        {% for r in range_presets %}
+          <button type="button" class="range-btn{% if r == '24h' %} active{% endif %}" data-range="{{ r }}">{{ r }}</button>
+        {% endfor %}
+      </div>
+      <button type="button" id="clear-selection">Tout désélectionner</button>
+    </div>
+
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+
+    <p id="chart-hint" class="empty-hint">
+      Coche un ou plusieurs capteurs à gauche pour afficher leur historique.
+    </p>
+
+    <footer id="health-footer" class="health-footer"></footer>
+  </main>
+</div>
+{% endblock %}

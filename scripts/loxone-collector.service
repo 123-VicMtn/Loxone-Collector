@@ -1,0 +1,25 @@
+[Unit]
+Description=Loxone Collector - poller + dashboard web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adapte User/WorkingDirectory au chemin réel de déploiement sur le Pi.
+User=pi
+WorkingDirectory=/home/pi/loxone-collector
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/loxone-collector/.venv/bin/python /home/pi/loxone-collector/app.py
+Restart=on-failure
+RestartSec=5
+
+# Durcissement basique (optionnel mais recommandé sur un Pi exposé sur le
+# réseau local). Commente ces lignes si elles posent problème.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/pi/loxone-collector/data
+
+[Install]
+WantedBy=multi-user.target
