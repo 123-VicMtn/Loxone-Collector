@@ -20,6 +20,12 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from classification import (
+    DEFAULT_APARTMENT_PATTERN,
+    DEFAULT_RESOURCE_TYPE_LABELS,
+    DEFAULT_RESOURCE_TYPE_RULES,
+)
+
 _VAR_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
 
 
@@ -52,6 +58,15 @@ class AppConfig:
     host_bind: str = "0.0.0.0"
     port: int = 8080
 
+    # Classification par appartement / type de ressource (voir classification.py).
+    apartment_pattern: str = DEFAULT_APARTMENT_PATTERN
+    resource_type_rules: list[dict] = field(
+        default_factory=lambda: [dict(r) for r in DEFAULT_RESOURCE_TYPE_RULES]
+    )
+    resource_type_labels: dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_RESOURCE_TYPE_LABELS)
+    )
+
 
 def _substitute_env(value):
     if isinstance(value, str):
@@ -70,6 +85,26 @@ def _substitute_env(value):
     if isinstance(value, list):
         return [_substitute_env(v) for v in value]
     return value
+
+
+def _validate_no_leftover_placeholders(miniservers: list[MiniserverConfig]) -> None:
+    """Détecte les accolades résiduelles (ex: '${VAR}}' avec une accolade en
+    trop, ou une variable mal substituée) dans les champs sensibles. Sans ce
+    contrôle, un '}' oublié se retrouve silencieusement dans le username ou
+    le password envoyé au Miniserver, qui répond 401 sans qu'on comprenne
+    pourquoi (vécu en pratique : 'admin}' au lieu de 'admin')."""
+    for ms in miniservers:
+        for field_name in ("username", "password", "host"):
+            value = getattr(ms, field_name)
+            if value and ("{" in value or "}" in value or "$" in value):
+                raise ConfigError(
+                    f"[{ms.name}] le champ '{field_name}' contient encore un "
+                    f"caractère '{{', '}}' ou '$' après substitution des "
+                    f"variables d'environnement. Vérifie config.yaml : la "
+                    f"syntaxe attendue est \"${{NOM_VARIABLE}}\" (une seule "
+                    f"accolade ouvrante et une seule fermante), sans "
+                    f"accolade en trop."
+                )
 
 
 def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = ".env") -> AppConfig:
@@ -94,6 +129,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
         raise ConfigError("Aucun miniserver défini dans config.yaml (clé 'miniservers').")
 
     miniservers = [MiniserverConfig(**ms) for ms in miniservers_raw]
+    _validate_no_leftover_placeholders(miniservers)
 
     known_fields = {f for f in AppConfig.__dataclass_fields__.keys() if f != "miniservers"}
     app_kwargs = {k: v for k, v in raw.items() if k in known_fields}

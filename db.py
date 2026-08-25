@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS series_meta (
     category      TEXT,
     control_type  TEXT,
     unit          TEXT,
+    apartment            TEXT DEFAULT '',
+    apartment_manual     INTEGER DEFAULT 0,
+    resource_type        TEXT DEFAULT '',
+    resource_type_manual INTEGER DEFAULT 0,
     updated_at    INTEGER
 );
 
@@ -60,6 +64,28 @@ CREATE INDEX IF NOT EXISTS idx_readings_hourly_series_ts ON readings_hourly (ser
 """
 
 
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Ajoute les colonnes manquantes sur une base déjà existante (créée par
+    une version antérieure du projet). CREATE TABLE IF NOT EXISTS ne modifie
+    pas une table déjà présente, donc les mises à jour de schéma passent par
+    ici (ALTER TABLE ADD COLUMN, idempotent : ne s'applique que si la colonne
+    n'existe pas encore)."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(series_meta)").fetchall()}
+    alters = []
+    if "apartment" not in cols:
+        alters.append("ALTER TABLE series_meta ADD COLUMN apartment TEXT DEFAULT ''")
+    if "apartment_manual" not in cols:
+        alters.append("ALTER TABLE series_meta ADD COLUMN apartment_manual INTEGER DEFAULT 0")
+    if "resource_type" not in cols:
+        alters.append("ALTER TABLE series_meta ADD COLUMN resource_type TEXT DEFAULT ''")
+    if "resource_type_manual" not in cols:
+        alters.append("ALTER TABLE series_meta ADD COLUMN resource_type_manual INTEGER DEFAULT 0")
+    for stmt in alters:
+        conn.execute(stmt)
+    if alters:
+        conn.commit()
+
+
 def get_connection(db_path: str | Path) -> sqlite3.Connection:
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,19 +96,27 @@ def get_connection(db_path: str | Path) -> sqlite3.Connection:
     with closing(conn.cursor()) as cur:
         cur.executescript(SCHEMA)
     conn.commit()
+    _migrate_schema(conn)
     return conn
 
 
 def upsert_series_meta(conn: sqlite3.Connection, series_id: str, miniserver: str,
                         control_uuid: str, state_name: str, label: str,
                         room: str = "", category: str = "", control_type: str = "",
-                        unit: str = "") -> None:
+                        unit: str = "", apartment: str = "", resource_type: str = "") -> None:
+    """Crée ou met à jour les métadonnées d'une série. `apartment` et
+    `resource_type` sont ceux devinés automatiquement par classification.py
+    à chaque poll : si l'utilisateur a corrigé l'un de ces champs à la main
+    via /admin (apartment_manual/resource_type_manual = 1), la valeur
+    manuelle est préservée et n'est jamais écrasée par une nouvelle
+    devinette automatique."""
     conn.execute(
         """
         INSERT INTO series_meta
             (series_id, miniserver, control_uuid, state_name, label, room,
-             category, control_type, unit, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             category, control_type, unit, apartment, resource_type,
+             apartment_manual, resource_type_manual, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
         ON CONFLICT(series_id) DO UPDATE SET
             miniserver=excluded.miniserver,
             control_uuid=excluded.control_uuid,
@@ -92,11 +126,49 @@ def upsert_series_meta(conn: sqlite3.Connection, series_id: str, miniserver: str
             category=excluded.category,
             control_type=excluded.control_type,
             unit=excluded.unit,
+            apartment = CASE WHEN series_meta.apartment_manual = 1
+                              THEN series_meta.apartment ELSE excluded.apartment END,
+            resource_type = CASE WHEN series_meta.resource_type_manual = 1
+                                  THEN series_meta.resource_type ELSE excluded.resource_type END,
             updated_at=excluded.updated_at
         """,
         (series_id, miniserver, control_uuid, state_name, label, room,
-         category, control_type, unit, int(time.time())),
+         category, control_type, unit, apartment, resource_type, int(time.time())),
     )
+
+
+def set_series_classification(conn: sqlite3.Connection, series_id: str,
+                               apartment: str | None = None,
+                               resource_type: str | None = None) -> None:
+    """Applique une correction manuelle depuis /admin. Seuls les champs
+    fournis (non None) sont modifiés, et marqués comme "manuel" pour ne plus
+    jamais être écrasés par le poller. Un appartement vide ('') est une
+    valeur manuelle valide (= "aucun appartement"), distincte de None
+    (= "ne pas toucher à ce champ")."""
+    sets, params = [], []
+    if apartment is not None:
+        sets.append("apartment = ?, apartment_manual = 1")
+        params.append(apartment)
+    if resource_type is not None:
+        sets.append("resource_type = ?, resource_type_manual = 1")
+        params.append(resource_type)
+    if not sets:
+        return
+    params.append(series_id)
+    conn.execute(f"UPDATE series_meta SET {', '.join(sets)} WHERE series_id = ?", params)
+    conn.commit()
+
+
+def reset_series_classification(conn: sqlite3.Connection, series_id: str) -> None:
+    """Repasse une série en classification automatique : au prochain cycle
+    de poll, apartment/resource_type seront recalculés par classification.py
+    et pourront à nouveau être écrasés par la logique automatique."""
+    conn.execute(
+        "UPDATE series_meta SET apartment_manual = 0, resource_type_manual = 0 "
+        "WHERE series_id = ?",
+        (series_id,),
+    )
+    conn.commit()
 
 
 def insert_readings_batch(conn: sqlite3.Connection, rows: list[tuple]) -> None:
@@ -113,7 +185,8 @@ def insert_readings_batch(conn: sqlite3.Connection, rows: list[tuple]) -> None:
 def list_series(conn: sqlite3.Connection) -> list[dict]:
     cur = conn.execute(
         "SELECT series_id, miniserver, control_uuid, state_name, label, room, "
-        "category, control_type, unit FROM series_meta ORDER BY room, label"
+        "category, control_type, unit, apartment, apartment_manual, "
+        "resource_type, resource_type_manual FROM series_meta ORDER BY room, label"
     )
     cols = [c[0] for c in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]

@@ -19,6 +19,7 @@ sur un Pi à 2 Go).
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from contextlib import closing
@@ -26,6 +27,7 @@ from datetime import datetime, timezone
 
 from flask import Flask, jsonify, render_template, request, abort
 
+import classification
 import db
 from config import AppConfig, load_config
 from loxone_client import LoxoneAuthError, LoxoneClient, LoxoneError, extract_measurable_points
@@ -80,6 +82,10 @@ def poll_once(cfg: AppConfig, conn) -> None:
             )
 
             for p in points:
+                apartment = classification.extract_apartment(p.label, cfg.apartment_pattern)
+                resource_type = classification.guess_resource_type(
+                    p.label, p.control_type, cfg.resource_type_rules
+                )
                 db.upsert_series_meta(
                     conn,
                     series_id=f"{ms_cfg.name}:{p.series_id}",
@@ -91,6 +97,8 @@ def poll_once(cfg: AppConfig, conn) -> None:
                     category=p.category,
                     control_type=p.control_type,
                     unit=p.unit,
+                    apartment=apartment,
+                    resource_type=resource_type,
                 )
             conn.commit()
 
@@ -175,20 +183,86 @@ def _read_conn():
     return db.get_connection(_cfg().db_path)
 
 
+def _apartment_sort_key(name: str):
+    m = re.search(r"\d+", name)
+    return (0, int(m.group())) if m else (1, name)
+
+
+def build_apartment_groups(series: list[dict], labels: dict[str, str]) -> dict:
+    """2 niveaux : appartement -> libellé du type de ressource -> capteurs."""
+    groups: dict[str, dict[str, list[dict]]] = {}
+    for s in series:
+        apt = s["apartment"] or "Sans appartement"
+        rtype_label = classification.resource_type_label(s["resource_type"], labels)
+        groups.setdefault(apt, {}).setdefault(rtype_label, []).append(s)
+
+    ordered: dict[str, dict[str, list[dict]]] = {}
+    for apt in sorted(groups.keys(), key=_apartment_sort_key):
+        ordered[apt] = dict(sorted(groups[apt].items()))
+    return ordered
+
+
+def build_room_groups(series: list[dict]) -> dict:
+    """1 niveau : pièce -> capteurs (ancienne vue, gardée en bascule)."""
+    groups: dict[str, list[dict]] = {}
+    for s in series:
+        groups.setdefault(s["room"] or "Sans pièce", []).append(s)
+    return dict(sorted(groups.items()))
+
+
 @app.route("/")
 def index():
+    group_mode = "room" if request.args.get("group_by") == "room" else "apartment"
+
     with closing(_read_conn()) as conn:
         series = db.list_series(conn)
 
-    grouped: dict[str, list[dict]] = {}
-    for s in series:
-        grouped.setdefault(s["room"] or "Sans pièce", []).append(s)
+    if group_mode == "room":
+        grouped = build_room_groups(series)
+    else:
+        grouped = build_apartment_groups(series, _cfg().resource_type_labels)
 
     return render_template(
         "index.html",
-        grouped_series=grouped,
+        grouped=grouped,
+        group_mode=group_mode,
         range_presets=list(RANGE_PRESETS.keys()),
     )
+
+
+@app.route("/admin")
+def admin():
+    with closing(_read_conn()) as conn:
+        series = db.list_series(conn)
+
+    labels = _cfg().resource_type_labels
+    known_apartments = sorted(
+        {s["apartment"] for s in series if s["apartment"]}, key=_apartment_sort_key
+    )
+
+    return render_template(
+        "admin.html",
+        series=series,
+        labels=labels,
+        known_apartments=known_apartments,
+    )
+
+
+@app.route("/api/series/<path:series_id>/classify", methods=["POST"])
+def api_classify(series_id: str):
+    payload = request.get_json(force=True, silent=True) or {}
+
+    with closing(_read_conn()) as conn:
+        if payload.get("reset"):
+            db.reset_series_classification(conn, series_id)
+        else:
+            apartment = payload.get("apartment")
+            resource_type = payload.get("resource_type")
+            if apartment is None and resource_type is None:
+                abort(400, "apartment et/ou resource_type (ou reset:true) requis")
+            db.set_series_classification(conn, series_id, apartment=apartment, resource_type=resource_type)
+
+    return jsonify({"ok": True})
 
 
 @app.route("/health")
