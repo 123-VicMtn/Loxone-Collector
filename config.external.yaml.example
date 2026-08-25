@@ -1,0 +1,38 @@
+# Config de TEST pour valider l'accès depuis un réseau EXTERNE (en dehors de
+# ta maison), via l'URL DynDNS Loxone que tu as trouvée. Ce n'est PAS une
+# config de production : elle sert à vérifier, avec de vraies données, que
+# tout le pipeline (auth -> structure -> classification -> dashboard)
+# fonctionne aussi depuis l'extérieur.
+#
+# IMPORTANT sécurité : ces identifiants transitent par internet (même si
+# c'est du HTTPS). Crée dans Loxone Config un utilisateur DÉDIÉ en lecture
+# seule ("Visualisation" uniquement) pour ce test — ne mets jamais le compte
+# admin ici.
+#
+# Utilisation :
+#   1. cp config.external.yaml.example config.external.yaml
+#   2. Dans .env, ajoute LOXONE_EXTERNE_USER / LOXONE_EXTERNE_PASSWORD
+#      (voir .env.example)
+#   3. python3 scripts/diagnose_auth.py config.external.yaml
+#   4. Si ça passe : python3 app.py config.external.yaml
+#      puis ouvre http://127.0.0.1:8081 dans ton navigateur
+
+poll_interval_seconds: 60
+db_path: "data/loxone_externe_test.db"   # base séparée, pour ne pas mélanger avec les données du Pi
+raw_retention_days: 30
+hourly_retention_days: 0
+maintenance_hour_utc: 3
+include_types: ["*"]
+exclude_types: []
+exclude_rooms: []
+host_bind: "127.0.0.1"
+port: 8081   # port différent de la conf locale (8080), pour lancer les deux en parallèle si besoin
+
+miniservers:
+  - name: "maison_externe"
+    host: "46-224-89-189.504f94d0dab2.dyndns.loxonecloud.com"
+    port: 32297
+    scheme: "https"
+    verify_ssl: true
+    username: "${LOXONE_EXTERNE_USER}"
+    password: "${LOXONE_EXTERNE_PASSWORD}"

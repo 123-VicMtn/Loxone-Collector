@@ -7,7 +7,8 @@ web (Flask) permettant de choisir un capteur et d'en visualiser l'historique
 sous forme de graph (Chart.js).
 
 Lancement (dev) :
-    python app.py
+    python app.py                        # utilise config.yaml
+    python app.py config.external.yaml   # pointe sur une autre config (ex: test externe)
 
 Lancement (prod, sur le Pi) : voir scripts/loxone-collector.service
 (gunicorn n'est volontairement pas utilisé ici : le serveur de dev Flask,
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 import threading
 import time
 from contextlib import closing
@@ -327,6 +329,11 @@ def create_app(config_path: str = "config.yaml") -> Flask:
 
 
 if __name__ == "__main__":
-    flask_app = create_app()
+    # Permet de lancer l'app sur une config alternative, ex:
+    #   python app.py config.external.yaml
+    # utile pour tester l'accès depuis un réseau externe (URL DynDNS Loxone)
+    # sans toucher à la config de production (config.yaml).
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
+    flask_app = create_app(config_path)
     cfg = flask_app.config["LOXONE_CFG"]
     flask_app.run(host=cfg.host_bind, port=cfg.port, debug=False, use_reloader=False)
