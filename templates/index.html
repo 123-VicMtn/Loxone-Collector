@@ -67,24 +67,97 @@
   </aside>
 
   <main class="content">
-    <div class="toolbar">
-      <div class="range-buttons" id="range-buttons">
-        {% for r in range_presets %}
-          <button type="button" class="range-btn{% if r == '24h' %} active{% endif %}" data-range="{{ r }}">{{ r }}</button>
-        {% endfor %}
+    <div class="tab-bar" role="tablist">
+      <button type="button" class="tab-btn active" data-tab="explorer" role="tab" aria-selected="true">Explorer</button>
+      <button type="button" class="tab-btn" data-tab="energie" role="tab" aria-selected="false">Énergie</button>
+      <button type="button" class="tab-btn" data-tab="zone" role="tab" aria-selected="false">Consommations par zone</button>
+    </div>
+
+    <!-- Onglet "Explorer" : sélection libre multi-capteurs (comportement d'origine) -->
+    <section class="tab-panel" id="tab-explorer">
+      <div class="toolbar">
+        <div class="range-buttons" id="range-buttons">
+          {% for r in range_presets %}
+            <button type="button" class="range-btn{% if r == '24h' %} active{% endif %}" data-range="{{ r }}">{{ r }}</button>
+          {% endfor %}
+        </div>
+        <button type="button" id="clear-selection">Tout désélectionner</button>
       </div>
-      <button type="button" id="clear-selection">Tout désélectionner</button>
-    </div>
 
-    <div class="chart-wrap">
-      <canvas id="chart"></canvas>
-    </div>
+      <div class="chart-wrap">
+        <canvas id="chart"></canvas>
+      </div>
 
-    <p id="chart-hint" class="empty-hint">
-      Coche un ou plusieurs capteurs à gauche pour afficher leur historique.
-    </p>
+      <p id="chart-hint" class="empty-hint">
+        Coche un ou plusieurs capteurs à gauche pour afficher leur historique.
+      </p>
+    </section>
+
+    <!-- Onglet "Énergie" : réseau (grid) vs solaire, par zone -->
+    <section class="tab-panel" id="tab-energie" hidden>
+      <div class="panel-controls">
+        <label class="control-field">
+          Zone
+          <select id="energy-zone-select"></select>
+        </label>
+        <div class="range-buttons" id="energy-range-buttons">
+          {% for r in range_presets %}
+            <button type="button" class="range-btn{% if r == '24h' %} active{% endif %}" data-range="{{ r }}">{{ r }}</button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <p id="energy-empty-hint" class="empty-hint" hidden></p>
+
+      <div id="energy-body" hidden>
+        <div class="kpi-row" id="energy-kpis"></div>
+
+        <h3 class="section-title">Puissance instantanée <span class="section-hint">réseau vs solaire</span></h3>
+        <div class="chart-wrap chart-wrap--medium"><canvas id="energy-power-chart"></canvas></div>
+
+        <h3 class="section-title">Consommation / production journalière <span class="section-hint">30 derniers jours</span></h3>
+        <div class="chart-wrap chart-wrap--medium"><canvas id="energy-daily-chart"></canvas></div>
+
+        <h3 class="section-title">Consommation / production mensuelle <span class="section-hint">12 derniers mois</span></h3>
+        <div class="chart-wrap chart-wrap--medium"><canvas id="energy-monthly-chart"></canvas></div>
+      </div>
+    </section>
+
+    <!-- Onglet "Consommations par zone" : vue générique (chauffage, eau, etc.) -->
+    <section class="tab-panel" id="tab-zone" hidden>
+      <div class="panel-controls">
+        <label class="control-field">
+          Zone
+          <select id="zone-zone-select"></select>
+        </label>
+        <label class="control-field">
+          Ressource
+          <select id="zone-resource-select"></select>
+        </label>
+      </div>
+
+      <p id="zone-empty-hint" class="empty-hint" hidden></p>
+
+      <div id="zone-body" hidden>
+        <div class="kpi-row" id="zone-kpis"></div>
+
+        <h3 class="section-title">Consommation journalière <span class="section-hint">30 derniers jours</span></h3>
+        <div class="chart-wrap chart-wrap--medium"><canvas id="zone-daily-chart"></canvas></div>
+
+        <h3 class="section-title">Consommation mensuelle <span class="section-hint">12 derniers mois</span></h3>
+        <div class="chart-wrap chart-wrap--medium"><canvas id="zone-monthly-chart"></canvas></div>
+      </div>
+    </section>
 
     <footer id="health-footer" class="health-footer"></footer>
   </main>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.RESOURCE_TYPE_LABELS = {{ resource_type_labels | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/energy.js') }}"></script>
 {% endblock %}

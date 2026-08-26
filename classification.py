@@ -23,9 +23,15 @@ from __future__ import annotations
 import re
 
 # Motif par défaut : capture "APP" suivi de chiffres, avec ou sans espace
-# (ex: "APP01", "App 12", "app3"), insensible à la casse. Un seul groupe
-# capturant est attendu.
-DEFAULT_APARTMENT_PATTERN = r"(?i)(APP\s*\d+)"
+# (ex: "APP01", "App 12", "app3"), insensible à la casse -- plus quelques
+# noms de zones non numérotées observées en pratique sur une installation
+# mixte (immeuble avec appartements + local commercial + rez-jardin +
+# parties communes) : "Commerce", "Rez Jardin", "Commun(s)". Un seul groupe
+# capturant est attendu. Reste volontairement best-effort : toute zone non
+# reconnue ici (ex: un compteur d'immeuble global comme "Réseau" ou
+# "Production") atterrit dans "Sans appartement" et peut être classée à la
+# main via /admin.
+DEFAULT_APARTMENT_PATTERN = r"(?i)(APP\s*\d+|Commerce|Rez\s*Jardin|Commun)"
 
 # Règles appliquées dans l'ordre : la première dont le motif matche le nom
 # du capteur l'emporte. Chaque règle est un dict {"match": <regex>, "type": <clé>}.
