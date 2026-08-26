@@ -158,6 +158,5 @@
 <script>
   window.RESOURCE_TYPE_LABELS = {{ resource_type_labels | tojson }};
 </script>
-<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-<script src="{{ url_for('static', filename='js/energy.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 {% endblock %}
