@@ -211,6 +211,90 @@ def query_readings(conn: sqlite3.Connection, series_id: str, start_ts: int,
     return cur.fetchall()
 
 
+def upsert_hourly_batch(conn: sqlite3.Connection, rows: list[tuple]) -> int:
+    """rows: liste de (series_id, ts, avg_value, min_value, max_value,
+    sample_count), avec ts déjà aligné sur le début de l'heure (multiple de
+    3600). Utilisé par scripts/backfill_statistics.py pour importer
+    l'historique natif Loxone ("Statistics", carte SD du Miniserver) dans
+    des périodes antérieures au démarrage du collecteur.
+
+    Volontairement ON CONFLICT DO NOTHING (pas DO UPDATE comme
+    downsample_and_prune) : si une ligne existe déjà pour cette heure (donc
+    déjà écrite par le poller live, considéré plus fiable/plus précis), le
+    backfill ne l'écrase jamais. Un backfill relancé plusieurs fois reste
+    donc sans effet sur les heures déjà importées -- idempotent, et ne
+    génère pas d'écriture disque inutile sur la carte SD."""
+    if not rows:
+        return 0
+    conn.executemany(
+        """
+        INSERT INTO readings_hourly (series_id, ts, avg_value, min_value, max_value, sample_count)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(series_id, ts) DO NOTHING
+        """,
+        rows,
+    )
+    return len(rows)
+
+
+def query_latest(conn: sqlite3.Connection, series_id: str) -> tuple[int, float] | None:
+    """Dernière valeur connue d'une série, quel que soit son âge -- prend la
+    plus récente entre `readings` (brut, récent) et `readings_hourly`
+    (archivé). Contrairement à query_readings() sur toute la plage
+    [0, maintenant], ceci ne scanne pas tout l'historique de la série (deux
+    petits ORDER BY ... LIMIT 1 indexés, pas un UNION ALL + tri complet) --
+    important pour des séries à 11+ mois d'historique horaire (des centaines
+    de milliers de lignes après un backfill Statistics)."""
+    row = conn.execute(
+        "SELECT ts, value FROM readings WHERE series_id = ? AND value IS NOT NULL "
+        "ORDER BY ts DESC LIMIT 1",
+        (series_id,),
+    ).fetchone()
+    hourly_row = conn.execute(
+        "SELECT ts, avg_value FROM readings_hourly WHERE series_id = ? "
+        "ORDER BY ts DESC LIMIT 1",
+        (series_id,),
+    ).fetchone()
+    candidates = [r for r in (row, hourly_row) if r is not None]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: r[0])
+
+
+def query_daily_last(conn: sqlite3.Connection, series_id: str, start_ts: int,
+                      end_ts: int) -> list[tuple[int, float]]:
+    """Retourne, pour chaque jour (UTC) couvert par [start_ts, end_ts], la
+    DERNIÈRE valeur connue de la série ce jour-là -- (jour_debut_epoch,
+    valeur). Pensé pour un compteur cumulatif ("total", "totalDay", etc. :
+    un index qui ne fait qu'augmenter) : pour ce genre de série, la valeur
+    max de la journée est aussi sa valeur la plus récente (index croissant),
+    donc MAX(value) par jour donne directement le relevé de fin de journée.
+
+    Utilisé pour dériver une consommation journalière/mensuelle (delta entre
+    deux relevés de fin de journée) à partir de l'historique "total" importé
+    par scripts/backfill_statistics.py -- Loxone n'archive PAS d'historique
+    pour totalDay/totalWeek/totalMonth/totalYear eux-mêmes (ce sont des
+    compteurs vivants recalculés par le Miniserver, sans stockage SD long
+    terme), donc pour une consommation passée on part toujours de "total" et
+    on calcule la différence soi-même -- exactement la logique d'un décompte
+    de charges classique (relevé de compteur à deux dates)."""
+    cur = conn.execute(
+        """
+        SELECT CAST(ts / 86400 AS INTEGER) * 86400 AS day, MAX(value) FROM (
+            SELECT ts, value FROM readings
+             WHERE series_id = ? AND ts BETWEEN ? AND ? AND value IS NOT NULL
+            UNION ALL
+            SELECT ts, avg_value FROM readings_hourly
+             WHERE series_id = ? AND ts BETWEEN ? AND ?
+        )
+        GROUP BY day
+        ORDER BY day ASC
+        """,
+        (series_id, start_ts, end_ts, series_id, start_ts, end_ts),
+    )
+    return cur.fetchall()
+
+
 def downsample_and_prune(conn: sqlite3.Connection, raw_retention_days: int = 30) -> int:
     """Agrège en moyennes horaires les données brutes plus vieilles que
     `raw_retention_days`, les insère dans `readings_hourly`, puis supprime
