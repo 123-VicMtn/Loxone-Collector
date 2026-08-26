@@ -42,6 +42,31 @@ class MiniserverConfig:
     port: int = 80
     scheme: str = "http"
     verify_ssl: bool = True
+    # Pause (secondes) entre deux lectures /jdev/sps/io/<uuid> successives.
+    # 0 = pas de pause (LAN). Piste testée pour un accès via un relais
+    # distant (ex: DynDNS Loxone Cloud) — RÉFUTÉE comme explication des 404
+    # sur les lectures live à distance (voir "protocol" ci-dessous et
+    # CLAUDE.md). Gardé au cas où, sans impact si à 0.
+    read_delay_seconds: float = 0.0
+    # Protocole utilisé pour lire les valeurs live :
+    #   "http"      (défaut) — /jdev/sps/io/<uuid>, simple, rapide, mais ne
+    #                fonctionne qu'en LAN (404 systématique via le relais
+    #                d'accès distant Loxone "Remote Connect").
+    #   "websocket" — protocole chiffré (RSA/AES + token) via pyloxone-api,
+    #                seul chemin officiellement supporté par Loxone pour les
+    #                lectures live à distance ("Remote Connect only supports
+    #                using HTTPS/WSS"). Nécessite le paquet optionnel
+    #                pyloxone-api (voir requirements-websocket.txt). Un peu
+    #                plus lent (négociation de connexion à chaque cycle) —
+    #                à réserver aux miniservers accédés à distance.
+    protocol: str = "http"
+    # Durée max (secondes) d'écoute du burst de valeurs poussé par le
+    # Miniserver après connexion, en mode "websocket" (voir
+    # loxone_ws_client.py). En pratique le burst complet arrive en moins
+    # d'une seconde (confirmé en conditions réelles) ; cette valeur est une
+    # marge de sécurité pour une connexion plus lente, pas un budget serré.
+    # Ignoré si protocol="http".
+    websocket_max_seconds: float = 20.0
 
 
 @dataclass
@@ -107,6 +132,18 @@ def _validate_no_leftover_placeholders(miniservers: list[MiniserverConfig]) -> N
                 )
 
 
+_VALID_PROTOCOLS = {"http", "websocket"}
+
+
+def _validate_protocols(miniservers: list[MiniserverConfig]) -> None:
+    for ms in miniservers:
+        if ms.protocol not in _VALID_PROTOCOLS:
+            raise ConfigError(
+                f"[{ms.name}] protocol invalide : '{ms.protocol}'. "
+                f"Valeurs acceptées : {', '.join(sorted(_VALID_PROTOCOLS))}."
+            )
+
+
 def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = ".env") -> AppConfig:
     env_path = Path(env_path)
     if env_path.exists():
@@ -130,6 +167,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
 
     miniservers = [MiniserverConfig(**ms) for ms in miniservers_raw]
     _validate_no_leftover_placeholders(miniservers)
+    _validate_protocols(miniservers)
 
     known_fields = {f for f in AppConfig.__dataclass_fields__.keys() if f != "miniservers"}
     app_kwargs = {k: v for k, v in raw.items() if k in known_fields}

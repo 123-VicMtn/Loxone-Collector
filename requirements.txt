@@ -2,3 +2,6 @@ Flask==3.0.3
 requests==2.32.3
 PyYAML==6.0.2
 python-dotenv==1.0.1
+
+# Pour protocol: "websocket" (accès distant, voir CLAUDE.md) :
+#   pip install -r requirements-websocket.txt

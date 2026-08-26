@@ -1,0 +1,13 @@
+# Dépendances optionnelles pour protocol: "websocket" dans config.yaml
+# (lecture live via le protocole Websocket chiffré Loxone — nécessaire pour
+# l'accès distant "Remote Connect", voir CLAUDE.md et loxone_ws_client.py).
+#
+# Volontairement séparées de requirements.txt : un déploiement Pi qui
+# n'interroge que des miniservers en LAN (protocol: "http", le défaut) n'a
+# pas besoin de ces dépendances (RSA/AES + Websocket ont un coût mémoire/CPU
+# non nul sur un Pi à 2 Go de RAM).
+#
+# Installation (seulement si un miniserver utilise protocol: "websocket") :
+#   pip install -r requirements-websocket.txt
+
+pyloxone-api==0.2.4

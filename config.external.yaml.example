@@ -1,24 +1,27 @@
-# Config de TEST pour valider l'accès depuis un réseau EXTERNE (en dehors de
-# ta maison), via l'URL DynDNS Loxone que tu as trouvée. Ce n'est PAS une
-# config de production : elle sert à vérifier, avec de vraies données, que
-# tout le pipeline (auth -> structure -> classification -> dashboard)
-# fonctionne aussi depuis l'extérieur.
+# Config de test pour un miniserver joint via une URL d'accès distant Loxone
+# (Cloud DNS / "Remote Connect", ex: https://<id>.dyndns.loxonecloud.com:<port>/).
+# Base SQLite et port séparés de la prod — copie ce fichier vers
+# config.external.yaml (ou un nom dédié par client, ex: config.client-x.yaml)
+# et adapte-le. Rappel : ce fichier n'est PAS commité (voir .gitignore), les
+# `.example` seuls le sont.
 #
-# IMPORTANT sécurité : ces identifiants transitent par internet (même si
-# c'est du HTTPS). Crée dans Loxone Config un utilisateur DÉDIÉ en lecture
-# seule ("Visualisation" uniquement) pour ce test — ne mets jamais le compte
-# admin ici.
+# CONTEXTE (voir CLAUDE.md, section "Accès distant Loxone") : à travers ce
+# type d'URL, /data/LoxAPP3.json (structure) fonctionne en HTTP simple, mais
+# /jdev/sps/io/<uuid> (lecture live par point) échoue en 404 quasi
+# systématique. Diagnostic confirmé sur 2 miniservers réels différents :
+# l'ajout d'un délai entre requêtes (read_delay_seconds) n'a RIEN changé
+# (rate-limiting réfuté) ; la piste retenue est que Loxone ne route les
+# lectures/écritures live à distance que via son protocole Websocket chiffré
+# ("Remote Connect only supports using HTTPS/WSS", doc officielle Loxone).
 #
-# Utilisation :
-#   1. cp config.external.yaml.example config.external.yaml
-#   2. Dans .env, ajoute LOXONE_EXTERNE_USER / LOXONE_EXTERNE_PASSWORD
-#      (voir .env.example)
-#   3. python3 scripts/diagnose_auth.py config.external.yaml
-#   4. Si ça passe : python3 app.py config.external.yaml
-#      puis ouvre http://127.0.0.1:8081 dans ton navigateur
+# -> Pour un miniserver accédé via ce type d'URL distante, mets
+#    `protocol: "websocket"` (voir ci-dessous) plutôt que de rester sur
+#    l'API HTTP simple.
 
-poll_interval_seconds: 60
-db_path: "data/loxone_externe_test.db"   # base séparée, pour ne pas mélanger avec les données du Pi
+poll_interval_seconds: 120       # accès distant : pas besoin d'un poll aussi
+                                  # fréquent qu'en LAN (négociation de
+                                  # connexion Websocket à chaque cycle).
+db_path: "data/external.db"
 raw_retention_days: 30
 hourly_retention_days: 0
 maintenance_hour_utc: 3
@@ -26,7 +29,7 @@ include_types: ["*"]
 exclude_types: []
 exclude_rooms: []
 host_bind: "127.0.0.1"
-port: 8081   # port différent de la conf locale (8080), pour lancer les deux en parallèle si besoin
+port: 8081
 
 miniservers:
   - name: "maison_externe"
@@ -34,5 +37,21 @@ miniservers:
     port: 32297
     scheme: "https"
     verify_ssl: true
+    # Protocole Websocket chiffré (RSA/AES + token, via pyloxone-api) — voir
+    # loxone_ws_client.py. Nécessaire pour la lecture live à distance.
+    # Installation requise : pip install -r requirements-websocket.txt
+    protocol: "websocket"
+    # read_delay_seconds n'est plus utile ici (hypothèse rate-limiting
+    # réfutée), laissé à 0 par défaut — inoffensif si présent.
     username: "${LOXONE_EXTERNE_USER}"
     password: "${LOXONE_EXTERNE_PASSWORD}"
+
+  # Pour tester un miniserver client avant une visite sur place (voir
+  # scripts/diagnose_websocket.py), duplique un bloc similaire, ex :
+  # - name: "client_arlopi"
+  #   host: "<id-client>.dyndns.loxonecloud.com"
+  #   port: <port>
+  #   scheme: "https"
+  #   protocol: "websocket"
+  #   username: "${LOXONE_ARLOPI_USER}"
+  #   password: "${LOXONE_ARLOPI_PASSWORD}"
