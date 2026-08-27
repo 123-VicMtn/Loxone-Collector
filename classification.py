@@ -8,8 +8,10 @@ contrôle), deux informations que Loxone ne fournit pas nativement :
     configurable qui exploite la seule convention observée dans
     l'installation existante ;
   - le type de ressource (eau chaude/froide, énergie solaire/réseau/
-    injectée/consommée), via une liste de règles mots-clés configurable,
-    faute de convention de nommage fiable pour ça dans Loxone Config.
+    batterie/consommée), via une liste de règles mots-clés configurable
+    (faute de convention de nommage fiable pour ça dans Loxone Config),
+    complétée par une reconnaissance fiable du type de contrôle Loxone
+    "EFM" (bloc "Moniteur de flux d'énergie") -- voir guess_resource_type.
 
 Ces devinettes sont volontairement best-effort : l'objectif est de
 pré-remplir correctement la majorité des capteurs pour limiter le travail
@@ -31,14 +33,19 @@ import re
 # reconnue ici (ex: un compteur d'immeuble global comme "Réseau" ou
 # "Production") atterrit dans "Sans appartement" et peut être classée à la
 # main via /admin.
-DEFAULT_APARTMENT_PATTERN = r"(?i)(APP\s*\d+|Commerce|Rez\s*Jardin|Commun)"
+DEFAULT_APARTMENT_PATTERN = r"(?i)(APP(?:ARTEMENT)?\s*\d+|Commerce|Rez\s*Jardin|Commun)"
 
 # Règles appliquées dans l'ordre : la première dont le motif matche le nom
 # du capteur l'emporte. Chaque règle est un dict {"match": <regex>, "type": <clé>}.
 DEFAULT_RESOURCE_TYPE_RULES: list[dict] = [
     {"match": r"(?i)(ecs\b|eau[ _-]?chaude|ww\b|warmwasser)", "type": "eau_chaude"},
     {"match": r"(?i)(eau[ _-]?froide|kw\b|kaltwasser)", "type": "eau_froide"},
+    {"match": r"(?i)(batter|accumulateur)", "type": "energie_batterie"},
     {"match": r"(?i)(pv\b|photovolta|solaire|solar)", "type": "energie_solaire"},
+    # Défini pour un vrai compteur d'injection dédié, mais n'a jamais matché
+    # sur l'installation observée : l'export y est plutôt porté par les
+    # states totalNeg* d'un compteur bidirectionnel "energie_reseau" (voir
+    # guess_resource_type ci-dessous et CLAUDE.md, section Dashboard énergie).
     {"match": r"(?i)(injection|export|feed[ -]?in|einspeisung)", "type": "energie_injectee"},
     {"match": r"(?i)(r[ée]seau|grid|netz|import)", "type": "energie_reseau"},
     # Fallback générique "eau" (sans qualificatif) : on suppose eau froide,
@@ -54,6 +61,8 @@ DEFAULT_RESOURCE_TYPE_LABELS: dict[str, str] = {
     "energie_reseau": "Énergie réseau (import)",
     "energie_injectee": "Énergie injectée (export)",
     "energie_consommee": "Énergie consommée",
+    "energie_batterie": "Énergie batterie (stockage)",
+    "energie_flux": "Flux d'énergie (Moniteur Loxone)",
     "autre": "Autre",
 }
 
@@ -71,7 +80,10 @@ def extract_apartment(text: str, pattern: str | None = None) -> str:
     if not m:
         return ""
     value = m.group(1) if m.groups() else m.group(0)
-    return re.sub(r"\s+", "", value).upper()
+    value = re.sub(r"\s+", "", value).upper()
+    # "Appartement 1" et "App 1" doivent tomber dans la même zone.
+    value = re.sub(r"^APPARTEMENT", "APP", value)
+    return value
 
 
 def guess_resource_type(text: str, control_type: str = "",
@@ -80,6 +92,12 @@ def guess_resource_type(text: str, control_type: str = "",
     défaut de correspondance, du type de contrôle Loxone (un "Meter" sans
     mot-clé reconnu est supposé être un compteur d'énergie générique).
     Retourne "autre" si rien ne permet de trancher."""
+    # Le bloc Loxone "Moniteur de flux d'énergie" (EFM) est identifiable de
+    # façon fiable par son type de contrôle -- inutile de chercher un
+    # mot-clé dans son label, qui reprend souvent juste le nom de la zone
+    # (ex: "App 1", "Commerce").
+    if control_type == "EFM":
+        return "energie_flux"
     rules = rules if rules is not None else DEFAULT_RESOURCE_TYPE_RULES
     if text:
         for rule in rules:

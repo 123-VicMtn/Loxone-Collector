@@ -8,6 +8,7 @@
 import { fetchSeriesData } from "../core/api.js";
 import { fmtRangeTs } from "../core/format.js";
 import { PALETTE_ROTATING, baseLineOptions } from "../core/charts.js";
+import { initSidebar, clearAllCheckboxes } from "../sidebar.js";
 
 let currentRange = "24h";
 let chart = null;
@@ -68,21 +69,13 @@ async function refreshChart() {
   });
 }
 
-function onCheckboxChange(evt) {
-  const cb = evt.target;
-  const id = cb.dataset.seriesId;
-  if (cb.checked) {
-    selected.set(id, { label: cb.dataset.label });
+function handleSelectionChange(seriesId, checked, meta) {
+  if (checked) {
+    selected.set(seriesId, meta);
   } else {
-    selected.delete(id);
+    selected.delete(seriesId);
   }
   refreshChart();
-}
-
-function setupCheckboxes() {
-  document.querySelectorAll(".series-checkbox").forEach((cb) => {
-    cb.addEventListener("change", onCheckboxChange);
-  });
 }
 
 function setupRangeButtons() {
@@ -101,13 +94,16 @@ function setupClearButton() {
   if (!btn) return;
   btn.addEventListener("click", () => {
     selected.clear();
-    document.querySelectorAll(".series-checkbox").forEach((cb) => (cb.checked = false));
+    clearAllCheckboxes();
     refreshChart();
   });
 }
 
-export function initExplorerTab() {
-  setupCheckboxes();
+export async function initExplorerTab() {
   setupRangeButtons();
   setupClearButton();
+  await initSidebar({
+    isSelected: (seriesId) => selected.has(seriesId),
+    onSelectionChange: handleSelectionChange,
+  });
 }

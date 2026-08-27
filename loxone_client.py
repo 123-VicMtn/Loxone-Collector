@@ -20,6 +20,8 @@ comment brancher une librairie telle que pyloxone-api à la place de ce module.
 from __future__ import annotations
 
 import logging
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -74,21 +76,83 @@ class MeasurablePoint:
         return self.control_name
 
 
+def _unit_from_format(fmt) -> str:
+    """Extrait un suffixe d'unité d'une chaîne de format Loxone. Deux
+    styles rencontrés en pratique :
+      - style "printf" classique : '%.1f kWh', '%.1f°' (contrôles génériques,
+        format dans control['details']['format']) ;
+      - style "statisticV2" : '0,000kW', '0.00kWh' (format par dataPoint,
+        dans statisticV2.groups[].dataPoints[].format -- pas de '%f', juste
+        un gabarit numérique suivi de l'unité collée).
+    Best-effort, sans garantie forte."""
+    if not fmt or not isinstance(fmt, str):
+        return ""
+    match = re.search(r"%[.\d]*f\s*(.*)$", fmt)
+    if match:
+        unit = match.group(1).strip()
+        if unit:
+            return unit
+    # Style "0,000kW" : suffixe non numérique en fin de chaîne, après les
+    # chiffres/séparateurs décimaux (virgule, point, espace).
+    match2 = re.search(r"[\d,.\s]+([A-Za-zµ%/°]+)$", fmt)
+    if match2:
+        return match2.group(1).strip()
+    return ""
+
+
 def _extract_unit(control: dict) -> str:
     """Best-effort : Loxone fournit parfois un format d'affichage du type
     '%.1f kWh' ou '%.1f°' dans control['details']['format']. On en extrait
     l'unité de manière heuristique, sans y attacher de garantie forte."""
     details = control.get("details") or {}
-    fmt = details.get("format")
-    if not fmt or not isinstance(fmt, str):
-        return ""
-    # Retire la partie "%<flags>.<precision>f" pour ne garder que le suffixe.
-    import re
+    return _unit_from_format(details.get("format"))
 
-    match = re.search(r"%[.\d]*f\s*(.*)$", fmt)
-    if match:
-        return match.group(1).strip()
-    return ""
+
+def _extract_statistic_output_units(control: dict) -> dict[str, str]:
+    """Repère, dans statisticV2 (ou statistic) du contrôle -- au niveau
+    racine du contrôle, PAS sous 'details', voir scripts/backfill_statistics.py
+    pour l'historique de cette correction --, le format propre à chaque
+    "output" (ex: 'actual' -> '0,000kW', 'total' -> '0.00kWh'). Contrairement
+    à `_extract_unit()` qui renvoie UNE unité pour tout le contrôle, ceci
+    permet des unités différentes par state d'un même contrôle : un compteur
+    a typiquement une puissance instantanée en kW ('actual') et une énergie
+    cumulée en kWh ('total', 'totalDay', ...)."""
+    stat = control.get("statisticV2") or control.get("statistic") or {}
+    if not stat:
+        details = control.get("details") or {}
+        stat = details.get("statisticV2") or details.get("statistic") or {}
+    units: dict[str, str] = {}
+    for group in stat.get("groups", []) or []:
+        for dp in group.get("dataPoints", []) or []:
+            output = dp.get("output")
+            unit = _unit_from_format(dp.get("format"))
+            if output and unit:
+                units[output] = unit
+    return units
+
+
+# Le bloc Loxone "Moniteur de flux d'énergie" (control_type "EFM") est une
+# valeur calculée, pas un compteur physique : il n'a pas de statisticV2
+# (pas d'historique Statistics), donc _extract_statistic_output_units() ne
+# renvoie jamais rien pour lui. Repli statique sur les unités documentées
+# par Loxone pour ses sorties (voir CLAUDE.md, section Dashboard énergie).
+# "selfConsumption" est volontairement absent : son unité/échelle réelle
+# n'est pas confirmée (valeurs hétérogènes observées entre bâtiment et
+# zones) -- mieux vaut une unité vide qu'une unité affichée à tort.
+EFM_STATE_UNITS: dict[str, str] = {
+    "Gpwr": "kW",
+    "Ppwr": "kW",
+    "Spwr": "kW",
+    "actual0": "kW",
+    "actual1": "kW",
+    "actual2": "kW",
+    "actual3": "kW",
+    "actual4": "kW",
+    "actual5": "kW",
+    "Pri": "/kWh",
+    "Pre": "/kWh",
+    "CO2": "kg/kWh",
+}
 
 
 def extract_measurable_points(
@@ -135,7 +199,13 @@ def extract_measurable_points(
         # sinon (accept_all_types) : on ne filtre pas par type
 
         states = control.get("states") or {}
-        unit = _extract_unit(control)
+        default_unit = _extract_unit(control)
+        # Unité par state quand disponible (ex: "actual" en kW, "total" en
+        # kWh pour un même compteur) -- plus précis que default_unit, qui ne
+        # connaît qu'UNE unité pour tout le contrôle. Repli sur default_unit
+        # si ce state n'a pas d'entrée statisticV2 (cas de la majorité des
+        # states non-mesures, ex: jLocked).
+        output_units = _extract_statistic_output_units(control)
 
         for state_name, state_uuid in states.items():
             # Certains states sont des listes d'UUID (ex: contrôles multi-valeurs) :
@@ -145,6 +215,9 @@ def extract_measurable_points(
                 if not isinstance(u, str) or len(u) < 10:
                     continue
                 suffix = state_name if len(uuids) == 1 else f"{state_name}[{idx}]"
+                unit = output_units.get(state_name) or default_unit
+                if not unit and ctype == "EFM":
+                    unit = EFM_STATE_UNITS.get(state_name, "")
                 points.append(
                     MeasurablePoint(
                         uuid=u,
@@ -174,6 +247,7 @@ class LoxoneClient:
         scheme: str = "http",
         timeout: float = 10.0,
         verify_ssl: bool = True,
+        read_delay_seconds: float = 0.0,
     ):
         self.name = name
         self.host = host
@@ -181,6 +255,11 @@ class LoxoneClient:
         self.scheme = scheme
         self.timeout = timeout
         self.verify_ssl = verify_ssl
+        # Pause entre deux lectures successives dans read_values(). À 0 par
+        # défaut (LAN : pas nécessaire). Utile pour un accès distant via un
+        # relais qui peut appliquer un rate-limit sur les requêtes
+        # rapprochées (voir config.external.yaml.example).
+        self.read_delay_seconds = read_delay_seconds
         self._auth = HTTPBasicAuth(username, password)
         self._session = requests.Session()
 
@@ -249,9 +328,13 @@ class LoxoneClient:
         """Lit une liste de points un par un (l'API locale Loxone documentée
         ne garantit pas d'endpoint de lecture groupée sur tous les firmwares).
         Une session HTTP garde la connexion ouverte (keep-alive) pour limiter
-        le coût de chaque requête successive."""
+        le coût de chaque requête successive. Si `read_delay_seconds` > 0,
+        une pause est insérée entre deux lectures (utile si le point d'accès
+        distant limite le débit de requêtes rapprochées)."""
         values: dict[str, float | str | None] = {}
-        for u in uuids:
+        for i, u in enumerate(uuids):
+            if i > 0 and self.read_delay_seconds > 0:
+                time.sleep(self.read_delay_seconds)
             try:
                 values[u] = self.read_value(u)
             except LoxoneError as exc:

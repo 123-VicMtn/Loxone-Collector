@@ -7,8 +7,7 @@ web (Flask) permettant de choisir un capteur et d'en visualiser l'historique
 sous forme de graph (Chart.js).
 
 Lancement (dev) :
-    python app.py                        # utilise config.yaml
-    python app.py config.external.yaml   # pointe sur une autre config (ex: test externe)
+    python app.py
 
 Lancement (prod, sur le Pi) : voir scripts/loxone-collector.service
 (gunicorn n'est volontairement pas utilisé ici : le serveur de dev Flask,
@@ -21,11 +20,11 @@ from __future__ import annotations
 
 import logging
 import re
-import sys
 import threading
 import time
 from contextlib import closing
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, abort
 
@@ -33,6 +32,7 @@ import classification
 import db
 from config import AppConfig, load_config
 from loxone_client import LoxoneAuthError, LoxoneClient, LoxoneError, extract_measurable_points
+from loxone_ws_client import LoxoneWsError, fetch_live_values
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,6 +73,7 @@ def poll_once(cfg: AppConfig, conn) -> None:
             port=ms_cfg.port,
             scheme=ms_cfg.scheme,
             verify_ssl=ms_cfg.verify_ssl,
+            read_delay_seconds=ms_cfg.read_delay_seconds,
         )
         try:
             structure = client.fetch_structure()
@@ -105,7 +106,25 @@ def poll_once(cfg: AppConfig, conn) -> None:
             conn.commit()
 
             uuids = [p.uuid for p in points]
-            values = client.read_values(uuids)
+            if ms_cfg.protocol == "websocket":
+                # Lecture live via le protocole Websocket chiffré (voir
+                # loxone_ws_client.py) — seul chemin supporté par Loxone
+                # pour l'accès distant ("Remote Connect"). La structure a
+                # quand même été récupérée en HTTP simple ci-dessus (ça,
+                # ça fonctionne à distance).
+                token_dir = Path(cfg.db_path).parent / "ws_tokens" / ms_cfg.name
+                values = fetch_live_values(
+                    host=ms_cfg.host,
+                    port=ms_cfg.port,
+                    username=ms_cfg.username,
+                    password=ms_cfg.password,
+                    use_tls=(ms_cfg.scheme == "https"),
+                    token_dir=str(token_dir),
+                    wanted_uuids=uuids,
+                    collect_seconds=ms_cfg.websocket_max_seconds,
+                )
+            else:
+                values = client.read_values(uuids)
 
             now = int(time.time())
             rows = []
@@ -131,7 +150,7 @@ def poll_once(cfg: AppConfig, conn) -> None:
             logger.error(str(exc))
             _state["last_poll_ok"][ms_cfg.name] = False
             _state["last_error"][ms_cfg.name] = str(exc)
-        except LoxoneError as exc:
+        except (LoxoneError, LoxoneWsError) as exc:
             logger.warning(str(exc))
             _state["last_poll_ok"][ms_cfg.name] = False
             _state["last_error"][ms_cfg.name] = str(exc)
@@ -186,49 +205,29 @@ def _read_conn():
 
 
 def _apartment_sort_key(name: str):
+    """Tri "naturel" par numéro d'appartement (App 2 avant App 10) --
+    encore utilisé par /admin pour la liste d'autocomplete des appartements
+    connus. Le regroupement de la sidebar (qui utilisait aussi cette
+    fonction avant le refactor JS) a son équivalent côté client dans
+    static/js/sidebar.js (compareApartments)."""
     m = re.search(r"\d+", name)
     return (0, int(m.group())) if m else (1, name)
 
 
-def build_apartment_groups(series: list[dict], labels: dict[str, str]) -> dict:
-    """2 niveaux : appartement -> libellé du type de ressource -> capteurs."""
-    groups: dict[str, dict[str, list[dict]]] = {}
-    for s in series:
-        apt = s["apartment"] or "Sans appartement"
-        rtype_label = classification.resource_type_label(s["resource_type"], labels)
-        groups.setdefault(apt, {}).setdefault(rtype_label, []).append(s)
-
-    ordered: dict[str, dict[str, list[dict]]] = {}
-    for apt in sorted(groups.keys(), key=_apartment_sort_key):
-        ordered[apt] = dict(sorted(groups[apt].items()))
-    return ordered
-
-
-def build_room_groups(series: list[dict]) -> dict:
-    """1 niveau : pièce -> capteurs (ancienne vue, gardée en bascule)."""
-    groups: dict[str, list[dict]] = {}
-    for s in series:
-        groups.setdefault(s["room"] or "Sans pièce", []).append(s)
-    return dict(sorted(groups.items()))
-
-
 @app.route("/")
 def index():
-    group_mode = "room" if request.args.get("group_by") == "room" else "apartment"
-
-    with closing(_read_conn()) as conn:
-        series = db.list_series(conn)
-
-    if group_mode == "room":
-        grouped = build_room_groups(series)
-    else:
-        grouped = build_apartment_groups(series, _cfg().resource_type_labels)
-
+    # La sidebar de sélection des capteurs (regroupement par appartement ou
+    # par pièce) est entièrement rendue côté client (static/js/sidebar.js),
+    # à partir de GET /api/series -- la même source que les onglets Énergie
+    # et Consommations par zone. Avant ce refactor, ce regroupement était
+    # calculé ici en Python (build_apartment_groups/build_room_groups) ET
+    # refait côté JS pour les autres onglets : même donnée, deux
+    # implémentations à maintenir. Cette route ne fait donc plus que
+    # rendre le squelette de la page.
     return render_template(
         "index.html",
-        grouped=grouped,
-        group_mode=group_mode,
         range_presets=list(RANGE_PRESETS.keys()),
+        resource_type_labels=_cfg().resource_type_labels,
     )
 
 
@@ -317,6 +316,60 @@ def api_series_data(series_id: str):
     )
 
 
+@app.route("/api/series/<path:series_id>/latest")
+def api_series_latest(series_id: str):
+    """Dernière valeur connue d'une série (peu importe son âge) -- utilisé
+    pour les tuiles de synthèse (ex: totalDay/totalWeek/totalMonth/totalYear
+    d'un compteur : ce sont des compteurs vivants sans historique Statistics
+    propre, voir db.query_daily_last -- seule leur dernière valeur lue par
+    le poller a un sens, pas un historique)."""
+    with closing(_read_conn()) as conn:
+        latest = db.query_latest(conn, series_id)
+    if latest is None:
+        return jsonify({"series_id": series_id, "ts": None, "value": None})
+    ts, value = latest
+    return jsonify({"series_id": series_id, "ts": ts, "value": value})
+
+
+@app.route("/api/series/<path:series_id>/daily")
+def api_series_daily(series_id: str):
+    """Relevés de fin de journée + consommation journalière dérivée (delta
+    entre deux relevés successifs), pour une série cumulative -- un index
+    croissant (state "total"/"totalNeg" typiquement). Voir db.query_daily_last
+    pour le détail de la méthode -- c'est la même logique qu'un décompte de
+    charges (différence entre deux relevés de compteur), appliquée jour par
+    jour. Ne JAMAIS appeler cette route sur une puissance instantanée
+    (state "actual", ou "Gpwr"/"Ppwr"/"Spwr" d'un bloc EFM) : MAX(valeur) par
+    jour n'a de sens que sur un cumul qui ne fait que croître."""
+    try:
+        days = int(request.args.get("days", 30))
+    except ValueError:
+        abort(400, "days doit être un entier")
+    days = max(1, min(days, 400))
+
+    now = int(time.time())
+    # Un jour de marge avant le début demandé, pour pouvoir calculer le
+    # delta du tout premier jour retourné (sinon son delta serait inconnu,
+    # faute de relevé antérieur dans la fenêtre).
+    start_ts = now - (days + 1) * 86400
+
+    with closing(_read_conn()) as conn:
+        rows = db.query_daily_last(conn, series_id, start_ts, now)
+
+    points = []
+    for i in range(1, len(rows)):
+        day_ts, end_value = rows[i]
+        _, prev_value = rows[i - 1]
+        consumption = end_value - prev_value
+        # Un delta négatif signale un compteur qui est reparti de zéro
+        # (remplacement de compteur, reset) plutôt qu'une "consommation
+        # négative" -- on le remonte tel quel (pas de valeur aberrante
+        # masquée), à charge pour l'affichage de le signaler.
+        points.append({"date_ts": day_ts, "end_value": end_value, "consumption": consumption})
+
+    return jsonify({"series_id": series_id, "days": days, "points": points})
+
+
 def create_app(config_path: str = "config.yaml") -> Flask:
     cfg = load_config(config_path)
     app.config["LOXONE_CFG"] = cfg
@@ -329,10 +382,7 @@ def create_app(config_path: str = "config.yaml") -> Flask:
 
 
 if __name__ == "__main__":
-    # Permet de lancer l'app sur une config alternative, ex:
-    #   python app.py config.external.yaml
-    # utile pour tester l'accès depuis un réseau externe (URL DynDNS Loxone)
-    # sans toucher à la config de production (config.yaml).
+    import sys
     config_path = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
     flask_app = create_app(config_path)
     cfg = flask_app.config["LOXONE_CFG"]

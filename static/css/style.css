@@ -157,6 +157,22 @@ body {
   text-decoration: underline;
 }
 
+.nav-toolbar .nav-toggle-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.nav-toolbar .nav-toggle-btn.active {
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 .type-group {
   margin-left: 8px;
   border-bottom: none;
@@ -282,8 +298,19 @@ body {
 
 .kpi-tile.kpi-grid .kpi-value { color: #b45309; }
 .kpi-tile.kpi-solar .kpi-value { color: #15803d; }
+.kpi-tile.kpi-battery .kpi-value { color: #7c3aed; }
 .kpi-tile.kpi-auto { background: var(--accent-bg); border-color: var(--accent); }
 .kpi-tile.kpi-auto .kpi-value { color: var(--accent); }
+
+/* Texte d'explication sous une tuile/un groupe de tuiles -- ce que la
+   valeur représente (mesuré / recalculé par le Miniserver / calculé par
+   nous) et sur quelle base. Voir CLAUDE.md, section Dashboard énergie. */
+.kpi-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 0 0 16px 0;
+  max-width: 70ch;
+}
 
 /* Page d'administration / classification */
 

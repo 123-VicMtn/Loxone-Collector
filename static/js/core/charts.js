@@ -14,6 +14,7 @@ import { monthKey } from "./format.js";
 export const PALETTE_GRID = "#d97706";
 export const PALETTE_SOLAR = "#16a34a";
 export const PALETTE_GENERIC = "#2563eb";
+export const PALETTE_BATTERY = "#7c3aed";
 
 // Rotation de couleurs pour l'onglet Explorer (sélection libre multi-capteurs,
 // nombre de courbes non borné à l'avance).
@@ -53,6 +54,17 @@ export function kpiTile(label, value, unit, colorClass) {
     `<div class="kpi-label">${label}</div>` +
     `<div class="kpi-value">${value}${unit ? ` <span class="kpi-unit">${unit}</span>` : ""}</div>`;
   return div;
+}
+
+/** Petit texte d'explication affiché sous un groupe de tuiles/un graph --
+ * ce que représente la valeur (mesuré, recalculé par le Miniserver, ou
+ * calculé par le dashboard) et sur quelle base. Voir CLAUDE.md, section
+ * Dashboard énergie, pour le détail des trois catégories. */
+export function noteEl(text) {
+  const p = document.createElement("p");
+  p.className = "kpi-note";
+  p.textContent = text;
+  return p;
 }
 
 /** Regroupe des points journaliers {date_ts, consumption} par mois

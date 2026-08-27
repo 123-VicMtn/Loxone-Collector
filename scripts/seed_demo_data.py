@@ -5,17 +5,25 @@ Peuple une base SQLite de DÉMO avec des données synthétiques mais réalistes
 afficher des graphs — indépendamment de tout accès à un vrai Miniserver
 Loxone. Utile pour isoler un souci d'affichage d'un souci de connexion.
 
-Schéma aligné (2026-08-26) sur ce qui a été observé en conditions réelles
-sur une installation Loxone avec compteurs "Energie Flow Monitor" (voir
-CLAUDE.md) : pour un compteur d'énergie, deux states ont un historique
-("actual" = puissance instantanée en kW, "total" = index cumulatif en kWh,
-jamais remis à zéro) tandis que "totalDay"/"totalWeek"/"totalMonth"/
-"totalYear" sont des compteurs vivants SANS historique propre (juste leur
-dernière valeur a un sens) -- ce script reproduit fidèlement cette
-distinction : "actual"/"total" reçoivent un historique horaire complet,
-les totalX sont dérivés de "total" mais UNE SEULE valeur (la plus récente)
-est écrite, exactement comme le ferait le vrai Miniserver via le poller
-live (jamais via un backfill Statistics).
+Schéma aligné (2026-08-27) sur ce qui a été observé en conditions réelles sur
+une installation Loxone mixte (compteurs "Meter" bidirectionnels + bloc
+"Moniteur de flux d'énergie", voir CLAUDE.md, section "Dashboard énergie") :
+
+- "actual" (kW) et "total"/"totalNeg" (kWh, index cumulatif jamais remis à
+  zéro) ont un historique complet (comme un vrai backfill Statistics) ;
+- "totalDay/Week/Month/Year" et "totalNegDay/Week/Month/Year" sont des
+  compteurs vivants SANS historique propre -- une seule valeur (la plus
+  récente) est écrite, exactement comme le ferait le vrai poller live ;
+- Réseau et Batterie sont bidirectionnels (import/export, charge/décharge :
+  states "total" ET "totalNeg") ; Solaire ne produit que (pas de "totalNeg") ;
+- "storage" (état de charge batterie, %) est un state vivant sans historique
+  propre lui aussi, comme les totalX.
+
+La simulation couple les trois compteurs par zone (solaire -> autoconsommé
+sur place -> surplus vers la batterie -> le reste exporté au réseau ; le
+soir, la batterie se décharge pour réduire l'import réseau) pour que les
+deltas jour/semaine/mois dérivés dans le dashboard (import, export,
+autoconsommation Pd-Ed, charge/décharge) restent physiquement cohérents.
 
 Ne touche JAMAIS à ta base de production (utilise un fichier .db séparé,
 voir config.demo.yaml).
@@ -43,6 +51,33 @@ random.seed(42)  # résultats reproductibles d'un lancement à l'autre
 APARTMENTS = ["APP1", "APP2", "APP3"]
 DAYS_OF_HISTORY = 60
 
+# grid et battery sont bidirectionnels (import/export, charge/décharge) :
+# ils reçoivent des states totalNeg* en plus des totalX habituels, comme
+# observé sur l'installation réelle (CLAUDE.md).
+BIDIRECTIONAL_KINDS = {"grid", "battery"}
+
+KIND_LABELS = {"grid": "Grid", "solar": "Solaire", "battery": "Batterie"}
+BUILDING_LABELS = {"grid": "Réseau (général)", "solar": "Production (général)", "battery": "Batterie (générale)"}
+RESOURCE_TYPES = {"grid": "energie_reseau", "solar": "energie_solaire", "battery": "energie_batterie"}
+
+# apartment, demand_kw (base de la consommation avant solaire/batterie),
+# solar_kw (crête PV), battery_kw (puissance charge/décharge max),
+# battery_kwh (capacité), base_grid_kwh/base_solar_kwh (cumuls déjà
+# accumulés avant le début de la simulation, pour ne pas repartir de zéro
+# comme une installation flambant neuve).
+ZONES = [
+    {"apartment": "APP1", "demand_kw": 1.2, "solar_kw": 2.6, "battery_kw": 1.5, "battery_kwh": 6.0,
+     "base_grid_kwh": 1800.0, "base_solar_kwh": 400.0},
+    {"apartment": "APP2", "demand_kw": 1.5, "solar_kw": 3.0, "battery_kw": 1.5, "battery_kwh": 6.0,
+     "base_grid_kwh": 2000.0, "base_solar_kwh": 460.0},
+    {"apartment": "APP3", "demand_kw": 1.8, "solar_kw": 3.4, "battery_kw": 1.5, "battery_kwh": 6.0,
+     "base_grid_kwh": 2200.0, "base_solar_kwh": 520.0},
+    # Compteurs de bâtiment (non rattachés à un appartement précis) --
+    # teste la zone "Bâtiment (non affecté)" du dashboard.
+    {"apartment": "", "demand_kw": 3.5, "solar_kw": 4.5, "battery_kw": 3.0, "battery_kwh": 15.0,
+     "base_grid_kwh": 5000.0, "base_solar_kwh": 900.0},
+]
+
 
 def solar_power_kw(hour_of_day: float, peak_kw: float) -> float:
     """Puissance solaire instantanée (kW) : nulle la nuit, en cloche le jour."""
@@ -51,14 +86,13 @@ def solar_power_kw(hour_of_day: float, peak_kw: float) -> float:
     return 0.0
 
 
-def grid_power_kw(hour_of_day: float, base_kw: float) -> float:
-    """Puissance tirée du réseau (kW) : creux la nuit, pics matin/soir,
-    réduite en journée quand le solaire couvre une partie du besoin."""
+def demand_power_kw(hour_of_day: float, base_kw: float) -> float:
+    """Demande totale du foyer (kW), AVANT solaire/batterie -- creux la nuit,
+    pics matin/soir. Le solaire et la batterie réduisent ensuite ce qui est
+    effectivement tiré du réseau (voir la boucle de simulation dans main())."""
     load = base_kw * (0.35 + 0.25 * max(0, math.sin((hour_of_day - 6) / 18 * math.pi)))
     if 7 <= hour_of_day <= 9 or 18 <= hour_of_day <= 22:
         load *= 1.7
-    if 11 <= hour_of_day <= 15:
-        load *= 0.4  # le solaire couvre une partie du besoin en milieu de journée
     return max(0.0, load * random.uniform(0.85, 1.15))
 
 
@@ -67,35 +101,27 @@ def water_delta_m3(hour_of_day: float, intensity: float) -> float:
     return intensity * active * random.uniform(0.4, 1.2)
 
 
-def build_energy_meter(apartment: str, kind: str, peak_kw: float, base_total_kwh: float) -> dict:
-    """kind: 'grid' ou 'solar'. Retourne la config d'un compteur d'énergie
-    avec ses deux séries historisées (actual, total) + les 4 séries
-    dérivées sans historique (totalDay/Week/Month/Year)."""
-    label = f"App {apartment[-1]} {'Grid' if kind == 'grid' else 'Solaire'}" if apartment else ""
-    resource_type = "energie_reseau" if kind == "grid" else "energie_solaire"
-    return dict(
-        apartment=apartment, kind=kind, label=label,
-        resource_type=resource_type, base_total=base_total_kwh, peak_kw=peak_kw,
-    )
-
-
 def build_series_defs():
-    defs = {"energy_meters": [], "water": [], "building": []}
+    defs = {"energy_meters": [], "water": []}
+
+    for z in ZONES:
+        apt = z["apartment"]
+        for kind in ("grid", "solar", "battery"):
+            label = f"App {apt[-1]} {KIND_LABELS[kind]}" if apt else BUILDING_LABELS[kind]
+            defs["energy_meters"].append(dict(apartment=apt, kind=kind, label=label, resource_type=RESOURCE_TYPES[kind]))
 
     for i, apt in enumerate(APARTMENTS):
-        defs["energy_meters"].append(build_energy_meter(apt, "grid", peak_kw=1.2 + i * 0.3, base_total_kwh=1800 + i * 200))
-        defs["energy_meters"].append(build_energy_meter(apt, "solar", peak_kw=2.5 + i * 0.4, base_total_kwh=400 + i * 60))
         defs["water"].append(dict(
             apartment=apt, label=f"Eau chaude App {apt[-1]}", room=f"Salle de bain {apt}",
             resource_type="eau_chaude", unit="m3", base_total=8.0 + i * 2.5, intensity=0.006,
         ))
 
-    # Compteurs de bâtiment (non rattachés à un appartement précis) --
-    # teste la zone "Bâtiment (non affecté)" du dashboard.
-    defs["building"].append(build_energy_meter("", "grid", peak_kw=0.8, base_total_kwh=5000))
-    defs["building"].append(build_energy_meter("", "solar", peak_kw=1.0, base_total_kwh=900))
-
     return defs
+
+
+def series_id(apt: str, kind: str, state: str) -> str:
+    apt_key = apt if apt else "batiment"
+    return f"demo:{apt_key}-{kind}:{state}"
 
 
 def main():
@@ -104,21 +130,22 @@ def main():
     conn = db.get_connection(cfg.db_path)
 
     defs = build_series_defs()
-    all_energy_meters = defs["energy_meters"] + defs["building"]
+    all_energy_meters = defs["energy_meters"]
 
-    def series_id(prefix, apt, kind, state):
-        apt_key = apt if apt else "batiment"
-        return f"demo:{apt_key}-{kind}:{state}"
-
-    # --- Métadonnées : actual/total (historisées) + les 4 dérivées (live seulement) ---
+    # --- Métadonnées : actual/total(+Neg) historisés + les dérivées live-only ---
     for m in all_energy_meters:
-        label = m["label"] if m["apartment"] else f"{'Réseau' if m['kind'] == 'grid' else 'Production'} (général)"
-        for state, unit in (("actual", "kW"), ("total", "kWh"), ("totalDay", "kWh"),
-                             ("totalWeek", "kWh"), ("totalMonth", "kWh"), ("totalYear", "kWh")):
+        states = [("actual", "kW"), ("total", "kWh"), ("totalDay", "kWh"),
+                  ("totalWeek", "kWh"), ("totalMonth", "kWh"), ("totalYear", "kWh")]
+        if m["kind"] in BIDIRECTIONAL_KINDS:
+            states += [("totalNeg", "kWh"), ("totalNegDay", "kWh"), ("totalNegWeek", "kWh"),
+                       ("totalNegMonth", "kWh"), ("totalNegYear", "kWh")]
+        if m["kind"] == "battery":
+            states.append(("storage", "%"))
+        for state, unit in states:
             db.upsert_series_meta(
-                conn, series_id=series_id("demo", m["apartment"], m["kind"], state),
+                conn, series_id=series_id(m["apartment"], m["kind"], state),
                 miniserver="demo", control_uuid=f"demo-{m['apartment'] or 'batiment'}-{m['kind']}",
-                state_name=state, label=f"{label} ({state})", room="Technique", category="Démo",
+                state_name=state, label=f"{m['label']} ({state})", room="Technique", category="Démo",
                 control_type="Meter", unit=unit, apartment=m["apartment"], resource_type=m["resource_type"],
             )
 
@@ -131,41 +158,90 @@ def main():
         )
     conn.commit()
 
-    # --- Simulation horaire ---
+    # --- Simulation horaire, couplée par zone : solaire -> autoconsommé sur
+    # place -> surplus vers la batterie -> le reste exporté au réseau ; le
+    # soir/la nuit, la batterie se décharge pour réduire l'import réseau.
     now = int(time.time())
     total_hours = DAYS_OF_HISTORY * 24
-    running_total = {(m["apartment"], m["kind"]): m["base_total"] for m in all_energy_meters}
+
+    zone_state = {}
+    for z in ZONES:
+        zone_state[z["apartment"]] = dict(
+            grid_total=z["base_grid_kwh"],
+            grid_neg_total=round(z["base_solar_kwh"] * 0.25, 1),
+            solar_total=z["base_solar_kwh"],
+            battery_total=0.0,
+            battery_neg_total=0.0,
+            battery_soc_kwh=z["battery_kwh"] * 0.5,  # état de charge initial : moitié pleine
+        )
     running_water = {w["apartment"]: w["base_total"] for w in defs["water"]}
 
-    # Instantanés du cumul (kWh) pris à ~1 jour / ~1 semaine / ~1 mois avant
+    # Instantanés des cumuls pris à ~1 jour / ~1 semaine / ~1 mois avant
     # "maintenant", pour dériver des totalDay/Week/Month/Year réalistes en
-    # toute fin de script (voir plus bas) -- plutôt qu'un pourcentage
-    # arbitraire du cumul total, qui n'aurait aucun sens physique.
+    # toute fin de script -- plutôt qu'un pourcentage arbitraire du cumul
+    # total, qui n'aurait aucun sens physique.
     snapshot_day = {}
     snapshot_week = {}
     snapshot_month = {}
 
-    # Historique complet pour actual/total (comme un vrai backfill Statistics).
     rows = []
     for h in range(total_hours, -1, -1):
         ts = now - h * 3600
         hour_of_day = (24 - (h % 24)) % 24
 
-        for m in all_energy_meters:
-            key = (m["apartment"], m["kind"])
-            if m["kind"] == "solar":
-                power = solar_power_kw(hour_of_day, m["peak_kw"])
+        for z in ZONES:
+            apt = z["apartment"]
+            st = zone_state[apt]
+
+            solar_kw = solar_power_kw(hour_of_day, z["solar_kw"])
+            demand_kw = demand_power_kw(hour_of_day, z["demand_kw"])
+
+            self_consumed_kw = min(demand_kw, solar_kw)
+            solar_surplus_kw = solar_kw - self_consumed_kw
+            remaining_demand_kw = demand_kw - self_consumed_kw
+
+            capacity = z["battery_kwh"]
+            battery_flow_kw = 0.0
+            if solar_surplus_kw > 0 and st["battery_soc_kwh"] < capacity * 0.97:
+                charge_kw = min(solar_surplus_kw, z["battery_kw"], capacity - st["battery_soc_kwh"])
+                battery_flow_kw = charge_kw
+                solar_surplus_kw -= charge_kw
+                st["battery_soc_kwh"] += charge_kw
+            elif remaining_demand_kw > 0 and st["battery_soc_kwh"] > capacity * 0.1 and (hour_of_day >= 18 or hour_of_day <= 6):
+                discharge_kw = min(remaining_demand_kw, z["battery_kw"], st["battery_soc_kwh"])
+                battery_flow_kw = -discharge_kw
+                remaining_demand_kw -= discharge_kw
+                st["battery_soc_kwh"] -= discharge_kw
+
+            grid_import_kw = remaining_demand_kw
+            grid_export_kw = solar_surplus_kw
+
+            st["solar_total"] += solar_kw
+            st["grid_total"] += grid_import_kw
+            st["grid_neg_total"] += grid_export_kw
+            if battery_flow_kw >= 0:
+                st["battery_total"] += battery_flow_kw
             else:
-                power = grid_power_kw(hour_of_day, m["peak_kw"])
-            running_total[key] += power  # kW pendant 1h -> kWh
-            rows.append((series_id("demo", m["apartment"], m["kind"], "actual"), ts, round(power, 3), None))
-            rows.append((series_id("demo", m["apartment"], m["kind"], "total"), ts, round(running_total[key], 3), None))
-            if h == 24:
-                snapshot_day[key] = running_total[key]
-            if h == 24 * 7:
-                snapshot_week[key] = running_total[key]
-            if h == 24 * 30 and total_hours >= 24 * 30:
-                snapshot_month[key] = running_total[key]
+                st["battery_neg_total"] += -battery_flow_kw
+
+            rows.append((series_id(apt, "solar", "actual"), ts, round(solar_kw, 3), None))
+            rows.append((series_id(apt, "solar", "total"), ts, round(st["solar_total"], 3), None))
+            rows.append((series_id(apt, "grid", "actual"), ts, round(grid_import_kw, 3), None))
+            rows.append((series_id(apt, "grid", "total"), ts, round(st["grid_total"], 3), None))
+            rows.append((series_id(apt, "grid", "totalNeg"), ts, round(st["grid_neg_total"], 3), None))
+            rows.append((series_id(apt, "battery", "actual"), ts, round(battery_flow_kw, 3), None))
+            rows.append((series_id(apt, "battery", "total"), ts, round(st["battery_total"], 3), None))
+            rows.append((series_id(apt, "battery", "totalNeg"), ts, round(st["battery_neg_total"], 3), None))
+
+            if h in (24, 24 * 7) or (h == 24 * 30 and total_hours >= 24 * 30):
+                snap = dict(grid=st["grid_total"], grid_neg=st["grid_neg_total"], solar=st["solar_total"],
+                            battery=st["battery_total"], battery_neg=st["battery_neg_total"])
+                if h == 24:
+                    snapshot_day[apt] = snap
+                elif h == 24 * 7:
+                    snapshot_week[apt] = snap
+                else:
+                    snapshot_month[apt] = snap
 
         for w in defs["water"]:
             running_water[w["apartment"]] += water_delta_m3(hour_of_day, w["intensity"])
@@ -187,36 +263,53 @@ def main():
     # démo.
     archived = db.downsample_and_prune(conn, cfg.raw_retention_days)
 
-    # --- Valeurs "live" pour les compteurs dérivés (totalDay/Week/Month/Year)
-    # -- une seule valeur récente, PAS d'historique, comme sur un vrai
-    # Miniserver (voir docstring). Calculées comme un vrai delta (cumul
-    # actuel - cumul au début de la période), pas un pourcentage arbitraire.
-    # "totalYear" est borné à toute la période simulée (60 jours), faute
-    # d'avoir un cumul vieux d'un an dans cette démo -- label optimiste mais
-    # valeur physiquement cohérente avec le reste.
+    # --- Valeurs "live" pour les compteurs dérivés (totalDay/Week/Month/Year,
+    # totalNegDay/Week/Month/Year, storage) -- une seule valeur récente, PAS
+    # d'historique, comme sur un vrai Miniserver (voir docstring). Calculées
+    # comme un vrai delta (cumul actuel - cumul au début de la période), pas
+    # un pourcentage arbitraire. "totalYear"/"totalNegYear" sont bornés à
+    # toute la période simulée (60 jours), faute d'avoir un cumul vieux d'un
+    # an dans cette démo -- label optimiste mais valeur physiquement cohérente.
     live_rows = []
-    for m in all_energy_meters:
-        key = (m["apartment"], m["kind"])
-        total_now = running_total[key]
-        base_total = m["base_total"]
-        day_val = total_now - snapshot_day.get(key, base_total)
-        week_val = total_now - snapshot_week.get(key, base_total)
-        month_val = total_now - snapshot_month.get(key, base_total)
-        year_val = total_now - base_total
-        live_rows.append((series_id("demo", m["apartment"], m["kind"], "totalDay"), now, round(max(0.0, day_val), 3), None))
-        live_rows.append((series_id("demo", m["apartment"], m["kind"], "totalWeek"), now, round(max(0.0, week_val), 3), None))
-        live_rows.append((series_id("demo", m["apartment"], m["kind"], "totalMonth"), now, round(max(0.0, month_val), 3), None))
-        live_rows.append((series_id("demo", m["apartment"], m["kind"], "totalYear"), now, round(max(0.0, year_val), 3), None))
+    for z in ZONES:
+        apt = z["apartment"]
+        st = zone_state[apt]
+        base_day = snapshot_day.get(apt, dict(
+            grid=z["base_grid_kwh"], grid_neg=round(z["base_solar_kwh"] * 0.25, 1),
+            solar=z["base_solar_kwh"], battery=0.0, battery_neg=0.0,
+        ))
+        base_week = snapshot_week.get(apt, base_day)
+        base_month = snapshot_month.get(apt, base_week)
+
+        def add(kind, prefix, now_val, base_day_val, base_week_val, base_month_val, base_year_val):
+            live_rows.append((series_id(apt, kind, f"{prefix}Day"), now, round(max(0.0, now_val - base_day_val), 3), None))
+            live_rows.append((series_id(apt, kind, f"{prefix}Week"), now, round(max(0.0, now_val - base_week_val), 3), None))
+            live_rows.append((series_id(apt, kind, f"{prefix}Month"), now, round(max(0.0, now_val - base_month_val), 3), None))
+            live_rows.append((series_id(apt, kind, f"{prefix}Year"), now, round(max(0.0, now_val - base_year_val), 3), None))
+
+        add("grid", "total", st["grid_total"], base_day["grid"], base_week["grid"], base_month["grid"], z["base_grid_kwh"])
+        add("grid", "totalNeg", st["grid_neg_total"], base_day["grid_neg"], base_week["grid_neg"],
+            base_month["grid_neg"], round(z["base_solar_kwh"] * 0.25, 1))
+        add("solar", "total", st["solar_total"], base_day["solar"], base_week["solar"], base_month["solar"], z["base_solar_kwh"])
+        add("battery", "total", st["battery_total"], base_day["battery"], base_week["battery"], base_month["battery"], 0.0)
+        add("battery", "totalNeg", st["battery_neg_total"], base_day["battery_neg"], base_week["battery_neg"],
+            base_month["battery_neg"], 0.0)
+
+        live_rows.append((series_id(apt, "battery", "storage"), now,
+                           round(st["battery_soc_kwh"] / z["battery_kwh"] * 100, 1), None))
+
     db.insert_readings_batch(conn, live_rows)
     conn.commit()
 
     db.checkpoint_wal(conn)
     conn.close()
 
-    n_series = len(all_energy_meters) * 6 + len(defs["water"])
+    n_energy_series = sum((11 if m["kind"] in BIDIRECTIONAL_KINDS else 6) + (1 if m["kind"] == "battery" else 0)
+                          for m in all_energy_meters)
+    n_series = n_energy_series + len(defs["water"])
     print(f"Base de démo peuplée : {n_series} capteurs "
-          f"({len(all_energy_meters)} compteurs d'énergie x 6 states + {len(defs['water'])} compteurs d'eau), "
-          f"{DAYS_OF_HISTORY} jours d'historique horaire synthétique sur actual/total "
+          f"({len(all_energy_meters)} compteurs d'énergie (grid/solaire/batterie) + {len(defs['water'])} compteurs d'eau), "
+          f"{DAYS_OF_HISTORY} jours d'historique horaire synthétique sur actual/total(+Neg) "
           f"({archived} points archivés en moyennes horaires).")
     print(f"-> {cfg.db_path}")
 
