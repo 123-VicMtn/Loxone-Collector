@@ -28,6 +28,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, abort
 
+import billing
 import classification
 import db
 from config import AppConfig, load_config
@@ -368,6 +369,93 @@ def api_series_daily(series_id: str):
         points.append({"date_ts": day_ts, "end_value": end_value, "consumption": consumption})
 
     return jsonify({"series_id": series_id, "days": days, "points": points})
+
+
+# --------------------------------------------------------------------------
+# Décompte de charges (page /decompte)
+# --------------------------------------------------------------------------
+
+@app.route("/decompte")
+def decompte():
+    return render_template("decompte.html")
+
+
+@app.route("/api/decompte")
+def api_decompte():
+    """Décompte mensuel complet : par zone et par mois, la part réseau et
+    la part solaire autoconsommée, le taux d'autoproduction, les montants et
+    les alertes de fiabilité. Voir billing.py pour la méthode de calcul.
+
+    Paramètres optionnels `from` / `to` : clés de mois (ex: 2026-05).
+    Sans eux, tous les mois couverts par les données disponibles.
+    """
+    now = int(time.time())
+    with closing(_read_conn()) as conn:
+        series = db.list_series(conn)
+        zones = billing.resolve_zones(series)
+        batiment_src = billing.resolve_batiment(series)
+
+        rng = billing.available_range(conn, zones, batiment_src)
+        if rng is None:
+            return jsonify(
+                billing.compute_decompte(conn, series, [], db.list_tarifs(conn), now)
+            )
+        first_ts, last_ts = rng
+
+        try:
+            if request.args.get("from"):
+                year, month = billing.parse_period_key(request.args["from"])
+                first_ts = billing.period_bounds(year, month)[0]
+            if request.args.get("to"):
+                year, month = billing.parse_period_key(request.args["to"])
+                last_ts = billing.period_bounds(year, month)[1] - 1
+        except ValueError as exc:
+            abort(400, str(exc))
+
+        if first_ts > last_ts:
+            abort(400, "la période de début est postérieure à la période de fin")
+
+        periods = billing.periods_covering(first_ts, last_ts)
+        payload = billing.compute_decompte(conn, series, periods, db.list_tarifs(conn), now)
+
+    return jsonify(payload)
+
+
+@app.route("/api/tarifs", methods=["GET", "POST"])
+def api_tarifs():
+    """Tarifs appliqués au décompte. Stockés en base (et non dans le
+    navigateur) pour qu'un mois déjà facturé reste reproductible à
+    l'identique après un changement de prix -- voir la table `tarifs`."""
+    if request.method == "GET":
+        with closing(_read_conn()) as conn:
+            return jsonify(db.list_tarifs(conn))
+
+    payload = request.get_json(force=True, silent=True) or {}
+    valid_from = str(payload.get("valid_from", "")).strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", valid_from):
+        abort(400, "valid_from requis, au format YYYY-MM-DD")
+    try:
+        prix_reseau = float(payload.get("prix_reseau", 0))
+        prix_solaire = float(payload.get("prix_solaire", 0))
+        taux_tva = float(payload.get("taux_tva", 0))
+    except (TypeError, ValueError):
+        abort(400, "prix_reseau, prix_solaire et taux_tva doivent être numériques")
+    if min(prix_reseau, prix_solaire, taux_tva) < 0:
+        abort(400, "les prix et le taux de TVA ne peuvent pas être négatifs")
+
+    with closing(_read_conn()) as conn:
+        db.upsert_tarif(
+            conn, valid_from, prix_reseau, prix_solaire, taux_tva,
+            str(payload.get("note", "")),
+        )
+        return jsonify(db.list_tarifs(conn))
+
+
+@app.route("/api/tarifs/<int:tarif_id>", methods=["DELETE"])
+def api_tarif_delete(tarif_id: int):
+    with closing(_read_conn()) as conn:
+        db.delete_tarif(conn, tarif_id)
+        return jsonify(db.list_tarifs(conn))
 
 
 def create_app(config_path: str = "config.yaml") -> Flask:

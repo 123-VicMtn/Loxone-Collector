@@ -61,6 +61,22 @@ CREATE TABLE IF NOT EXISTS readings_hourly (
     PRIMARY KEY (series_id, ts)
 );
 CREATE INDEX IF NOT EXISTS idx_readings_hourly_series_ts ON readings_hourly (series_id, ts);
+
+-- Tarifs utilisés par la page de décompte de charges (/decompte).
+-- Un tarif s'applique à partir de `valid_from` (date locale Europe/Zurich,
+-- format 'YYYY-MM-DD') et jusqu'au tarif suivant. Stocker les tarifs en base
+-- plutôt que dans le navigateur est ce qui rend un décompte REPRODUCTIBLE :
+-- un mois déjà facturé garde ses prix d'origine même si les prix
+-- changent ensuite, ce qui est indispensable si une facture est contestée.
+CREATE TABLE IF NOT EXISTS tarifs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    valid_from   TEXT NOT NULL UNIQUE,  -- 'YYYY-MM-DD' (heure locale)
+    prix_reseau  REAL NOT NULL DEFAULT 0,   -- CHF / kWh importé du réseau
+    prix_solaire REAL NOT NULL DEFAULT 0,   -- CHF / kWh solaire autoconsommé
+    taux_tva     REAL NOT NULL DEFAULT 0,   -- en %, ex: 8.1
+    note         TEXT NOT NULL DEFAULT '',
+    updated_at   INTEGER
+);
 """
 
 
@@ -355,3 +371,73 @@ def vacuum(conn: sqlite3.Connection) -> None:
     """Compacte le fichier .db. Opération lourde en écriture : à réserver à
     une exécution manuelle ou mensuelle (cron), jamais à chaque cycle."""
     conn.execute("VACUUM;")
+
+
+# --------------------------------------------------------------------------
+# Décompte de charges (page /decompte)
+# --------------------------------------------------------------------------
+
+def query_value_at(conn: sqlite3.Connection, series_id: str, ts: int) -> tuple[int, float] | None:
+    """Dernier relevé connu d'une série À la date `ts` ou AVANT -- retourne
+    (ts_du_relevé, valeur), ou None si la série n'a aucune donnée avant `ts`.
+
+    C'est la primitive d'un décompte de charges : la consommation d'une
+    période = relevé à la fin - relevé au début, exactement comme un relevé
+    de compteur physique à deux dates. On prend le dernier relevé AVANT la
+    borne (et pas le premier après) pour ne jamais compter deux fois une
+    consommation à cheval sur deux périodes de facturation.
+
+    Comme query_latest(), la requête reste indexée (deux ORDER BY ... LIMIT 1)
+    et ne scanne pas tout l'historique de la série.
+    """
+    raw = conn.execute(
+        "SELECT ts, value FROM readings WHERE series_id = ? AND ts <= ? AND value IS NOT NULL "
+        "ORDER BY ts DESC LIMIT 1",
+        (series_id, ts),
+    ).fetchone()
+    hourly = conn.execute(
+        "SELECT ts, avg_value FROM readings_hourly WHERE series_id = ? AND ts <= ? "
+        "AND avg_value IS NOT NULL ORDER BY ts DESC LIMIT 1",
+        (series_id, ts),
+    ).fetchone()
+    candidates = [r for r in (raw, hourly) if r is not None]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: r[0])
+
+
+def list_tarifs(conn: sqlite3.Connection) -> list[dict]:
+    """Tous les tarifs enregistrés, du plus ancien au plus récent."""
+    cur = conn.execute(
+        "SELECT id, valid_from, prix_reseau, prix_solaire, taux_tva, note, updated_at "
+        "FROM tarifs ORDER BY valid_from ASC"
+    )
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def upsert_tarif(conn: sqlite3.Connection, valid_from: str, prix_reseau: float,
+                  prix_solaire: float, taux_tva: float, note: str = "") -> None:
+    """Crée ou remplace le tarif applicable à partir de `valid_from`
+    ('YYYY-MM-DD'). Une seule ligne par date de prise d'effet (contrainte
+    UNIQUE) : ré-enregistrer la même date corrige le tarif au lieu d'en
+    empiler un doublon."""
+    conn.execute(
+        """
+        INSERT INTO tarifs (valid_from, prix_reseau, prix_solaire, taux_tva, note, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(valid_from) DO UPDATE SET
+            prix_reseau=excluded.prix_reseau,
+            prix_solaire=excluded.prix_solaire,
+            taux_tva=excluded.taux_tva,
+            note=excluded.note,
+            updated_at=excluded.updated_at
+        """,
+        (valid_from, prix_reseau, prix_solaire, taux_tva, note, int(time.time())),
+    )
+    conn.commit()
+
+
+def delete_tarif(conn: sqlite3.Connection, tarif_id: int) -> None:
+    conn.execute("DELETE FROM tarifs WHERE id = ?", (tarif_id,))
+    conn.commit()

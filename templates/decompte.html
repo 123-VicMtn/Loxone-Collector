@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Décompte de charges — Loxone Collector{% endblock %}
+{% block body %}
+
+<div class="page">
+  <header class="page-header">
+    <div>
+      <h1>Décompte de charges</h1>
+      <p class="subtitle">
+        Consommation de chaque zone répartie en part réseau et part solaire
+        autoconsommée, mois par mois — heure locale Europe/Zurich.
+      </p>
+    </div>
+    <nav class="page-nav">
+      <a href="{{ url_for('index') }}">← Dashboard</a>
+      <a href="{{ url_for('admin') }}">⚙ Classification</a>
+    </nav>
+  </header>
+
+  <div id="decompte-alerte" class="banner banner-warn" hidden></div>
+  <p id="decompte-loading" class="empty-hint">Chargement du décompte…</p>
+
+  <div id="decompte-body" hidden>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <div class="panel-controls">
+        <label class="control-field">
+          Mois à facturer
+          <select id="periode-select"></select>
+        </label>
+        <label class="control-field">
+          Historique affiché (graphs)
+          <select id="historique-select"></select>
+        </label>
+        <div class="control-field control-field--static">
+          Période couverte
+          <span id="periode-bornes" class="control-static"></span>
+        </div>
+      </div>
+
+      <div class="kpi-row" id="periode-kpis"></div>
+      <div id="periode-alertes"></div>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2 class="section-title">
+        Décompte par zone
+        <span class="section-hint" id="decompte-table-hint"></span>
+      </h2>
+      <div class="table-scroll">
+        <table class="decompte-table" id="decompte-table"></table>
+      </div>
+      <p class="kpi-note">
+        La consommation de chaque zone est scindée en deux : les kWh
+        <strong>achetés au réseau</strong> (compteur « Grid » du Moniteur de
+        flux d'énergie Loxone) et les kWh <strong>solaires autoconsommés</strong>
+        (compteur « Solaire », que Loxone expose aussi sous le nom
+        <em>selfConsumption</em>). Les deux sont facturés à des prix
+        différents, comme dans un regroupement de consommation propre (RCP).
+      </p>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2 class="section-title">
+        Consommation mensuelle de l'immeuble
+        <span class="section-hint">part réseau et part solaire</span>
+      </h2>
+      <div class="chart-wrap chart-wrap--medium"><canvas id="chart-evolution"></canvas></div>
+      <p class="kpi-note">
+        Chaque barre est un mois. La hauteur totale est l'énergie consommée
+        par l'ensemble des zones ; la part verte est celle couverte par le
+        solaire de l'immeuble, la part orange celle achetée au réseau.
+      </p>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2 class="section-title">
+        Répartition par zone
+        <span class="section-hint" id="chart-zones-hint"></span>
+      </h2>
+      <div class="chart-wrap chart-wrap--medium"><canvas id="chart-zones"></canvas></div>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2 class="section-title">
+        Devenir de la production solaire
+        <span class="section-hint">consommé sur place ou réinjecté</span>
+      </h2>
+      <div class="chart-wrap chart-wrap--medium"><canvas id="chart-solaire"></canvas></div>
+      <p class="kpi-note">
+        La hauteur totale de chaque barre est la production photovoltaïque du
+        mois. En vert, ce qui a été consommé dans l'immeuble et refacturé aux
+        zones ; en bleu, le surplus réinjecté au réseau.
+      </p>
+
+      <h2 class="section-title">
+        Les deux taux d'autonomie
+        <span class="section-hint">ils évoluent en sens inverse, et c'est normal</span>
+      </h2>
+      <div class="chart-wrap chart-wrap--medium"><canvas id="chart-taux"></canvas></div>
+      <p class="kpi-note">
+        Le <strong>taux d'autoproduction</strong> (vert) est la part de la
+        consommation couverte par le solaire : il monte en été, quand le
+        soleil produit plus. C'est l'indicateur qui parle à un propriétaire.
+        Le <strong>taux d'autoconsommation</strong> (bleu pointillé) est la
+        part de la production consommée sur place plutôt que réinjectée : il
+        <em>baisse</em> en été, parce qu'on produit alors beaucoup plus que ce
+        que l'immeuble peut absorber. Les deux sont corrects — ils ne
+        répondent simplement pas à la même question.
+      </p>
+
+      <div class="table-scroll">
+        <table class="decompte-table" id="batiment-table"></table>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section class="card">
+      <h2 class="section-title">
+        Tarifs
+        <span class="section-hint">appliqués aux mois commençant après leur date de prise d'effet</span>
+      </h2>
+      <div class="table-scroll">
+        <table class="decompte-table" id="tarifs-table"></table>
+      </div>
+
+      <form id="tarif-form" class="tarif-form">
+        <label class="control-field">
+          Valable dès le
+          <input type="date" name="valid_from" required>
+        </label>
+        <label class="control-field">
+          Prix réseau (CHF/kWh)
+          <input type="number" name="prix_reseau" step="0.001" min="0" value="0.000" required>
+        </label>
+        <label class="control-field">
+          Prix solaire (CHF/kWh)
+          <input type="number" name="prix_solaire" step="0.001" min="0" value="0.000" required>
+        </label>
+        <label class="control-field">
+          TVA (%)
+          <input type="number" name="taux_tva" step="0.1" min="0" value="8.1" required>
+        </label>
+        <label class="control-field control-field--grow">
+          Note
+          <input type="text" name="note" placeholder="ex: tarif 2026, contrat Romande Énergie">
+        </label>
+        <button type="submit">Enregistrer</button>
+      </form>
+      <p id="tarif-message" class="kpi-note"></p>
+      <p class="kpi-note">
+        Les tarifs sont enregistrés en base, avec leur date de prise d'effet :
+        un mois déjà facturé garde ses prix d'origine même si les prix
+        changent ensuite. Le taux de TVA est pré-rempli à 8,1 % (taux normal
+        suisse) — à ajuster si ce n'est pas celui qui s'applique.
+      </p>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <details class="card card--sources">
+      <summary>Compteurs de contrôle et correspondance des séries</summary>
+      <p class="kpi-note">
+        Chaque zone possède aussi un compteur plus ancien (« Appartement 1 »,
+        « Commerce »…), posé avant les compteurs du Moniteur de flux
+        d'énergie en octobre 2025. Il mesure un <strong>périmètre
+        différent</strong> — sur App 1 en août 2026 il enregistre 6,3 kWh/jour
+        quand le seul compteur réseau en enregistre 7,0 — et n'est donc
+        <strong>pas</strong> utilisé pour facturer. Il est affiché ici à titre
+        de contrôle.
+      </p>
+      <div class="table-scroll">
+        <table class="decompte-table" id="controle-table"></table>
+      </div>
+
+      <h3 class="section-title">Quelle série alimente quelle colonne</h3>
+      <p class="kpi-note">
+        Une correspondance fausse se corrige dans
+        <a href="{{ url_for('admin') }}">⚙ Classification</a> (le type de
+        ressource d'un capteur), pas ici.
+      </p>
+      <div class="table-scroll">
+        <table class="decompte-table" id="sources-table"></table>
+      </div>
+    </details>
+
+  </div>
+
+  <footer id="health-footer" class="health-footer"></footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/decompte/main.js') }}"></script>
+{% endblock %}

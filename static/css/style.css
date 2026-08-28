@@ -395,3 +395,233 @@ body {
   font-size: 0.8rem;
   color: var(--muted);
 }
+
+/* --------------------------------------------------------------------- */
+/* Page de décompte de charges (/decompte)                               */
+/* --------------------------------------------------------------------- */
+
+.page {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.page-header h1 {
+  font-size: 1.5rem;
+  margin: 0 0 4px 0;
+}
+
+.page-header .subtitle {
+  margin: 0;
+  max-width: 70ch;
+}
+
+.page-nav {
+  display: flex;
+  gap: 16px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+
+/* Les graphs ont déjà leur propre cadre : à l'intérieur d'une carte, ils
+   ne doivent pas en ajouter un second. */
+.card .chart-wrap {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.card .section-title:first-child {
+  margin-top: 0;
+}
+
+/* Section de contrôle qualité : visuellement distincte des sections de
+   chiffres, parce qu'elle ne sert pas à facturer mais à vérifier. */
+.card--control {
+  background: #fffdf7;
+  border-color: #f0d9a8;
+}
+
+.card--sources {
+  font-size: 0.9rem;
+}
+
+.card--sources summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.banner {
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.banner-warn {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #78350f;
+}
+
+.control-field--static {
+  justify-content: flex-end;
+}
+
+.control-static {
+  font-size: 0.9rem;
+  color: var(--text);
+  padding: 6px 0;
+}
+
+.control-field--grow {
+  flex: 1 1 220px;
+}
+
+.control-field input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* Un tableau de décompte peut être large : il défile dans son propre
+   conteneur plutôt que de faire défiler la page entière. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+.decompte-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.decompte-table th,
+.decompte-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.decompte-table thead th {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.decompte-table tfoot th {
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+  font-weight: 700;
+}
+
+/* Chiffres alignés à droite et en chasse fixe : c'est ce qui permet de
+   comparer deux montants d'un coup d'œil dans une colonne. */
+.decompte-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.decompte-table .strong {
+  font-weight: 600;
+}
+
+.decompte-table .row-warn {
+  background: #fffbeb;
+}
+
+.decompte-table .row-muted {
+  color: var(--muted);
+}
+
+.decompte-table .ecart-bad {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.status {
+  font-size: 0.75rem;
+  border-radius: 999px;
+  padding: 2px 9px;
+  display: inline-block;
+}
+
+.status-ok { background: #dcfce7; color: #166534; }
+.status-pending { background: #e5e7eb; color: #374151; }
+.status-bad { background: #fee2e2; color: #991b1b; }
+
+.alerte-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #92400e;
+  margin: 4px 0 4px 0;
+}
+
+.alerte-list {
+  margin: 0 0 12px 0;
+  padding-left: 20px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.tarif-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin: 16px 0 8px 0;
+}
+
+.tarif-form button {
+  padding: 7px 16px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.tarif-form button:hover {
+  filter: brightness(1.08);
+}
+
+.btn-link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Colonne secondaire d'un tableau de décompte : l'information est vraie
+   mais ne doit pas capter l'œil autant que le chiffre facturé à côté
+   (cas du taux d'autoconsommation, à lire avec son explication). */
+.decompte-table .muted-cell {
+  color: var(--muted);
+}

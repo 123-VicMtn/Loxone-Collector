@@ -395,6 +395,120 @@ attraper la régression `_apartment_sort_key` ci-dessus) -- autocomplete
 des appartements toujours correcte (App1/App2/App3 triés numériquement).
 Aucune erreur JS, `node --check` sur tous les modules.
 
+## Page de décompte de charges (/decompte) — 2026-08-28
+
+Première brique du module de facturation : **visualiser** les données qui
+serviront aux factures. Décompte **MENSUEL**, limité à consommation /
+production / réseau. Le mensuel a remplacé un découpage bimestriel essayé
+d'abord : il isole le mois de pose des compteurs (octobre 2025, incomplet)
+au lieu de perdre tout un bimestre.
+
+### Ce que mesure quoi — ÉTABLI EMPIRIQUEMENT, ne pas re-supposer
+
+Une première version de cette page a traité l'installation comme si elle
+était en panne. **C'était une erreur d'interprétation de ma part, pas une
+anomalie de compteur** (confirmé par l'installateur, puis vérifié dans les
+données). Ce qui suit est mesuré, pas déduit :
+
+- `<Zone> Grid (total)` = énergie **achetée au réseau** par la zone.
+  Vérifié : identique à la sortie `Gpwr` du bloc EFM de la zone (99-100 %
+  des échantillons bruts) et jamais négative -> import pur, pas un compteur
+  bidirectionnel.
+- `<Zone> Solaire (total)` = solaire **autoconsommé** par la zone.
+  Vérifié deux fois : (a) identique à la sortie `Ppwr` de l'EFM, et (b) son
+  cumul est identique, à 0,01 kWh près sur les incréments, à la sortie
+  `selfConsumption` du même bloc EFM -- c'est donc Loxone lui-même qui
+  qualifie cette série d'autoconsommation. Et la somme des six zones
+  (28,78 kWh sur la fenêtre de données brutes) égale le `selfConsumption` du
+  bloc EFM du BÂTIMENT (28,79 kWh).
+- **=> consommation facturable d'une zone = Grid + Solaire**, scindée en
+  deux prix. C'est exactement le modèle RCP que déploient les prestataires
+  du marché (Climkit : « calcule toutes les 15 minutes la part solaire et la
+  part réseau de chaque consommateur »).
+- `Appartement N / Commerce / Rez jardin (total)` = compteur **plus ancien**
+  (UUID `1eb6...`, génération antérieure aux compteurs EFM `1f90...` posés
+  en octobre 2025), de **périmètre différent** : en août 2026 il enregistre
+  6,3 kWh/j sur App 1 quand le seul compteur Grid en enregistre 7,0. Ce
+  n'est PAS une seconde mesure de la même chose. Gardé en contrôle,
+  **jamais utilisé pour facturer**.
+- `Réseau (total/totalNeg)` du bâtiment = compteur au raccordement de
+  l'onduleur (même UUID de contrôle que `Production` et `Batterie`), pas sur
+  l'alimentation des zones : sur la même fenêtre il enregistre 3,35 kWh
+  d'import quand la somme des Grid des zones en enregistre 85,8. **Non
+  comparable, donc non utilisé** -- l'injection se déduit de
+  `production - autoconsommation`.
+
+Les états EFM (`Gpwr`/`Ppwr`/`Spwr`/`selfConsumption`) n'ont **pas**
+d'historique Statistics (2 jours de live seulement) : ils servent à
+comprendre la topologie, pas à facturer.
+
+### Les deux taux, à ne jamais confondre
+
+Erreur déjà commise une fois, signalée par l'utilisateur ("l'affichage
+d'autoconsommation me paraît inversé") :
+
+- **Taux d'autoproduction** = solaire autoconsommé / consommation. Monte en
+  été (1,1 % en fév. 2026, 23,3 % en juil.). C'est l'indicateur mis en avant.
+- **Taux d'autoconsommation** = solaire autoconsommé / production. **Baisse**
+  en été (83,5 % en fév., 28,8 % en juil.) -- correct mais contre-intuitif :
+  à n'afficher qu'avec son explication, jamais seul.
+
+Le graph « Les deux taux d'autonomie » les superpose exprès, pour rendre le
+croisement saisonnier lisible. `tests/test_billing.py` fige la distinction.
+
+### Résultat sur les vraies données
+
+**Novembre 2025 -> juillet 2026 : 9 mois, 6 zones sur 6 facturables.**
+Seuls octobre 2025 (pose des compteurs) et le mois en cours ne le sont pas.
+
+### Ce qui a été livré
+
+- `billing.py` (nouveau) -- périodes mensuelles en heure **locale
+  Europe/Zurich** (et non UTC comme `db.query_daily_last` : sur une facture,
+  un mois commence à minuit chez le propriétaire) ; résolution "quelle série
+  alimente quelle colonne" ; consommation = relevé de fin - relevé de début
+  (jamais une somme de deltas) ; détection des ruptures de compteur ; les
+  deux taux ; tarifs et montants.
+- `db.py` -- table `tarifs` (dans `SCHEMA`, donc créée automatiquement sur
+  une base existante, aucun ALTER nécessaire) + `query_value_at()` (dernier
+  relevé à une date donnée, requête indexée) + CRUD tarifs.
+- `app.py` -- routes `GET /decompte`, `GET /api/decompte[?from=&to=]`,
+  `GET|POST /api/tarifs`, `DELETE /api/tarifs/<id>`.
+- `templates/decompte.html`, `static/js/decompte/{main,api,format,table,
+  charts,tarifs}.js`, CSS -- page autonome (pas un onglet), sélecteur de
+  mois + sélecteur de plage pour les graphs, tuiles KPI, tableau par zone
+  (réseau / solaire / consommation / autoproduction / HT / TVA / TTC /
+  état), 4 graphs (consommation mensuelle, répartition par zone, devenir de
+  la production solaire, les deux taux), panneau tarifs, et un dépliant
+  "compteurs de contrôle + correspondance des séries".
+- `scripts/seed_demo_data.py` -- compteur de contrôle par zone, et surtout
+  la MÊME sémantique que le réel : "Solaire" d'une zone = autoconsommé
+  (donc conso = grid + solaire exactement), "Solaire" du bâtiment =
+  production totale, PV des appartements compris.
+- `tests/test_billing.py` -- 27 tests.
+
+### Décisions prises AVEC l'utilisateur (ne pas les redéfaire seul)
+
+- Découpage **mensuel** (le bimestriel a été abandonné).
+- Facturation sur **Grid + Solaire**, le compteur `Appartement N` en
+  contrôle uniquement.
+- Tarifs stockés **en base** avec une date de prise d'effet : un mois déjà
+  facturé reste reproductible à l'identique après un changement de prix.
+- Structure tarifaire : prix kWh réseau + prix kWh solaire + TVA. **Pas
+  d'abonnement fixe** (présent dans `docs/notes.md` mais écarté à ce stade).
+- Bornes de période en Europe/Zurich.
+- Les Communs restent une **ligne séparée**, non répartie.
+- Taux de TVA pré-rempli à 8,1 % mais éditable -- pas confirmé par
+  l'utilisateur.
+
+### Reste à faire
+
+- Génération de la facture elle-même (PDF / impression) par zone et par mois.
+- Décider du sort de la charge non sous-comptée au niveau de l'immeuble.
+- Compteurs `Chauffage App 2` (4167) et `Chauffage App 3` (2896) figés
+  depuis 10 mois -- hors périmètre du décompte électrique actuel, mais à
+  signaler si le chauffage doit être facturé un jour.
+
 ## Prochaine étape prévue
 
 Module de génération de factures / décomptes de charges par appartement,

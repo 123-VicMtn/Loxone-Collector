@@ -57,8 +57,27 @@ DAYS_OF_HISTORY = 60
 BIDIRECTIONAL_KINDS = {"grid", "battery"}
 
 KIND_LABELS = {"grid": "Grid", "solar": "Solaire", "battery": "Batterie"}
-BUILDING_LABELS = {"grid": "Réseau (général)", "solar": "Production (général)", "battery": "Batterie (générale)"}
-RESOURCE_TYPES = {"grid": "energie_reseau", "solar": "energie_solaire", "battery": "energie_batterie"}
+BUILDING_LABELS = {"grid": "Réseau (général)", "solar": "Production (général)",
+                    "battery": "Batterie (générale)", "conso": "Consommation générale"}
+RESOURCE_TYPES = {"grid": "energie_reseau", "solar": "energie_solaire",
+                   "battery": "energie_batterie", "conso": "energie_consommee"}
+
+# Kinds simulés pour chaque zone. "conso" est le COMPTEUR DE CONTRÔLE de la
+# zone ("Appartement 1" sur l'installation réelle) : il mesure la
+# consommation totale sans distinguer son origine. Sur l'installation réelle
+# il couvre un périmètre légèrement différent des compteurs du Moniteur de
+# flux d'énergie et ne sert donc pas à facturer (voir billing.py) ; ici il
+# est simulé comme leur somme exacte, ce qui suffit à exercer la page.
+#
+# Sémantique du compteur "Solaire", calquée sur l'installation réelle :
+#   - pour une ZONE, il mesure le solaire AUTOCONSOMMÉ par la zone (c'est
+#     ce que Loxone expose sous `selfConsumption`), donc
+#     conso = grid + solaire ;
+#   - pour le BÂTIMENT, il mesure la PRODUCTION totale du photovoltaïque.
+# Deux périmètres différents portant le même nom : c'est cette distinction
+# qui fait la différence entre taux d'autoproduction et taux
+# d'autoconsommation sur la page /decompte.
+KINDS = ("grid", "solar", "battery", "conso")
 
 # apartment, demand_kw (base de la consommation avant solaire/batterie),
 # solar_kw (crête PV), battery_kw (puissance charge/décharge max),
@@ -106,8 +125,15 @@ def build_series_defs():
 
     for z in ZONES:
         apt = z["apartment"]
-        for kind in ("grid", "solar", "battery"):
-            label = f"App {apt[-1]} {KIND_LABELS[kind]}" if apt else BUILDING_LABELS[kind]
+        for kind in KINDS:
+            if not apt:
+                label = BUILDING_LABELS[kind]
+            elif kind == "conso":
+                # Le compteur global d'une zone porte le nom de la zone, sans
+                # suffixe -- comme "Appartement 1" en face de "App 1 Grid".
+                label = f"Appartement {apt[-1]}"
+            else:
+                label = f"App {apt[-1]} {KIND_LABELS[kind]}"
             defs["energy_meters"].append(dict(apartment=apt, kind=kind, label=label, resource_type=RESOURCE_TYPES[kind]))
 
     for i, apt in enumerate(APARTMENTS):
@@ -172,6 +198,7 @@ def main():
             solar_total=z["base_solar_kwh"],
             battery_total=0.0,
             battery_neg_total=0.0,
+            conso_total=z["base_grid_kwh"] + z["base_solar_kwh"] * 0.6,
             battery_soc_kwh=z["battery_kwh"] * 0.5,  # état de charge initial : moitié pleine
         )
     running_water = {w["apartment"]: w["base_total"] for w in defs["water"]}
@@ -184,10 +211,20 @@ def main():
     snapshot_week = {}
     snapshot_month = {}
 
+    # Le compteur de production de l'immeuble doit totaliser TOUT le
+    # photovoltaïque, celui des appartements compris -- sinon
+    # l'autoconsommation (somme des parts solaires des zones) dépasserait la
+    # production et la page /decompte afficherait une injection négative. On
+    # accumule donc le solaire des appartements au fil de la boucle et on
+    # l'ajoute au compteur du bâtiment, ce qui suppose que la zone de
+    # bâtiment est traitée en DERNIER.
+    assert ZONES[-1]["apartment"] == "", "la zone de bâtiment doit être la dernière de ZONES"
+
     rows = []
     for h in range(total_hours, -1, -1):
         ts = now - h * 3600
         hour_of_day = (24 - (h % 24)) % 24
+        solaire_appartements_kw = 0.0
 
         for z in ZONES:
             apt = z["apartment"]
@@ -216,9 +253,22 @@ def main():
             grid_import_kw = remaining_demand_kw
             grid_export_kw = solar_surplus_kw
 
-            st["solar_total"] += solar_kw
+            # Voir la note sur KINDS : autoconsommé pour une zone (le
+            # solaire consommé sur place plus ce que la batterie restitue),
+            # production totale pour le compteur de bâtiment.
+            if apt:
+                st["solar_total"] += self_consumed_kw + max(0.0, -battery_flow_kw)
+                solaire_appartements_kw += solar_kw
+            else:
+                st["solar_total"] += solar_kw + solaire_appartements_kw
             st["grid_total"] += grid_import_kw
             st["grid_neg_total"] += grid_export_kw
+            # Compteur global de la zone : tout ce qui est réellement
+            # consommé sur place, quelle que soit sa provenance (solaire
+            # autoconsommé + décharge batterie + import réseau). C'est
+            # exactement `demand_kw` : ce que la batterie absorbe est
+            # stocké, pas consommé, et n'entre donc pas dans ce compteur.
+            st["conso_total"] += demand_kw  # = grid_import + autoconsommé + décharge
             if battery_flow_kw >= 0:
                 st["battery_total"] += battery_flow_kw
             else:
@@ -232,10 +282,13 @@ def main():
             rows.append((series_id(apt, "battery", "actual"), ts, round(battery_flow_kw, 3), None))
             rows.append((series_id(apt, "battery", "total"), ts, round(st["battery_total"], 3), None))
             rows.append((series_id(apt, "battery", "totalNeg"), ts, round(st["battery_neg_total"], 3), None))
+            rows.append((series_id(apt, "conso", "actual"), ts, round(demand_kw, 3), None))
+            rows.append((series_id(apt, "conso", "total"), ts, round(st["conso_total"], 3), None))
 
             if h in (24, 24 * 7) or (h == 24 * 30 and total_hours >= 24 * 30):
                 snap = dict(grid=st["grid_total"], grid_neg=st["grid_neg_total"], solar=st["solar_total"],
-                            battery=st["battery_total"], battery_neg=st["battery_neg_total"])
+                            battery=st["battery_total"], battery_neg=st["battery_neg_total"],
+                            conso=st["conso_total"])
                 if h == 24:
                     snapshot_day[apt] = snap
                 elif h == 24 * 7:
@@ -277,6 +330,7 @@ def main():
         base_day = snapshot_day.get(apt, dict(
             grid=z["base_grid_kwh"], grid_neg=round(z["base_solar_kwh"] * 0.25, 1),
             solar=z["base_solar_kwh"], battery=0.0, battery_neg=0.0,
+            conso=z["base_grid_kwh"] + z["base_solar_kwh"] * 0.6,
         ))
         base_week = snapshot_week.get(apt, base_day)
         base_month = snapshot_month.get(apt, base_week)
@@ -295,6 +349,9 @@ def main():
         add("battery", "totalNeg", st["battery_neg_total"], base_day["battery_neg"], base_week["battery_neg"],
             base_month["battery_neg"], 0.0)
 
+        add("conso", "total", st["conso_total"], base_day["conso"], base_week["conso"],
+            base_month["conso"], z["base_grid_kwh"] + z["base_solar_kwh"] * 0.6)
+
         live_rows.append((series_id(apt, "battery", "storage"), now,
                            round(st["battery_soc_kwh"] / z["battery_kwh"] * 100, 1), None))
 
@@ -308,7 +365,8 @@ def main():
                           for m in all_energy_meters)
     n_series = n_energy_series + len(defs["water"])
     print(f"Base de démo peuplée : {n_series} capteurs "
-          f"({len(all_energy_meters)} compteurs d'énergie (grid/solaire/batterie) + {len(defs['water'])} compteurs d'eau), "
+          f"({len(all_energy_meters)} compteurs d'énergie (grid/solaire/batterie/compteur global) "
+          f"+ {len(defs['water'])} compteurs d'eau), "
           f"{DAYS_OF_HISTORY} jours d'historique horaire synthétique sur actual/total(+Neg) "
           f"({archived} points archivés en moyennes horaires).")
     print(f"-> {cfg.db_path}")
