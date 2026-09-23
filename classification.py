@@ -26,14 +26,17 @@ import re
 
 # Motif par défaut : capture "APP" suivi de chiffres, avec ou sans espace
 # (ex: "APP01", "App 12", "app3"), insensible à la casse -- plus quelques
-# noms de zones non numérotées observées en pratique sur une installation
-# mixte (immeuble avec appartements + local commercial + rez-jardin +
-# parties communes) : "Commerce", "Rez Jardin", "Commun(s)". Un seul groupe
-# capturant est attendu. Reste volontairement best-effort : toute zone non
-# reconnue ici (ex: un compteur d'immeuble global comme "Réseau" ou
-# "Production") atterrit dans "Sans appartement" et peut être classée à la
-# main via /admin.
-DEFAULT_APARTMENT_PATTERN = r"(?i)(APP(?:ARTEMENT)?\s*\d+|Commerce|Rez\s*Jardin|Commun)"
+# noms de zones non numérotées ou différemment numérotées observées en
+# pratique sur deux installations mixtes distinctes (immeubles avec
+# appartements + locaux non résidentiels + parties communes) :
+# "Commerce"/"Rez Jardin"/"Commun(s)" (MS-Arlopi), "Bureau <n>" (unité de
+# bureau numérotée, MS-PPE-Horizon -- même principe que "Commerce" : un lot
+# non résidentiel facturé comme une zone à part). Un seul groupe capturant
+# est attendu. Reste volontairement best-effort : toute zone non reconnue
+# ici (ex: un compteur d'immeuble global comme "Réseau" ou "Production")
+# atterrit dans "Sans appartement" et peut être classée à la main via
+# /admin.
+DEFAULT_APARTMENT_PATTERN = r"(?i)(APP(?:ARTEMENT)?\s*\d+|Bureau\s*\d+|Commerce|Rez\s*Jardin|Commun)"
 
 # Règles appliquées dans l'ordre : la première dont le motif matche le nom
 # du capteur l'emporte. Chaque règle est un dict {"match": <regex>, "type": <clé>}.
@@ -49,8 +52,13 @@ DEFAULT_RESOURCE_TYPE_RULES: list[dict] = [
     {"match": r"(?i)(injection|export|feed[ -]?in|einspeisung)", "type": "energie_injectee"},
     {"match": r"(?i)(r[ée]seau|grid|netz|import)", "type": "energie_reseau"},
     # Fallback générique "eau" (sans qualificatif) : on suppose eau froide,
-    # hypothèse la plus courante pour un compteur d'eau non qualifié.
-    {"match": r"(?i)(eau|water)", "type": "eau_froide"},
+    # hypothèse la plus courante pour un compteur d'eau non qualifié. \b
+    # obligatoire ici (contrairement aux autres règles ci-dessus) : sans
+    # borne de mot, "eau" matche comme sous-chaîne de "Bureau" -- découvert
+    # en ajoutant "Bureau" à DEFAULT_APARTMENT_PATTERN (MS-PPE-Horizon),
+    # qui aurait fait classer un compteur électrique "Compteur Bureau 17" en
+    # eau froide.
+    {"match": r"(?i)(\beau\b|\bwater\b)", "type": "eau_froide"},
 ]
 
 # Libellés affichés dans le dashboard / la page d'admin pour chaque type.

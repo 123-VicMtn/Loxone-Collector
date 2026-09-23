@@ -89,7 +89,25 @@ RUPTURE_MIN_DROP_KWH = 0.5
 # Séries à écarter quand on cherche le compteur de contrôle d'une zone : le
 # chauffage et l'eau chaude sont des compteurs distincts (périmètres
 # séparés), et "Grid"/"Solaire"/"Sol" sont les compteurs EFM de facturation.
-CONTROLE_EXCLUDE_RE = re.compile(r"(?i)(chauffage|\bgrid\b|\bsol\b|solaire|eau[ _-]?chaude)")
+#
+# "chaleur", "cenergie" et "nrmachine" viennent de MS-PPE-Sequoia, dont les
+# compteurs thermiques sont nommés "compteur chaleur kWh" (et non
+# "chauffage") et rangés par classification.py en "energie_consommee", faute
+# de type "chaleur". Sans ces exclusions, le compteur de contrôle d'un lot
+# était le compteur de CHALEUR -- "APP 35 compteur chaleur kWh [50]" passe
+# avant "Appartement 35" dans l'ordre alphabétique de _pick (majuscules
+# avant minuscules) -- soit des kWh thermiques affichés dans une colonne
+# électrique. "CEnergieApp35"/"CNrMachineApp35" sont, eux, la part de
+# buanderie commune du lot (catégorie Loxone "Lessive"), déjà comprise dans
+# le compteur des communs : les additionner double-compterait.
+#
+# "c[ch]aleur" et non "chaleur" : un point de l'App 34 est réellement nommé
+# "APP 34 compteur Ccaleur volume [53]" dans Loxone Config (coquille côté
+# installateur). Sans la tolérance, ce compteur de volume de chauffage
+# devenait le compteur de contrôle électrique de l'App 34.
+CONTROLE_EXCLUDE_RE = re.compile(
+    r"(?i)(chauffage|c[ch]aleur|\bgrid\b|\bsol\b|solaire|eau[ _-]?chaude|cenergie|nrmachine)"
+)
 
 # Repli pour identifier un compteur solaire mal classé automatiquement :
 # "Communs Sol" est rangé en "énergie consommée" par classification.py, faute
@@ -267,7 +285,9 @@ def _zone_sort_key(apt: str):
 # Les identifiants de zone sont normalisés en majuscules sans espace par
 # classification.extract_apartment ("Rez Jardin" -> "REZJARDIN") : on refait
 # ici le chemin inverse pour l'affichage, qui est lu par un propriétaire.
-ZONE_LABEL_OVERRIDES = {"REZJARDIN": "Rez Jardin", "COMMUN": "Communs"}
+ZONE_LABEL_OVERRIDES = {"REZJARDIN": "Rez Jardin", "COMMUN": "Communs",
+                        "SALLESCOMMUNES": "Salles Communes",
+                        "WALLBOX": "Wallbox"}
 
 
 def _zone_label(apt: str) -> str:
@@ -276,6 +296,9 @@ def _zone_label(apt: str) -> str:
     m = re.fullmatch(r"(?i)APP(\d+)", apt)
     if m:
         return f"App {int(m.group(1))}"
+    m = re.fullmatch(r"(?i)BUREAU(\d+)", apt)
+    if m:
+        return f"Bureau {int(m.group(1))}"
     return apt.capitalize() if apt.isupper() else apt
 
 
@@ -284,14 +307,19 @@ def _zone_label(apt: str) -> str:
 # --------------------------------------------------------------------------
 
 def _reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
-                    now_ts: int) -> dict:
+                   now_ts: int, min_drop: float = RUPTURE_MIN_DROP_KWH) -> dict:
     """Consommation d'une série cumulative sur [start_ts, end_ts[ : relevé de
     fin - relevé de début, plus tout ce qui permet de juger sa fiabilité.
 
     `now_ts` sert uniquement à la détection des trous de collecte : sur un
     mois EN COURS, la borne de fin est dans le futur, et comparer le dernier
     relevé à cette borne signalerait à tort des semaines de données
-    manquantes."""
+    manquantes.
+
+    `min_drop` est le seuil de détection d'une rupture de compteur, dans
+    l'unité de la série : la valeur par défaut est calibrée pour des kWh, un
+    compteur d'eau en m^3 demande un seuil plus fin (voir
+    scripts/export_appartement.py)."""
     start = db.query_value_at(conn, series_id, start_ts)
     end = db.query_value_at(conn, series_id, end_ts - 1)
 
@@ -328,7 +356,7 @@ def _reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
 
     res["kwh"] = end[1] - start[1]
 
-    ruptures = _detect_ruptures(conn, series_id, start_ts, end_ts)
+    ruptures = _detect_ruptures(conn, series_id, start_ts, end_ts, min_drop)
     if ruptures:
         res["ruptures"] = ruptures
         res["alertes"].append(
@@ -341,17 +369,19 @@ def _reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
     return res
 
 
-def _detect_ruptures(conn, series_id: str, start_ts: int, end_ts: int) -> list[dict]:
-    """Jours où le compteur cumulatif a BAISSÉ de plus de
-    RUPTURE_MIN_DROP_KWH : reset, remplacement de compteur, ou dépassement
-    de capacité. Un décompte calculé à cheval sur un tel jour est faux, donc
-    on préfère ne rien afficher plutôt qu'un chiffre plausible mais faux."""
+def _detect_ruptures(conn, series_id: str, start_ts: int, end_ts: int,
+                     min_drop: float = RUPTURE_MIN_DROP_KWH) -> list[dict]:
+    """Jours où le compteur cumulatif a BAISSÉ de plus de `min_drop` (par
+    défaut RUPTURE_MIN_DROP_KWH) : reset, remplacement de compteur, ou
+    dépassement de capacité. Un décompte calculé à cheval sur un tel jour est
+    faux, donc on préfère ne rien afficher plutôt qu'un chiffre plausible
+    mais faux."""
     rows = db.query_daily_last(conn, series_id, start_ts, end_ts - 1)
     out = []
     for i in range(1, len(rows)):
         prev_value = rows[i - 1][1]
         day_ts, value = rows[i]
-        if prev_value - value > RUPTURE_MIN_DROP_KWH:
+        if prev_value - value > min_drop:
             out.append({"date_ts": day_ts, "avant": prev_value, "apres": value})
     return out
 
