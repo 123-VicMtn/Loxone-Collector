@@ -9,3 +9,6 @@ __pycache__/
 .venv/
 _to_delete/
 data/ws_tokens/
+.DS_Store
+/docs
+
