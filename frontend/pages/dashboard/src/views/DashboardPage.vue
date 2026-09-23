@@ -6,9 +6,8 @@
  * composables/useExplorerSelection pour pourquoi la sélection Explorer vit
  * ici plutôt que dans l'onglet ou dans la sidebar.
  *
- * Migration en plusieurs commits (voir CLAUDE.md, "pages/dashboard/") :
- * Explorer et Énergie sont fonctionnels, Consommations par zone arrive
- * dans une prochaine étape.
+ * Migration en plusieurs commits (voir CLAUDE.md, "pages/dashboard/") --
+ * les 3 onglets sont désormais fonctionnels.
  */
 
 import { ref } from 'vue'
@@ -16,6 +15,7 @@ import { useHealthFooter } from '@shared/composables/useHealthFooter'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
 import EnergyTab from '../tabs/EnergyTab.vue'
+import ZoneTab from '../tabs/ZoneTab.vue'
 import { useExplorerSelection } from '../composables/useExplorerSelection'
 
 type TabKey = 'explorer' | 'energie' | 'zone'
@@ -65,9 +65,8 @@ const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection(
       <section v-show="activeTab === 'energie'">
         <EnergyTab />
       </section>
-      <section v-if="activeTab === 'zone'" class="text-sm text-neutral-500">
-        Onglet « Consommations par zone » en cours de migration -- disponible
-        sur l'ancien dashboard en attendant.
+      <section v-show="activeTab === 'zone'">
+        <ZoneTab />
       </section>
 
       <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">

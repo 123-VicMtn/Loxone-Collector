@@ -1565,16 +1565,63 @@ du portage (même API, même donnée que la version legacy).
 **Pas de vérification visuelle humaine** (toujours aucun outil de
 navigateur dans cette session).
 
+## Onglet Consommations par zone porté — les 3 onglets sont fonctionnels — 2026-09-23
+
+Dernier onglet du dashboard (`tabs/zone-tab.js`, 158 lignes) -- comme prévu,
+le plus simple des trois : réutilise tel quel `ZoneSelect.vue`,
+`KpiTile.vue`, `@shared/charts` déjà construits pour Énergie. Toujours
+derrière `/dashboard-vue`, `/` intact.
+
+**Seul ajustement partagé** : `periodGroupData()` (`tabs/energy/periodGroup.ts`)
+acceptait un `labelPrefix` toujours non-vide (ex: "Réseau (import) —
+Aujourd'hui") ; l'onglet zone n'affiche qu'une ressource à la fois donc n'a
+pas besoin de préfixe ("Aujourd'hui" tout court). Étendu pour accepter un
+préfixe vide (`withPrefix()` n'ajoute le tiret que si non-vide) plutôt que
+de dupliquer toute la fonction -- comportement d'Énergie inchangé (préfixes
+non-vides partout), vérifié par le test Playwright d'Énergie qui repasse.
+
+**`pages/dashboard/src/tabs/zone/charts.ts`** (nouveau, 2 fonctions) --
+contrairement à Énergie (toujours réseau+solaire en paire), une seule
+série cumulative à la fois : `buildSingleDailyChart`/`buildSingleMonthlyChart`,
+distinctes des builders "paire" d'Énergie plutôt que de forcer une
+factorisation entre les deux formes.
+
+**`ZoneTab.vue`** : `watch(zone, ...)` recalcule la liste des ressources
+disponibles et reprend la première dès qu'on change de zone (la ressource
+choisie peut ne plus exister dans la nouvelle zone) -- port de
+`buildResourceOptions()` rappelé à chaque changement de zone dans le JS
+d'origine.
+
+**Validé avant de rendre la main** : `npm run build:dashboard` propre,
+sortie confirmée à `static/dashboard-app/`, `pytest` 59/59. Playwright
+contre le vrai Flask démo : 5 types de ressource proposés pour une zone,
+changement de ressource (Eau chaude -> Énergie batterie) recalcule
+correctement les tuiles (relevé "m³" simple -> tuiles jour/semaine/mois/
+année en kWh), changement de zone rafraîchit la liste de ressources et les
+valeurs (10,83 m³ -> 13,27 m³, confirmé différent donc vraiment rechargé),
+**Explorer et Énergie revérifiés fonctionnels après avoir visité l'onglet
+zone** (pas de régression croisée entre onglets, les caches partagés
+`@shared/api/series` et `@shared/config` survivent bien aux changements
+d'onglet), zéro erreur console.
+
+**Pas de vérification visuelle humaine** (toujours aucun outil de
+navigateur dans cette session).
+
+**Les 3 onglets du dashboard sont maintenant fonctionnels** derrière
+`/dashboard-vue`. Reste la bascule de `/` lui-même + le nettoyage du code
+mort -- dernière étape de toute la migration Vue.
+
 ## Prochaine étape prévue
 
-`pages/dashboard/` suite -- Consommations par zone (`zone-tab.js`,
-158 lignes, le plus simple des 3 onglets -- réutilise `ZoneSelect.vue`,
-`KpiTile.vue`, `NoteText.vue`, `@shared/charts` déjà en place). Puis
-bascule `/` + suppression du code mort (`templates/index.html`,
-`static/js/{main,tabs,sidebar}.js`, `static/js/tabs/*.js`,
-`static/js/core/*.js` -- ce dernier à vérifier qu'aucune autre page ne le
-sert encore avant suppression, mais `/`, `/admin` et `/decompte` étant
-toutes les trois déjà en Vue à ce stade, ce sera le cas).
+Bascule `/` sur le build Vue + suppression du code mort
+(`templates/index.html`, `static/js/{main,tabs,sidebar}.js`,
+`static/js/tabs/*.js`, `static/js/core/*.js`) -- `/`, `/admin` et
+`/decompte` étant toutes les trois déjà en Vue à ce stade, `core/*.js`
+n'aura plus aucun consommateur, à vérifier par `grep` avant suppression
+comme pour les bascules précédentes. Dernière étape de la migration
+`/` -- après ça, ajouter `npm --prefix frontend run build` à la doc de
+déploiement (déjà fait pour `build`, qui couvre déjà les 3 pages) et
+clore le chantier dans "Ce qui fonctionne aujourd'hui".
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`
