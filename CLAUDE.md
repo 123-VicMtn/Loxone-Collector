@@ -1024,11 +1024,89 @@ encore dans le dépôt -- cette section fige le choix, l'implémentation
 (structure de dossier, intégration dev/build avec Flask, migration de
 `/decompte`) reste à faire dans une prochaine étape.
 
+## Scaffolding + première implémentation Vue de `/decompte` — 2026-09-23
+
+Scaffold Vite+Vue3+TS+Tailwind créé dans `frontend/` (`npm create vite@latest
+frontend -- --template vue-ts`, `@tailwindcss/vite`, proxy dev `/api`+`/health`
+-> Flask), commandes détaillées données à l'utilisateur pour qu'il les lance
+lui-même dans son Terminal natif (pas via l'outil de la session).
+
+Puis port complet de la page `/decompte` (JS vanilla `static/js/decompte/*`
++ `templates/decompte.html`) en composants Vue -- toute la logique
+d'orchestration de `main.js` (renderPeriod/renderRange/renderAll) disparaît :
+c'est la réactivité Vue (computed sur `payload`/`periodeKey`/`historiqueKey`)
+qui la remplace, "bonus gratuit" déjà observé lors du refactor sidebar.
+
+**Structure livrée** (`frontend/src/`) :
+- `types/decompte.ts` -- types stricts du payload `/api/decompte` (Period,
+  Zone, ZonePeriod, ReadingDelta, Montants, Batiment, Tarif), reconstruits
+  depuis `billing.py::compute_decompte`/`_zone_period`/`_batiment_period`
+  (source de vérité, jamais l'inverse).
+- `api/http.ts` + `api/decompte.ts` + `api/health.ts` -- un seul point de
+  fetch, même principe que `core/api.js`.
+- `utils/format.ts` (fmtNumber/fmtKwh/fmtCHF/fmtPct/fmtDay/fmtPeriodBounds)
+  et `utils/charts.ts` (palette + options Chart.js) -- ports directs de
+  `decompte/format.js`+`core/format.js` et `core/charts.js`.
+- `composables/useHealthFooter.ts` -- port de `core/health.js`.
+- `components/decompte/*.vue` -- un composant par section : KpiTile, Card,
+  StatusBadge, GlobalBanner, PeriodeKpis, ZoneTable, BatimentTable,
+  ControleTable, SourcesTable, TarifsPanel, et les 4 graphs
+  (Evolution/Zones/Solaire/Taux, via `vue-chartjs`).
+- `views/DecomptePage.vue` -- orchestration (chargement des sites, sélection
+  période/historique, logique de mois par défaut -- port fidèle de
+  `loadSite()`).
+
+**Décisions prises pendant l'implémentation** (à ne pas rouvrir sans
+raison) :
+- **Rendu en Tailwind pur, pas d'import de `static/css/style.css`.** La
+  page legacy et la page Vue peuvent donc diverger visuellement pendant la
+  transition -- acceptable, `/decompte` est déjà "une page autonome, pas un
+  onglet". Pas de dark mode (l'app n'en a pas ailleurs).
+- **Chart.js installé en dépendance npm** (`chart.js` + `vue-chartjs`,
+  `Chart.register(...registerables)` dans `main.ts`), et non plus le bundle
+  vendored `vendor/chart.umd.min.js` -- cohérent avec la philosophie "pas
+  de dépendance internet au runtime" (npm résout au build, aucun appel
+  réseau en prod) sans dupliquer le vendoring manuel.
+- **Événements de tarifs = "changed" + re-fetch complet** (`TarifsPanel`
+  n'a pas d'état interne, `DecomptePage` refetch decompte+tarifs sur
+  `@changed`) plutôt que d'utiliser la liste retournée par
+  `saveTarif`/`deleteTarif` directement (comme le faisait `tarifs.js`) --
+  flux de données unidirectionnel plus simple, coût négligeable (2 requêtes
+  au lieu d'1).
+- **Proxy dev configurable** (`vite.config.ts` lit `VITE_API_PROXY_TARGET`,
+  défaut `http://localhost:8082` = le port de `config.demo.yaml` ; `config.yaml`
+  prod utilise le port 5000) -- à surcharger via `frontend/.env.local`
+  (gitignored) plutôt que modifier `vite.config.ts`.
+
+**Validé avant de rendre la main** : `vue-tsc -b` propre (aucune erreur de
+type), `npm run build` réussi (bundle ~300 kB, ~105 kB gzip), et **données
+réelles vérifiées de bout en bout** via le serveur Flask démo déjà lancé par
+l'utilisateur (`config.demo.yaml`, port 8082) : `/api/miniservers`,
+`/api/decompte?miniserver=demo` (3 zones, 3 mois) et `/api/tarifs` répondent
+correctement à travers le proxy Vite (port 5174 -- 5173 déjà pris par une
+autre instance).
+
+**PAS validé visuellement** : l'extension Claude in Chrome n'est pas
+connectée dans cette session (installation commencée puis abandonnée par
+l'utilisateur) -- aucune vérification dans un vrai navigateur n'a été
+possible. **À faire par l'utilisateur avant de considérer cette étape
+terminée** : ouvrir `http://localhost:5174` (le serveur `npm run dev` tourne
+déjà en arrière-plan) et comparer visuellement à `http://localhost:8082/decompte`
+(page legacy, toujours intacte).
+
+**Pas encore fait** (volontairement hors scope de cette étape) :
+- Wiring production : comment `app.py`/`templates/decompte.html` serviront
+  le résultat de `vite build` (fichiers hashés + manifest, ou noms fixes) --
+  la page `/decompte` Flask actuelle n'a pas été touchée, elle reste la
+  version servie en prod tant que ce câblage n'est pas fait.
+- Aucun commit : `frontend/src/**` est untracked, à review et committer par
+  l'utilisateur.
+
 ## Prochaine étape prévue
 
-Court terme : scaffolder le projet Vue 3 + Vite + TypeScript + Tailwind
-(voir section ci-dessus) et migrer `/decompte` en premier, Flask
-continuant à servir l'API JSON sans changement.
+Court terme : valider visuellement `frontend/` (voir section ci-dessus),
+puis décider et implémenter le câblage production (Flask sert le build Vite
+sur `/decompte`, remplaçant `templates/decompte.html`).
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`
