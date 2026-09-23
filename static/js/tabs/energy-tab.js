@@ -10,7 +10,7 @@
  */
 
 import { loadAllSeries, findSeries, fetchJSON, fetchLatest, fetchDaily } from "../core/api.js";
-import { fmtNumber, fmtDateShort, fmtMonthShort, fmtDateTimeShort, zoneLabel } from "../core/format.js";
+import { fmtNumber, fmtDateShort, fmtMonthShort, fmtDateTimeShort, zoneLabel, zoneKey, matchesZone } from "../core/format.js";
 import {
   PALETTE_GRID, PALETTE_SOLAR, PALETTE_BATTERY,
   baseLineOptions, baseBarOptions, kpiTile, noteEl, aggregateMonthly,
@@ -23,31 +23,44 @@ let batteryChart = null;
 let range = "24h";
 let zonesBuilt = false;
 
+/** Zones groupées par site (<optgroup>) -- deux sites peuvent chacun avoir
+ * un "App 1", la valeur de chaque <option> est donc la clé composite
+ * site+appartement (zoneKey), pas l'appartement seul. */
 function buildZoneOptions(allSeries) {
   const select = document.getElementById("energy-zone-select");
-  const zones = new Set();
+  const bySite = new Map();
   allSeries.forEach((s) => {
     if (["energie_reseau", "energie_solaire", "energie_batterie", "energie_flux"].includes(s.resource_type)) {
-      zones.add(s.apartment || "");
+      const site = s.miniserver || "";
+      if (!bySite.has(site)) bySite.set(site, new Set());
+      bySite.get(site).add(s.apartment || "");
     }
   });
-  const sorted = Array.from(zones).sort((a, b) => {
-    if (a === "") return 1;
-    if (b === "") return -1;
-    return a.localeCompare(b);
-  });
+  const sites = Array.from(bySite.keys()).sort((a, b) => a.localeCompare(b));
+  const multiSite = sites.length > 1;
+
   select.innerHTML = "";
-  sorted.forEach((apt) => {
-    const opt = document.createElement("option");
-    opt.value = apt;
-    opt.textContent = zoneLabel(apt);
-    select.appendChild(opt);
+  sites.forEach((site) => {
+    const sorted = Array.from(bySite.get(site)).sort((a, b) => {
+      if (a === "") return 1;
+      if (b === "") return -1;
+      return a.localeCompare(b);
+    });
+    const container = multiSite ? document.createElement("optgroup") : select;
+    if (multiSite) container.label = site || "Sans site";
+    sorted.forEach((apt) => {
+      const opt = document.createElement("option");
+      opt.value = zoneKey({ miniserver: site, apartment: apt });
+      opt.textContent = zoneLabel(apt);
+      container.appendChild(opt);
+    });
+    if (multiSite) select.appendChild(container);
   });
 }
 
 function seriesFor(zone) {
   const find = (resourceType, stateName) =>
-    findSeries((s) => (s.apartment || "") === zone && s.resource_type === resourceType && s.state_name === stateName);
+    findSeries((s) => matchesZone(s, zone) && s.resource_type === resourceType && s.state_name === stateName);
   return {
     gridActual: find("energie_reseau", "actual"),
     gridTotal: find("energie_reseau", "total"),

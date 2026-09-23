@@ -6,7 +6,7 @@
  */
 
 import { loadAllSeries, findSeries, fetchLatest, fetchDaily } from "../core/api.js";
-import { fmtNumber, fmtDateShort, fmtMonthShort, zoneLabel, resourceLabel } from "../core/format.js";
+import { fmtNumber, fmtDateShort, fmtMonthShort, zoneLabel, resourceLabel, zoneKey, matchesZone } from "../core/format.js";
 import { getResourceTypeLabels } from "../core/config.js";
 import { PALETTE_GENERIC, baseBarOptions, kpiTile, aggregateMonthly } from "../core/charts.js";
 
@@ -14,21 +14,36 @@ let dailyChart = null;
 let monthlyChart = null;
 let optionsBuilt = false;
 
+/** Zones groupées par site (<optgroup>) -- deux sites peuvent chacun avoir
+ * un "App 1", la valeur de chaque <option> est donc la clé composite
+ * site+appartement (zoneKey), pas l'appartement seul. */
 function buildZoneOptions(allSeries) {
   const zoneSelect = document.getElementById("zone-zone-select");
-  const zones = new Set();
-  allSeries.forEach((s) => zones.add(s.apartment || ""));
-  const sorted = Array.from(zones).sort((a, b) => {
-    if (a === "") return 1;
-    if (b === "") return -1;
-    return a.localeCompare(b);
+  const bySite = new Map();
+  allSeries.forEach((s) => {
+    const site = s.miniserver || "";
+    if (!bySite.has(site)) bySite.set(site, new Set());
+    bySite.get(site).add(s.apartment || "");
   });
+  const sites = Array.from(bySite.keys()).sort((a, b) => a.localeCompare(b));
+  const multiSite = sites.length > 1;
+
   zoneSelect.innerHTML = "";
-  sorted.forEach((apt) => {
-    const opt = document.createElement("option");
-    opt.value = apt;
-    opt.textContent = zoneLabel(apt);
-    zoneSelect.appendChild(opt);
+  sites.forEach((site) => {
+    const sorted = Array.from(bySite.get(site)).sort((a, b) => {
+      if (a === "") return 1;
+      if (b === "") return -1;
+      return a.localeCompare(b);
+    });
+    const container = multiSite ? document.createElement("optgroup") : zoneSelect;
+    if (multiSite) container.label = site || "Sans site";
+    sorted.forEach((apt) => {
+      const opt = document.createElement("option");
+      opt.value = zoneKey({ miniserver: site, apartment: apt });
+      opt.textContent = zoneLabel(apt);
+      container.appendChild(opt);
+    });
+    if (multiSite) zoneSelect.appendChild(container);
   });
 }
 
@@ -38,7 +53,7 @@ function buildResourceOptions(allSeries) {
   const labels = getResourceTypeLabels();
   const types = new Set();
   allSeries.forEach((s) => {
-    if ((s.apartment || "") === zone && s.state_name === "total") types.add(s.resource_type || "autre");
+    if (matchesZone(s, zone) && s.state_name === "total") types.add(s.resource_type || "autre");
   });
   const sorted = Array.from(types).sort((a, b) => resourceLabel(a, labels).localeCompare(resourceLabel(b, labels)));
   resourceSelect.innerHTML = "";
@@ -52,7 +67,7 @@ function buildResourceOptions(allSeries) {
 
 async function renderKpis(zone, rtype, totalSeriesId, unit) {
   const findState = (state) =>
-    findSeries((s) => (s.apartment || "") === zone && s.resource_type === rtype && s.state_name === state);
+    findSeries((s) => matchesZone(s, zone) && s.resource_type === rtype && s.state_name === state);
   const dayS = findState("totalDay");
   const weekS = findState("totalWeek");
   const monthS = findState("totalMonth");
@@ -111,7 +126,7 @@ async function refresh() {
   const hint = document.getElementById("zone-empty-hint");
   const body = document.getElementById("zone-body");
 
-  const totalSeries = findSeries((s) => (s.apartment || "") === zone && s.resource_type === rtype && s.state_name === "total");
+  const totalSeries = findSeries((s) => matchesZone(s, zone) && s.resource_type === rtype && s.state_name === "total");
   if (!totalSeries) {
     hint.hidden = false;
     hint.textContent = 'Aucune série cumulative ("total") pour cette combinaison zone/ressource.';

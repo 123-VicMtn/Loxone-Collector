@@ -57,21 +57,29 @@ function renderTable(table, tarifs, onDelete) {
   table.appendChild(tbody);
 }
 
-export function initTarifs({ table, form, message, tarifs, onChange }) {
-  let current = tarifs;
+/**
+ * `miniserver` est mutable (via `setTarifs`, appelé par main.js à chaque
+ * changement de site) plutôt que figé à l'appel de `initTarifs` : la page
+ * décompte n'a qu'un seul formulaire tarifs, réutilisé pour tous les sites
+ * -- ré-appeler `initTarifs` à chaque changement de site empilerait un
+ * nouveau listener "submit" à chaque fois (double, triple... enregistrement
+ * du même tarif). `initTarifs` ne s'appelle donc qu'une fois, au chargement
+ * de la page.
+ */
+export function initTarifs({ table, form, message, onChange }) {
+  let current = [];
+  let miniserver = "";
 
   const handleDelete = async (t) => {
     if (!window.confirm(
       `Supprimer le tarif valable dès le ${t.valid_from} ?\n` +
       "Les mois qui s'appuyaient dessus seront recalculés avec le tarif précédent."
     )) return;
-    current = await deleteTarif(t.id);
+    current = await deleteTarif(t.id, miniserver);
     renderTable(table, current, handleDelete);
     message.textContent = "Tarif supprimé, décompte recalculé.";
     onChange();
   };
-
-  renderTable(table, current, handleDelete);
 
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -79,6 +87,7 @@ export function initTarifs({ table, form, message, tarifs, onChange }) {
     message.textContent = "";
     try {
       current = await saveTarif({
+        miniserver,
         valid_from: data.valid_from,
         prix_reseau: Number(data.prix_reseau),
         prix_solaire: Number(data.prix_solaire),
@@ -92,4 +101,14 @@ export function initTarifs({ table, form, message, tarifs, onChange }) {
       message.textContent = `Échec de l'enregistrement : ${err.message}`;
     }
   });
+
+  return {
+    /** Appelé par main.js à l'init et à chaque changement de site. */
+    setTarifs(tarifs, ms) {
+      current = tarifs;
+      miniserver = ms;
+      message.textContent = "";
+      renderTable(table, current, handleDelete);
+    },
+  };
 }

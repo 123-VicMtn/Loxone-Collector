@@ -8,7 +8,7 @@
  * affiché » et ne dépendent donc pas du mois facturé.
  */
 
-import { fetchDecompte, fetchTarifs } from "./api.js";
+import { fetchDecompte, fetchTarifs, fetchMiniservers } from "./api.js";
 import {
   renderKpis, renderZoneTable, renderBatimentTable, renderControleTable,
   renderSourcesTable, renderPeriodBounds,
@@ -21,6 +21,10 @@ import { initHealthFooter } from "../core/health.js";
 
 const els = {};
 let payload = null;
+let currentSite = null;
+let tarifsApi = null;
+
+const SITE_STORAGE_KEY = "decompte-site";
 
 function selectedPeriod() {
   return payload.periodes.find((p) => p.key === els.periodeSelect.value) || null;
@@ -96,41 +100,36 @@ function renderGlobalBanner() {
 }
 
 async function reload() {
-  payload = await fetchDecompte();
+  payload = await fetchDecompte({ miniserver: currentSite });
   renderAll();
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
-  Object.assign(els, {
-    loading: document.getElementById("decompte-loading"),
-    body: document.getElementById("decompte-body"),
-    alerte: document.getElementById("decompte-alerte"),
-    periodeSelect: document.getElementById("periode-select"),
-    historiqueSelect: document.getElementById("historique-select"),
-    periodeBornes: document.getElementById("periode-bornes"),
-    kpis: document.getElementById("periode-kpis"),
-    periodeAlertes: document.getElementById("periode-alertes"),
-    table: document.getElementById("decompte-table"),
-    tableHint: document.getElementById("decompte-table-hint"),
-    zonesHint: document.getElementById("chart-zones-hint"),
-    batimentTable: document.getElementById("batiment-table"),
-    controleTable: document.getElementById("controle-table"),
-    sourcesTable: document.getElementById("sources-table"),
-    tarifsTable: document.getElementById("tarifs-table"),
-    tarifForm: document.getElementById("tarif-form"),
-    tarifMessage: document.getElementById("tarif-message"),
-  });
+/** Charge et affiche tout le décompte d'UN site -- appelé au chargement de
+ * la page et à chaque changement de site dans le sélecteur. Un décompte est
+ * toujours celui d'un seul site à la fois (voir CLAUDE.md, "Décompte de
+ * charges" et app.py::_resolve_miniserver) : mélanger deux immeubles
+ * fausserait les montants facturés. */
+async function loadSite(site) {
+  currentSite = site;
+  localStorage.setItem(SITE_STORAGE_KEY, site);
 
-  initHealthFooter();
+  els.body.hidden = true;
+  els.loading.hidden = false;
+  els.loading.textContent = "Chargement du décompte…";
+  els.periodeSelect.innerHTML = "";
+  els.historiqueSelect.innerHTML = "";
 
   try {
-    const [data, tarifs] = await Promise.all([fetchDecompte(), fetchTarifs()]);
+    const [data, tarifs] = await Promise.all([
+      fetchDecompte({ miniserver: site }),
+      fetchTarifs(site),
+    ]);
     payload = data;
 
     if (!payload.periodes.length || !payload.zones.length) {
       els.loading.textContent =
-        "Aucune donnée exploitable pour un décompte : il faut au moins une zone " +
-        "avec des compteurs cumulatifs (state « total ») en base.";
+        "Aucune donnée exploitable pour un décompte sur ce site : il faut au moins " +
+        "une zone avec des compteurs cumulatifs (state « total ») en base.";
       return;
     }
 
@@ -160,25 +159,84 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
     els.periodeSelect.value = defaut;
-    els.periodeSelect.addEventListener("change", renderPeriod);
 
     const premierAvecDonnees = payload.periodes.find((p) => hasZoneData(p.key));
     els.historiqueSelect.value = (premierAvecDonnees || payload.periodes[0]).key;
-    els.historiqueSelect.addEventListener("change", renderRange);
 
-    initTarifs({
-      table: els.tarifsTable,
-      form: els.tarifForm,
-      message: els.tarifMessage,
-      tarifs,
-      onChange: reload,
-    });
+    tarifsApi.setTarifs(tarifs, site);
 
     renderAll();
     els.loading.hidden = true;
     els.body.hidden = false;
   } catch (err) {
     console.error(err);
+    els.loading.hidden = false;
     els.loading.textContent = `Impossible de charger le décompte : ${err.message}`;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  Object.assign(els, {
+    loading: document.getElementById("decompte-loading"),
+    body: document.getElementById("decompte-body"),
+    alerte: document.getElementById("decompte-alerte"),
+    siteSelect: document.getElementById("site-select"),
+    periodeSelect: document.getElementById("periode-select"),
+    historiqueSelect: document.getElementById("historique-select"),
+    periodeBornes: document.getElementById("periode-bornes"),
+    kpis: document.getElementById("periode-kpis"),
+    periodeAlertes: document.getElementById("periode-alertes"),
+    table: document.getElementById("decompte-table"),
+    tableHint: document.getElementById("decompte-table-hint"),
+    zonesHint: document.getElementById("chart-zones-hint"),
+    batimentTable: document.getElementById("batiment-table"),
+    controleTable: document.getElementById("controle-table"),
+    sourcesTable: document.getElementById("sources-table"),
+    tarifsTable: document.getElementById("tarifs-table"),
+    tarifForm: document.getElementById("tarif-form"),
+    tarifMessage: document.getElementById("tarif-message"),
+  });
+
+  initHealthFooter();
+
+  // Bindés une seule fois : renderPeriod/renderRange relisent `payload` à
+  // chaque appel, donc réutilisables tels quels après un changement de site
+  // (les réabonner à chaque changement de site empilerait des doublons).
+  els.periodeSelect.addEventListener("change", renderPeriod);
+  els.historiqueSelect.addEventListener("change", renderRange);
+
+  tarifsApi = initTarifs({
+    table: els.tarifsTable,
+    form: els.tarifForm,
+    message: els.tarifMessage,
+    onChange: reload,
+  });
+
+  try {
+    const sites = await fetchMiniservers();
+    if (!sites.length) {
+      els.loading.textContent = "Aucun site (miniserver) configuré.";
+      return;
+    }
+
+    els.siteSelect.innerHTML = "";
+    sites.forEach((site) => {
+      const opt = document.createElement("option");
+      opt.value = site;
+      opt.textContent = site;
+      els.siteSelect.appendChild(opt);
+    });
+
+    const saved = localStorage.getItem(SITE_STORAGE_KEY);
+    const initialSite = sites.includes(saved) ? saved : sites[0];
+    els.siteSelect.value = initialSite;
+    document.getElementById("site-field").hidden = sites.length <= 1;
+
+    els.siteSelect.addEventListener("change", () => loadSite(els.siteSelect.value));
+
+    await loadSite(initialSite);
+  } catch (err) {
+    console.error(err);
+    els.loading.textContent = `Impossible de charger la liste des sites : ${err.message}`;
   }
 });

@@ -38,11 +38,12 @@ function compareApartments(a, b) {
   return String(valueA).localeCompare(String(valueB));
 }
 
-/** 2 niveaux : appartement -> libellé du type de ressource -> capteurs. */
-function buildApartmentGroups() {
+/** 2 niveaux : appartement -> libellé du type de ressource -> capteurs.
+ * `seriesArr` scope déjà à un seul site -- voir groupBySite(). */
+function buildApartmentGroups(seriesArr) {
   const labels = getResourceTypeLabels();
   const byApartment = new Map();
-  allSeries.forEach((s) => {
+  seriesArr.forEach((s) => {
     const apt = s.apartment || "Sans appartement";
     const typeLabel = resourceLabel(s.resource_type, labels);
     if (!byApartment.has(apt)) byApartment.set(apt, new Map());
@@ -60,10 +61,11 @@ function buildApartmentGroups() {
     }));
 }
 
-/** 1 niveau : pièce -> capteurs (ancienne vue, gardée en bascule). */
-function buildRoomGroups() {
+/** 1 niveau : pièce -> capteurs (ancienne vue, gardée en bascule).
+ * `seriesArr` scope déjà à un seul site -- voir groupBySite(). */
+function buildRoomGroups(seriesArr) {
   const byRoom = new Map();
-  allSeries.forEach((s) => {
+  seriesArr.forEach((s) => {
     const room = s.room || "Sans pièce";
     if (!byRoom.has(room)) byRoom.set(room, []);
     byRoom.get(room).push(s);
@@ -71,6 +73,20 @@ function buildRoomGroups() {
   return Array.from(byRoom.keys())
     .sort((a, b) => a.localeCompare(b))
     .map((room) => ({ label: room, series: byRoom.get(room) }));
+}
+
+/** Premier niveau de regroupement, avant appartement/pièce : le site
+ * physique (miniserver). Deux miniservers peuvent parfaitement avoir tous
+ * les deux un "App 1" -- sans ce niveau, leurs capteurs se retrouveraient
+ * mélangés sous la même entrée d'arbre. */
+function groupBySite(seriesArr) {
+  const bySite = new Map();
+  seriesArr.forEach((s) => {
+    const site = s.miniserver || "";
+    if (!bySite.has(site)) bySite.set(site, []);
+    bySite.get(site).push(s);
+  });
+  return bySite;
 }
 
 function checkboxItem(s) {
@@ -131,24 +147,39 @@ function render() {
   }
   if (hint) hint.hidden = true;
 
-  if (groupMode === "room") {
-    buildRoomGroups().forEach((room) => {
-      const details = detailsGroup(room.label, room.series.length, "room-group");
-      details.appendChild(seriesList(room.series));
-      container.appendChild(details);
-    });
-  } else {
-    buildApartmentGroups().forEach((apt) => {
-      const total = apt.types.reduce((sum, t) => sum + t.series.length, 0);
-      const outer = detailsGroup(apt.label, total, "room-group");
-      apt.types.forEach((t) => {
-        const inner = detailsGroup(t.label, t.series.length, "type-group");
-        inner.appendChild(seriesList(t.series));
-        outer.appendChild(inner);
+  const bySite = groupBySite(allSeries);
+  const sites = Array.from(bySite.keys()).sort((a, b) => a.localeCompare(b));
+  // Un seul site : pas de niveau supplémentaire, pour ne pas alourdir
+  // l'arbre pour l'installation la plus courante (un seul miniserver).
+  const multiSite = sites.length > 1;
+
+  sites.forEach((site) => {
+    const siteSeries = bySite.get(site);
+    let target = container;
+    if (multiSite) {
+      target = detailsGroup(site || "Sans site", siteSeries.length, "site-group");
+      container.appendChild(target);
+    }
+
+    if (groupMode === "room") {
+      buildRoomGroups(siteSeries).forEach((room) => {
+        const details = detailsGroup(room.label, room.series.length, "room-group");
+        details.appendChild(seriesList(room.series));
+        target.appendChild(details);
       });
-      container.appendChild(outer);
-    });
-  }
+    } else {
+      buildApartmentGroups(siteSeries).forEach((apt) => {
+        const total = apt.types.reduce((sum, t) => sum + t.series.length, 0);
+        const outer = detailsGroup(apt.label, total, "room-group");
+        apt.types.forEach((t) => {
+          const inner = detailsGroup(t.label, t.series.length, "type-group");
+          inner.appendChild(seriesList(t.series));
+          outer.appendChild(inner);
+        });
+        target.appendChild(outer);
+      });
+    }
+  });
 }
 
 function setupToggle() {

@@ -6,20 +6,31 @@
 
 import { fetchJSON } from "../core/api.js";
 
-export async function fetchDecompte({ from, to } = {}) {
+/** Sites configurés (config.yaml) -- alimente le sélecteur de site qui
+ * scope tout le reste de la page (voir main.js). */
+export async function fetchMiniservers() {
+  return fetchJSON("/api/miniservers");
+}
+
+export async function fetchDecompte({ miniserver, from, to } = {}) {
   const params = new URLSearchParams();
+  if (miniserver) params.set("miniserver", miniserver);
   if (from) params.set("from", from);
   if (to) params.set("to", to);
   const qs = params.toString();
   return fetchJSON(`/api/decompte${qs ? "?" + qs : ""}`);
 }
 
-export async function fetchTarifs() {
-  return fetchJSON("/api/tarifs");
+export async function fetchTarifs(miniserver) {
+  const params = new URLSearchParams();
+  if (miniserver) params.set("miniserver", miniserver);
+  const qs = params.toString();
+  return fetchJSON(`/api/tarifs${qs ? "?" + qs : ""}`);
 }
 
-/** Crée ou remplace le tarif prenant effet à `valid_from`. Retourne la
- * liste complète des tarifs telle que le serveur la voit après écriture. */
+/** Crée ou remplace le tarif d'un site prenant effet à `valid_from`.
+ * Retourne la liste des tarifs de CE site telle que le serveur la voit
+ * après écriture -- `tarif.miniserver` doit être renseigné. */
 export async function saveTarif(tarif) {
   const res = await fetch("/api/tarifs", {
     method: "POST",
@@ -30,8 +41,11 @@ export async function saveTarif(tarif) {
   return res.json();
 }
 
-export async function deleteTarif(id) {
-  const res = await fetch(`/api/tarifs/${id}`, { method: "DELETE" });
+export async function deleteTarif(id, miniserver) {
+  const params = new URLSearchParams();
+  if (miniserver) params.set("miniserver", miniserver);
+  const qs = params.toString();
+  const res = await fetch(`/api/tarifs/${id}${qs ? "?" + qs : ""}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

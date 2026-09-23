@@ -267,6 +267,15 @@ def api_classify(series_id: str):
     return jsonify({"ok": True})
 
 
+@app.route("/api/miniservers")
+def api_miniservers():
+    """Sites configurés (config.yaml, clé `miniservers`) -- sert au
+    sélecteur de site de /decompte, qui scope tout le reste de la page
+    (la consommation d'une zone n'a de sens que rattachée à un site
+    physique, voir CLAUDE.md)."""
+    return jsonify([ms.name for ms in _cfg().miniservers])
+
+
 @app.route("/health")
 def health():
     return jsonify(
@@ -380,26 +389,45 @@ def decompte():
     return render_template("decompte.html")
 
 
+def _resolve_miniserver(name: str | None) -> str:
+    """Valide (ou choisit par défaut) le site sur lequel scoper un appel
+    /api/decompte ou /api/tarifs. Un décompte n'a de sens que rattaché à UN
+    site physique (miniserver) : mélanger les zones de deux immeubles dans
+    un même calcul fausserait consommations ET montants facturés -- voir
+    CLAUDE.md, "Décompte de charges"."""
+    names = [ms.name for ms in _cfg().miniservers]
+    if name is None:
+        return names[0] if names else ""
+    if name not in names:
+        abort(400, f"miniserver invalide: {name!r}. Valeurs possibles: {names}")
+    return name
+
+
 @app.route("/api/decompte")
 def api_decompte():
-    """Décompte mensuel complet : par zone et par mois, la part réseau et
-    la part solaire autoconsommée, le taux d'autoproduction, les montants et
-    les alertes de fiabilité. Voir billing.py pour la méthode de calcul.
+    """Décompte mensuel complet, POUR UN SITE : par zone et par mois, la
+    part réseau et la part solaire autoconsommée, le taux d'autoproduction,
+    les montants et les alertes de fiabilité. Voir billing.py pour la
+    méthode de calcul.
 
-    Paramètres optionnels `from` / `to` : clés de mois (ex: 2026-05).
-    Sans eux, tous les mois couverts par les données disponibles.
+    Paramètre `miniserver` : le site à facturer (défaut : le premier
+    configuré). Paramètres optionnels `from` / `to` : clés de mois
+    (ex: 2026-05). Sans eux, tous les mois couverts par les données
+    disponibles de ce site.
     """
+    ms_name = _resolve_miniserver(request.args.get("miniserver"))
     now = int(time.time())
     with closing(_read_conn()) as conn:
-        series = db.list_series(conn)
+        series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
+        tarifs = db.list_tarifs(conn, ms_name)
         zones = billing.resolve_zones(series)
         batiment_src = billing.resolve_batiment(series)
 
         rng = billing.available_range(conn, zones, batiment_src)
         if rng is None:
-            return jsonify(
-                billing.compute_decompte(conn, series, [], db.list_tarifs(conn), now)
-            )
+            payload = billing.compute_decompte(conn, series, [], tarifs, now)
+            payload["miniserver"] = ms_name
+            return jsonify(payload)
         first_ts, last_ts = rng
 
         try:
@@ -416,21 +444,25 @@ def api_decompte():
             abort(400, "la période de début est postérieure à la période de fin")
 
         periods = billing.periods_covering(first_ts, last_ts)
-        payload = billing.compute_decompte(conn, series, periods, db.list_tarifs(conn), now)
+        payload = billing.compute_decompte(conn, series, periods, tarifs, now)
+        payload["miniserver"] = ms_name
 
     return jsonify(payload)
 
 
 @app.route("/api/tarifs", methods=["GET", "POST"])
 def api_tarifs():
-    """Tarifs appliqués au décompte. Stockés en base (et non dans le
+    """Tarifs appliqués au décompte d'UN site (chaque site peut avoir un
+    fournisseur/contrat différent). Stockés en base (et non dans le
     navigateur) pour qu'un mois déjà facturé reste reproductible à
     l'identique après un changement de prix -- voir la table `tarifs`."""
     if request.method == "GET":
+        ms_name = _resolve_miniserver(request.args.get("miniserver"))
         with closing(_read_conn()) as conn:
-            return jsonify(db.list_tarifs(conn))
+            return jsonify(db.list_tarifs(conn, ms_name))
 
     payload = request.get_json(force=True, silent=True) or {}
+    ms_name = _resolve_miniserver(payload.get("miniserver"))
     valid_from = str(payload.get("valid_from", "")).strip()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", valid_from):
         abort(400, "valid_from requis, au format YYYY-MM-DD")
@@ -445,17 +477,18 @@ def api_tarifs():
 
     with closing(_read_conn()) as conn:
         db.upsert_tarif(
-            conn, valid_from, prix_reseau, prix_solaire, taux_tva,
+            conn, ms_name, valid_from, prix_reseau, prix_solaire, taux_tva,
             str(payload.get("note", "")),
         )
-        return jsonify(db.list_tarifs(conn))
+        return jsonify(db.list_tarifs(conn, ms_name))
 
 
 @app.route("/api/tarifs/<int:tarif_id>", methods=["DELETE"])
 def api_tarif_delete(tarif_id: int):
+    ms_name = _resolve_miniserver(request.args.get("miniserver"))
     with closing(_read_conn()) as conn:
         db.delete_tarif(conn, tarif_id)
-        return jsonify(db.list_tarifs(conn))
+        return jsonify(db.list_tarifs(conn, ms_name))
 
 
 def create_app(config_path: str = "config.yaml") -> Flask:

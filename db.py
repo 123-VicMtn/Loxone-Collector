@@ -68,14 +68,22 @@ CREATE INDEX IF NOT EXISTS idx_readings_hourly_series_ts ON readings_hourly (ser
 -- plutôt que dans le navigateur est ce qui rend un décompte REPRODUCTIBLE :
 -- un mois déjà facturé garde ses prix d'origine même si les prix
 -- changent ensuite, ce qui est indispensable si une facture est contestée.
+-- `miniserver` scope un tarif à un site (chaque site peut avoir un
+-- fournisseur/contrat différent) -- voir _migrate_schema pour la migration
+-- d'une base existante (avant l'ajout du multi-site, un seul jeu de tarifs
+-- global). UNIQUE porte sur (miniserver, valid_from) et non plus sur
+-- valid_from seul : deux sites peuvent avoir un tarif prenant effet à la
+-- même date.
 CREATE TABLE IF NOT EXISTS tarifs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    valid_from   TEXT NOT NULL UNIQUE,  -- 'YYYY-MM-DD' (heure locale)
+    miniserver   TEXT NOT NULL DEFAULT '',
+    valid_from   TEXT NOT NULL,  -- 'YYYY-MM-DD' (heure locale)
     prix_reseau  REAL NOT NULL DEFAULT 0,   -- CHF / kWh importé du réseau
     prix_solaire REAL NOT NULL DEFAULT 0,   -- CHF / kWh solaire autoconsommé
     taux_tva     REAL NOT NULL DEFAULT 0,   -- en %, ex: 8.1
     note         TEXT NOT NULL DEFAULT '',
-    updated_at   INTEGER
+    updated_at   INTEGER,
+    UNIQUE(miniserver, valid_from)
 );
 """
 
@@ -99,6 +107,45 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     for stmt in alters:
         conn.execute(stmt)
     if alters:
+        conn.commit()
+
+    # `tarifs` : ajout de `miniserver` + passage de UNIQUE(valid_from) à
+    # UNIQUE(miniserver, valid_from) (voir SCHEMA). SQLite n'a pas d'ALTER
+    # TABLE pour changer une contrainte UNIQUE -- seule option : recréer la
+    # table. Exception volontaire à "jamais de DROP/recreate" (voir
+    # CLAUDE.md) : contrairement à un DROP destructeur, ceci copie toutes
+    # les lignes existantes avant de supprimer l'ancienne table, donc aucun
+    # historique n'est perdu.
+    tarifs_cols = {row[1] for row in conn.execute("PRAGMA table_info(tarifs)").fetchall()}
+    if "miniserver" not in tarifs_cols:
+        conn.execute("ALTER TABLE tarifs RENAME TO tarifs_old")
+        conn.execute(
+            """
+            CREATE TABLE tarifs (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                miniserver   TEXT NOT NULL DEFAULT '',
+                valid_from   TEXT NOT NULL,
+                prix_reseau  REAL NOT NULL DEFAULT 0,
+                prix_solaire REAL NOT NULL DEFAULT 0,
+                taux_tva     REAL NOT NULL DEFAULT 0,
+                note         TEXT NOT NULL DEFAULT '',
+                updated_at   INTEGER,
+                UNIQUE(miniserver, valid_from)
+            )
+            """
+        )
+        # Les tarifs existants n'étaient pas scopés par site (miniserver='') :
+        # pas de tentative de deviner à quel site ils appartenaient, ce serait
+        # une hypothèse silencieuse sur des montants facturés. Ils restent
+        # visibles en base mais n'alimentent plus aucun site tant qu'ils ne
+        # sont pas ressaisis via /decompte.
+        conn.execute(
+            "INSERT INTO tarifs (id, miniserver, valid_from, prix_reseau, "
+            "prix_solaire, taux_tva, note, updated_at) "
+            "SELECT id, '', valid_from, prix_reseau, prix_solaire, taux_tva, "
+            "note, updated_at FROM tarifs_old"
+        )
+        conn.execute("DROP TABLE tarifs_old")
         conn.commit()
 
 
@@ -202,7 +249,7 @@ def list_series(conn: sqlite3.Connection) -> list[dict]:
     cur = conn.execute(
         "SELECT series_id, miniserver, control_uuid, state_name, label, room, "
         "category, control_type, unit, apartment, apartment_manual, "
-        "resource_type, resource_type_manual FROM series_meta ORDER BY room, label"
+        "resource_type, resource_type_manual FROM series_meta ORDER BY miniserver, room, label"
     )
     cols = [c[0] for c in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]
@@ -406,34 +453,37 @@ def query_value_at(conn: sqlite3.Connection, series_id: str, ts: int) -> tuple[i
     return max(candidates, key=lambda r: r[0])
 
 
-def list_tarifs(conn: sqlite3.Connection) -> list[dict]:
-    """Tous les tarifs enregistrés, du plus ancien au plus récent."""
+def list_tarifs(conn: sqlite3.Connection, miniserver: str) -> list[dict]:
+    """Tarifs d'UN site, du plus ancien au plus récent -- chaque site
+    (miniserver) a son propre historique de prix, voir SCHEMA."""
     cur = conn.execute(
-        "SELECT id, valid_from, prix_reseau, prix_solaire, taux_tva, note, updated_at "
-        "FROM tarifs ORDER BY valid_from ASC"
+        "SELECT id, miniserver, valid_from, prix_reseau, prix_solaire, taux_tva, note, updated_at "
+        "FROM tarifs WHERE miniserver = ? ORDER BY valid_from ASC",
+        (miniserver,),
     )
     cols = [c[0] for c in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def upsert_tarif(conn: sqlite3.Connection, valid_from: str, prix_reseau: float,
-                  prix_solaire: float, taux_tva: float, note: str = "") -> None:
-    """Crée ou remplace le tarif applicable à partir de `valid_from`
-    ('YYYY-MM-DD'). Une seule ligne par date de prise d'effet (contrainte
-    UNIQUE) : ré-enregistrer la même date corrige le tarif au lieu d'en
-    empiler un doublon."""
+def upsert_tarif(conn: sqlite3.Connection, miniserver: str, valid_from: str,
+                  prix_reseau: float, prix_solaire: float, taux_tva: float,
+                  note: str = "") -> None:
+    """Crée ou remplace le tarif d'un site applicable à partir de
+    `valid_from` ('YYYY-MM-DD'). Une seule ligne par (site, date de prise
+    d'effet) (contrainte UNIQUE) : ré-enregistrer la même date pour le même
+    site corrige le tarif au lieu d'en empiler un doublon."""
     conn.execute(
         """
-        INSERT INTO tarifs (valid_from, prix_reseau, prix_solaire, taux_tva, note, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(valid_from) DO UPDATE SET
+        INSERT INTO tarifs (miniserver, valid_from, prix_reseau, prix_solaire, taux_tva, note, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(miniserver, valid_from) DO UPDATE SET
             prix_reseau=excluded.prix_reseau,
             prix_solaire=excluded.prix_solaire,
             taux_tva=excluded.taux_tva,
             note=excluded.note,
             updated_at=excluded.updated_at
         """,
-        (valid_from, prix_reseau, prix_solaire, taux_tva, note, int(time.time())),
+        (miniserver, valid_from, prix_reseau, prix_solaire, taux_tva, note, int(time.time())),
     )
     conn.commit()
 

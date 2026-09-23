@@ -185,6 +185,38 @@ body {
   color: var(--muted);
 }
 
+/* Premier niveau de regroupement de la sidebar : le site physique
+   (miniserver), affiché seulement s'il y en a plus d'un -- doit se voir
+   nettement au-dessus de .room-group/.type-group, jamais s'y confondre. */
+.site-group {
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-bg);
+  padding: 2px 8px;
+  margin-bottom: 10px;
+}
+
+.site-group > summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--accent);
+  padding: 6px 0;
+}
+
+.site-group .count {
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+.site-group .room-group {
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 4px 0;
+  border-bottom: none;
+}
+
 /* Onglets (Explorer / Énergie / Consommations par zone) */
 
 .tab-bar {
