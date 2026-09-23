@@ -138,6 +138,16 @@ class TestResolutionDesSeries(unittest.TestCase):
         self.assertIsNone(z["sources"]["reseau"])
         self.assertEqual(z["label"], "Rez Jardin")
 
+    def test_wallbox_est_une_zone_a_part(self):
+        # Borne de recharge : un compteur d'énergie dédié, sans appartement
+        # dans Loxone Config -- reclassé manuellement comme Salles Communes.
+        series = [s("w", "Wallbox Energizähler (total)", "energie_consommee", "WALLBOX")]
+        z = billing.resolve_zones(series)[0]
+        self.assertEqual(z["zone"], "WALLBOX")
+        self.assertEqual(z["label"], "Wallbox")
+        self.assertEqual(z["sources"]["controle"]["series_id"], "w")
+        self.assertIsNone(z["sources"]["reseau"])
+
     def test_batiment(self):
         series = [
             s("p", "Production (total)", "energie_consommee", ""),
