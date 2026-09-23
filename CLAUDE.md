@@ -1349,11 +1349,81 @@ v4, pas à du contenu perdu).
 - `package.json::"build"` à étendre (`build:decompte && build:admin && ...`)
   au fur et à mesure que les pages s'ajoutent.
 
+## `/admin` en Vue, derrière une route de prévisualisation — 2026-09-23
+
+Deuxième page migrée, même méthode que `/decompte` en son temps : nouvelle
+brique construite et vérifiée derrière `/admin-vue` (temporaire), `/admin`
+(Jinja + `static/js/admin.js`) intact en attendant la bascule + nettoyage
+du code mort dans une prochaine étape.
+
+**Backend** : `GET /api/resource-types` (nouveau, `app.py`) -- renvoie
+`_cfg().resource_type_labels` en JSON. Manquait pour toute page servie en
+statique pur (avant, seul `window.RESOURCE_TYPE_LABELS` injecté par Jinja
+existait) ; sert `/admin` aujourd'hui, servira le futur dashboard (sidebar,
+onglets Énergie/zone) aussi.
+
+**Frontend** (`frontend/pages/admin/`, même schéma que `pages/decompte/`) :
+- `types/series.ts` -- `Series` (miroir de `db.list_series`) +
+  `EditableRow` (Series + état d'édition local : `editApartment`/
+  `editResourceType`/`status`, jamais envoyé au serveur avant le clic sur
+  Enregistrer -- contrairement à un `v-model` direct sur les données
+  serveur, qui enverrait implicitement l'impression d'un état déjà
+  sauvegardé).
+- `api/admin.ts` -- `fetchSeries`, `fetchResourceTypeLabels`, `classify()`
+  (retourne un simple booléen, comme `static/js/admin.js`, la page n'a pas
+  besoin de plus pour flasher un statut de ligne).
+- `components/ManualBadge.vue`, `components/ClassificationTable.vue` (une
+  seule table -- pas de découpage en sous-composants par ligne, ~140 lignes
+  en tout, pas justifié pour une page de cette taille).
+- `views/AdminPage.vue` -- charge `/api/series` + `/api/resource-types` en
+  parallèle, construit les `EditableRow`, calcule `knownApartments` (tri
+  naturel via `compareApartments` de `@shared/format` -- **seule source
+  du tri désormais**, avant dupliqué entre `app.py::_apartment_sort_key`
+  et `static/js/sidebar.js::apartmentSortKey`, maintenant partagé par toute
+  page Vue via `@shared/`, `_apartment_sort_key` restant la version Python
+  utilisée par `/admin` Jinja tant qu'il existe).
+
+**Comportement porté à l'identique** : correction manuelle => plus jamais
+écrasée par le poller (`apartment_manual`/`resource_type_manual`) ; le
+bouton ↺ ne fait QUE réinitialiser les flags manuels côté serveur -- la
+valeur affichée ne change pas tant qu'un vrai cycle de poll n'a pas eu lieu
+(comportement déjà documenté, pas une régression -- vérifié explicitement
+pendant les tests, voir plus bas).
+
+**Validé avant de rendre la main** : `npm run build:admin` propre (type-
+check + build), sortie confirmée à `static/admin-app/` (pas
+`frontend/static/`, leçon du bug précédent appliquée -- `outDir` calculé de
+la même façon robuste que pour decompte). Puis vérification Playwright
+contre le vrai Flask démo (143 lignes -- correspond aux séries de la base
+démo), **round-trip réel or, pas juste visuel** :
+1. édition d'une ligne (nouvel appartement + type), clic Enregistrer,
+   statut "✓ enregistré", badges "manuel" apparus ;
+2. confirmation via un second appel `GET /api/series` (pas juste l'état du
+   DOM) que le changement a bien été persisté en base ;
+3. clic ↺, confirmation que `apartment_manual`/`resource_type_manual`
+   repassent à 0 -- **et que la valeur affichée NE CHANGE PAS** (comportement
+   attendu, pas un bug : le recalcul n'a lieu qu'au prochain poll réel, qui
+   n'arrive jamais sur le miniserver démo, volontairement inatteignable).
+4. Remise à la main de la ligne modifiée à sa valeur d'origine
+   (`APP1`/`eau_chaude`) pour ne pas laisser `data/demo.db` dans un état
+   confus -- marquée manuelle au passage (cosmétique, sans conséquence sur
+   des données de démo synthétiques).
+
+Zéro erreur console, `pytest` 59/59 (aucun changement Python autre que le
+nouvel endpoint, additif).
+
+**Pas encore fait** : bascule `/admin` + suppression de
+`templates/admin.html`/`static/js/admin.js` (prochaine étape, même méthode
+que pour `/decompte`) ; vérification visuelle humaine (toujours aucun outil
+de navigateur disponible dans cette session -- capture d'écran inspectée
+par moi, mais un œil humain reste recommandé, non bloquant).
+
 ## Prochaine étape prévue
 
-`pages/admin/` -- migration de `/admin` (voir section ci-dessus), en
-commençant par `GET /api/resource-types` côté Flask (bloquant pour cette
-page ET pour le futur dashboard).
+Bascule `/admin` sur le build Vue + suppression du code mort
+(`templates/admin.html`, `static/js/admin.js`) -- même méthode que la
+bascule `/decompte` du 2026-09-23 (voir plus haut). Ensuite : `pages/dashboard/`,
+le plus gros morceau restant (sidebar + 3 onglets).
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`

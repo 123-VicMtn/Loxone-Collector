@@ -7,7 +7,10 @@
     "dev:decompte": "vite --config pages/decompte/vite.config.ts",
     "build:decompte": "vue-tsc -p pages/decompte/tsconfig.json --noEmit && vite build --config pages/decompte/vite.config.ts",
     "preview:decompte": "vite preview --config pages/decompte/vite.config.ts",
-    "build": "npm run build:decompte"
+    "dev:admin": "vite --config pages/admin/vite.config.ts",
+    "build:admin": "vue-tsc -p pages/admin/tsconfig.json --noEmit && vite build --config pages/admin/vite.config.ts",
+    "preview:admin": "vite preview --config pages/admin/vite.config.ts",
+    "build": "npm run build:decompte && npm run build:admin"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

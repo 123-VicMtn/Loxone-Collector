@@ -250,6 +250,15 @@ def admin():
     )
 
 
+@app.route("/admin-vue")
+def admin_vue():
+    """Aperçu de la réécriture Vue de /admin (voir CLAUDE.md, "Restructuration
+    multi-pages") -- même principe temporaire que /decompte-vue en son temps :
+    /admin (Jinja + JS vanilla) reste la version de prod tant que celle-ci
+    n'a pas été validée. Sert static/admin-app/ (npm run build:admin)."""
+    return send_from_directory(Path(app.static_folder) / "admin-app", "index.html")
+
+
 @app.route("/api/series/<path:series_id>/classify", methods=["POST"])
 def api_classify(series_id: str):
     payload = request.get_json(force=True, silent=True) or {}
@@ -274,6 +283,18 @@ def api_miniservers():
     (la consommation d'une zone n'a de sens que rattachée à un site
     physique, voir CLAUDE.md)."""
     return jsonify([ms.name for ms in _cfg().miniservers])
+
+
+@app.route("/api/resource-types")
+def api_resource_types():
+    """Libellés des types de ressource (config.yaml, clé
+    `resource_type_labels`) -- avant les pages Vue, ceci n'était injecté
+    qu'en Jinja (`window.RESOURCE_TYPE_LABELS` dans templates/index.html,
+    dict `labels` de templates/admin.html) ; une page servie en statique
+    pur a besoin d'un vrai endpoint. Utilisé par /admin (select de
+    classification) et par le futur dashboard (sidebar, onglets Énergie/
+    zone)."""
+    return jsonify(_cfg().resource_type_labels)
 
 
 @app.route("/health")
