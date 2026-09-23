@@ -509,13 +509,533 @@ Seuls octobre 2025 (pose des compteurs) et le mois en cours ne le sont pas.
   depuis 10 mois -- hors périmètre du décompte électrique actuel, mais à
   signaler si le chauffage doit être facturé un jour.
 
+## Séparation multi-site (miniserver comme regroupement racine) — 2026-09-02
+
+Un deuxième miniserver ("MS-PPE-Horizon") a été ajouté à côté de
+"MS-Arlopi" dans `config.external.yaml` -- deux immeubles distincts suivis
+par le même collecteur. `series_meta.miniserver` existait déjà, mais
+partout où le code groupait par `apartment` seul (sidebar, onglets
+Énergie/Consommations par zone, `billing.py`, `scripts/export_mesures_xlsx.py`),
+deux sites ayant chacun un "App 1" auraient mélangé leurs données sous une
+même entrée -- un vrai bug de facturation, pas seulement d'affichage,
+corrigé avant tout dégât réel (aucun des deux sites n'avait encore de tarif
+enregistré en base au moment du correctif).
+
+**Décisions prises avec l'utilisateur** :
+- Le site (miniserver) est le PREMIER niveau de regroupement partout,
+  au-dessus d'appartement/pièce -- c'est la séparation "lieu physique"
+  demandée explicitement.
+- `/decompte` gagne un sélecteur de site qui scope TOUTE la page (pas de
+  vue "tous sites mélangés") -- persiste le choix en `localStorage`.
+- Tarifs (`db.tarifs`) scopés par site (colonne `miniserver`, contrainte
+  `UNIQUE(miniserver, valid_from)`) -- deux sites peuvent avoir des prix
+  différents et un tarif prenant effet à la même date.
+- Libellé de site affiché = nom brut du miniserver (`config.yaml`), pas de
+  libellé personnalisé ajouté à la config.
+
+**Changements** :
+- `db.py` : `tarifs` gagne la colonne `miniserver` ; migration dans
+  `_migrate_schema` (rename+recreate+copy -- SQLite n'a pas d'ALTER TABLE
+  pour changer une contrainte UNIQUE, seule exception documentée à la règle
+  "jamais de DROP/recreate" du fichier -- data-preserving, testée sur une
+  base migrée à la volée). `list_series` trié par `miniserver, room, label`
+  (au lieu de `room, label`), pour que l'admin affiche les sites groupés.
+- `app.py` : `GET /api/miniservers` (sites configurés) ; `/api/decompte` et
+  `/api/tarifs` (GET/POST/DELETE) prennent un paramètre `miniserver`,
+  validé contre la config (`_resolve_miniserver`), et filtrent les séries
+  AVANT d'appeler `billing.*` -- `billing.py` lui-même n'a pas eu besoin de
+  changer (il reste "un site à la fois" par construction, donc aucune
+  logique de facturation modifiée).
+- `static/js/sidebar.js` : niveau `.site-group` ajouté au-dessus
+  d'appartement/pièce, affiché seulement s'il y a plus d'un site dans les
+  données chargées (une seule installation garde l'arbre à plat, pas de
+  nesting inutile).
+- `static/js/core/format.js` : `zoneKey`/`parseZoneKey`/`matchesZone` --
+  clé composite (site, appartement) utilisée comme valeur d'`<option>`
+  dans les sélecteurs de zone (avant : `apartment` seul, collision
+  possible entre sites).
+- `static/js/tabs/energy-tab.js` / `zone-tab.js` : sélecteur de zone
+  groupé par site via `<optgroup>`.
+- `static/js/decompte/*.js` + `templates/decompte.html` : sélecteur de
+  site (`#site-select`), caché automatiquement s'il n'y a qu'un seul site
+  configuré. `tarifs.js` : `initTarifs()` ne se lie qu'une fois (sinon un
+  changement de site empilerait des listeners "submit" en double) --
+  expose `setTarifs(tarifs, miniserver)`, rappelé par `main.js` à chaque
+  changement de site.
+- `scripts/export_mesures_xlsx.py` : nouvel argument `--miniserver`
+  (requis dès que la config en liste plusieurs) -- le script mélangeait
+  auparavant tous les sites de la config sous un titre fixe "Immeuble
+  Arlopi", ce qui aurait cassé l'export de "Mesure PPE Horizon T2 2026.xlsx"
+  que l'utilisateur s'apprêtait à générer.
+
+**Validé avant livraison** : suite de tests (`pytest tests/`, 38 tests,
+aucune régression -- `billing.py` inchangé). Vérification bout-en-bout par
+appels HTTP réels (pas de navigateur Playwright disponible dans CETTE
+session, contrairement aux validations précédentes en sandbox cloud -- à
+refaire visuellement si possible) : base de démo dupliquée sous un second
+miniserver avec les MÊMES codes d'appartement (APP1/APP2/APP3, le scénario
+de collision exact), serveur Flask lancé dessus, confirmé que
+`/api/series`, `/api/decompte?miniserver=...` et `/api/tarifs` restent bien
+isolés par site (y compris deux tarifs à la même `valid_from` sur deux
+sites différents), et que `/`, `/admin`, `/decompte` rendent sans erreur
+avec les nouveaux éléments (`#site-select`, arbre sidebar). **Pas encore vu
+par l'utilisateur dans un vrai navigateur** -- nécessite un redémarrage de
+`app.py` pour charger le nouveau code Python.
+
+## Classification MS-PPE-Horizon (naming différent d'Arlopi) — 2026-09-02
+
+Après le passage à 2 sites (voir section précédente), les points de
+MS-PPE-Horizon se sont révélés nommés différemment de MS-Arlopi :
+"Compteur <nom de la zone> <numéro>" (ex: "Compteur Appartement 1",
+"Compteur Bureau 17"), et la topologie de mesure est différente aussi --
+établi avec l'utilisateur, pas supposé :
+
+- **Pas de split réseau/solaire par zone à PPE-Horizon** : contrairement à
+  Arlopi (un bloc EFM Grid+Solaire PAR zone), PPE-Horizon n'a qu'un seul
+  `Compteur Appartement N` par lot -- **consommation totale non scindée**
+  (confirmé par l'utilisateur), plus un EFM et des compteurs PV au niveau
+  du BÂTIMENT seulement, pas par zone. `resource_type="energie_consommee"`
+  est donc la classification CORRECTE pour ces compteurs, pas une
+  détection à corriger.
+- **Décision prise avec l'utilisateur** : l'onglet "Énergie" reste dédié à
+  la comparaison réseau/solaire (qui n'existe que pour Arlopi) -- pas
+  adapté pour afficher une "consommation totale" seule. L'onglet
+  "Consommations par zone" (déjà générique, ne suppose aucun split) reste
+  le bon endroit pour PPE-Horizon -- vérifié fonctionnel sur les données
+  réelles (17 zones listées correctement) sans changement de code.
+- **`classification.DEFAULT_APARTMENT_PATTERN`** étendu pour reconnaître
+  "Bureau <n>" comme zone (lot non résidentiel numéroté, même principe que
+  "Commerce" à Arlopi) -- sans ça, "Compteur Bureau 17" atterrissait dans
+  "Sans appartement".
+- **Bug trouvé en testant ce changement** (pas visible avant, parce
+  qu'aucun nom de zone existant ne contenait "eau" comme sous-chaîne) :
+  la règle de repli générique `(eau|water)` de
+  `DEFAULT_RESOURCE_TYPE_RULES` n'avait pas de frontière de mot -- "eau"
+  matchait comme sous-chaîne de "Bur**eau**", ce qui aurait classé
+  silencieusement un compteur électrique en eau froide. Corrigé avec
+  `\beau\b`/`\bwater\b`. Les autres règles de la liste n'ont pas ce
+  problème réutilisent des mots plus longs/spécifiques (`eau chaude`,
+  `réseau`...), gardées telles quelles faute de cas réel prouvant un souci.
+- Un seul `apartment_pattern`/`resource_type_rules` reste appliqué à TOUS
+  les miniservers (pas de config de classification par site) -- suffisant
+  tant que les conventions de nommage des sites restent compatibles entre
+  elles (aucun conflit de mot-clé rencontré à ce jour) ; à revisiter si un
+  futur site utilise un vocabulaire qui entre en collision.
+
+Pas de changement nécessaire à `db`/`app.py`/`billing.py` pour cette
+partie -- uniquement `classification.py` (règles) et `billing.py::_zone_label`
+(affichage "Bureau 17" au lieu de "Bureau17" bruts dans `/decompte`, même
+traitement que "App N"). La reclassification des séries déjà en base est
+automatique au prochain cycle de poll après redémarrage de `app.py` (pas
+de migration manuelle : `apartment_manual=0` sur ces séries, donc le
+poller réécrit `apartment`/`resource_type` normalement).
+
+## Topologie MS-PPE-Sequoia + répartition solaire recalculée — 2026-09-09
+
+Troisième site ajouté à `config.external.yaml` (21 lots : App 01 à 43,
+répartis en étages). L'accès a d'abord échoué en 401 : `config.external.yaml`
+référençait `${LOXONE_PROD_USER}`/`${LOXONE_PROD_PASSWORD}` au lieu des
+variables spécifiques `${LOXONE_PROD_SEQUOIA_*}` (les bonnes valeurs étaient
+bien dans `.env`). Rappel : `app.py` ne lit la config qu'au démarrage, donc
+un correctif de config demande un redémarrage.
+
+### Les séries `App XX Grid`/`App XX Solaire` sont INEXPLOITABLES ici
+
+À ne pas re-supposer : ce sont les homonymes des séries de facturation
+d'Arlopi, mais **elles ne mesurent pas ce que leur nom indique**. Établi sur
+janvier-mai 2026 :
+
+- sur **881 heures où le bâtiment n'a rien importé du réseau**, les 881
+  voient malgré tout les compteurs "Grid" des lots augmenter -- **4 999 kWh
+  d'achat au réseau physiquement impossible** ;
+- **575 heures** de production > 1 kWh ont **tous** les "Solaire" de lot à
+  zéro (le 21 mai à 14h : 27,58 kWh produits, part solaire de chaque lot à
+  0,000) ;
+- l'excédent est **synchronisé sur les 21 lots** (rapport Grid / compteur du
+  lot entre 7,7 et 10,0 sur la même heure) : une répartition calculée, pas
+  une mesure ;
+- la somme des Grid+Solaire de toutes les zones (36 000 kWh) correspond à
+  l'énergie **entrée** dans le bâtiment (15 681 importés + 21 679 produits),
+  pas à l'énergie consommée (27 435) : les 9 926 kWh **réinjectés** sont
+  redistribués aux lots comme s'ils avaient été consommés.
+
+Les catégories Loxone le laissaient deviner : ces séries sont en catégorie
+"Répartition Solaire" (UUID frères `1fc0ea6f-0364-5130`/`…-5140`), alors que
+le compteur du lot est en catégorie "Energie" avec un UUID indépendant.
+Le bloc de répartition de Sequoia est donc **mal configuré** -- à signaler à
+l'installateur ; en l'état aucune facturation ne peut s'appuyer sur ses
+sorties.
+
+### Ce qui EST fiable à Sequoia
+
+- **`Appartement N` = la consommation électrique réelle du lot.** La nuit,
+  quand le bloc de répartition n'a rien à distribuer, il concorde à 1-3 %
+  près avec Grid+Solaire sur tous les lots testés (ratio 1,004 à 1,026 sur
+  ~1 330 heures chacun). C'est le compteur de facturation. Il était appelé
+  "compteur de contrôle" dans une première version de l'export, par
+  analogie avec Arlopi -- **le rôle est inversé entre les deux sites**.
+- **Les compteurs de bâtiment** (`Réseau Général Oiken` total/totalNeg,
+  `Production Solaire`) sont posés sur l'alimentation réelle, contrairement
+  à ceux d'Arlopi : le bilan `import + production - injection` boucle à
+  **-0,64 %** contre la somme des compteurs de consommation (21 lots +
+  `Communs` + `Salles Communes`). C'est ce bouclage qui autorise le calcul.
+- `PAC déjà mesuré` (8 101 kWh) est **inclus dans `Communs`** -- son nom le
+  dit, et l'ajouter fait sauter le bouclage. Idem `Boiler ecs mesuré aussi ?`.
+- Pas de batterie active sur la période (série `Batterie` vide).
+- Eau et chauffage : compteurs dédiés, monotones, sans rapport avec le bloc
+  de répartition -- jamais concernés par ce problème.
+
+### `repartition.py` (nouveau) — le modèle RCP, reconstruit
+
+Pour chaque heure : `part_solaire = (production - injection) / (import +
+production - injection)`, appliquée à la consommation mesurée du lot. C'est
+le modèle des prestataires du marché (Climkit). Deux propriétés à connaître :
+
+- **`réseau + solaire = consommation mesurée`, exactement.** Le total
+  facturé reste le relevé de compteur (via `billing._reading_delta`) ; seule
+  la PROPORTION vient de l'agrégation horaire. Les valeurs sont arrondies à
+  la précision affichée avant de déduire la part réseau, sinon le classeur
+  affiche `11,76 + 2,34 = 14,10` face à un total de `14,09`.
+- au niveau du bâtiment, la conservation n'est vraie qu'à l'erreur de
+  bouclage près (-0,64 %) : le dénominateur vient des compteurs de bâtiment,
+  pas de la somme des zones.
+
+**Le garde-fou décide seul quelle source utiliser** (`evaluer_site`), et
+l'ordre des tests compte -- une première version accusait Arlopi de 1 064
+heures "impossibles" alors que ses séries sont valides :
+
+1. `qualite_bilan` d'abord. Sans bouclage, le compteur "réseau" du bâtiment
+   ne mesure pas l'alimentation (Arlopi : posé à l'onduleur, **+138,7 %**
+   d'écart) -- l'audit se déclare alors **non testable** au lieu d'accuser à
+   tort, et aucune répartition ne peut être recalculée non plus.
+2. `audit_series_loxone` ensuite, seulement si le bilan boucle (Sequoia :
+   -6,3 %). S'il condamne les séries -> répartition recalculée.
+3. Sinon on garde les séries du Miniserver, avec `confiance_verifiee=False`
+   quand le bilan n'a pas permis de les revérifier (cas Arlopi, validé par
+   ailleurs contre les sorties du bloc EFM).
+
+Seuil : `BILAN_TOLERANCE_PCT = 15` -- il sépare deux situations qui diffèrent
+d'un ordre de grandeur (-6 % contre +138 %), pas deux tolérances de compteur.
+
+### Mécanisme exact de l'anomalie (établi 2026-09-09, pour l'installateur)
+
+Le bloc n'est pas globalement faux : il a UN défaut. À ne pas re-diagnostiquer
+plus largement qu'il ne l'est.
+
+- **La nuit et les jours SANS réinjection, il est juste.** Total distribué
+  contre consommation réelle du bâtiment : 0,98 la nuit (1 239 h), 1,00 le
+  jour sans réinjection (1 182 h). Et sur les 661 heures les plus propres,
+  la part solaire attribuée à chaque APPARTEMENT est correcte (45-64 % pour
+  52,8 % attendus) : **la clé de répartition entre lots fonctionne.**
+- **Le défaut : il répartit la production BRUTE au lieu de
+  l'autoconsommation.** Sur les 1 133 h avec réinjection, il a distribué
+  17 267 kWh quand l'immeuble n'en consommait que 8 468 (rapport 2,18), soit
+  94 % de `import + production` (18 384). Les kWh réinjectés sont donc
+  redistribués aux zones comme s'ils avaient été consommés, **et ils
+  atterrissent sur la sortie « Grid »** (achat au réseau).
+- **Correctif à demander** : l'énergie à répartir doit être
+  `production - réinjection`. La mesure existe déjà : c'est le `totalNeg` du
+  compteur de raccordement (`Réseau Général Oiken`).
+- **Anomalie distincte, pas forcément un bug** : la ligne `Communs` reçoit
+  73,8 % de solaire (pour 87,3 % attendus) quand la PAC est à l'arrêt, mais
+  seulement 17,7 % (pour 44,9 %) quand elle tourne -- la consommation de la
+  PAC est versée au réseau. Peut être volontaire (raccordement en amont du
+  point d'injection, ou exclusion délibérée du partage). Enjeu chiffré sur
+  l'App 35 : part solaire 49,7 % (PAC dans le partage, hypothèse retenue)
+  contre 53,7 % (PAC hors partage), soit 2,69 kWh sur la part réseau -- le
+  total consommé ne change pas.
+- Nommage à faire corriger tant qu'on y est : 4 sorties sur 44 s'appellent
+  `Sol` au lieu de `Solaire` (`Communs Sol`, `App 13/21/32 Sol`), ce qui
+  suffit à les faire classer en `energie_consommee` au lieu de
+  `energie_solaire`.
+
+`scripts/audit_repartition.py` (nouveau) produit le dossier de preuve remis
+à l'installateur -- `docs/Anomalie repartition solaire <site> <de> a <à>.xlsx`,
+4 onglets (Constat, les 877 heures ligne à ligne avec index de début/fin,
+une heure détaillée zone par zone, correspondance des UUID Loxone).
+
+L'argument est construit pour ne dépendre d'AUCUN modèle de notre part :
+on isole les **877 heures où l'index du compteur d'achat de l'immeuble est
+identique en début et en fin d'heure** (donc zéro kWh acheté), et on montre
+que les sorties « Grid » y totalisent **11 404,9 kWh**. Sur ces heures :
+production 12 507,1, réinjection 8 413,7, donc 4 093,5 consommés -- et les
+compteurs de consommation en mesurent 4 138,4 (**+1,1 %**, ce qui prouve au
+passage que les compteurs, eux, sont bons). Total distribué / production
+brute = 0,953.
+
+Deux pièges rencontrés en écrivant ce script, à ne pas refaire :
+- l'inventaire des consommateurs ne peut pas être `resolve_zones` (un seul
+  compteur par zone -> `Salles Communes` perdu, bilan à -8,3 % au lieu de
+  +1,1 %). `resolve_consommateurs()` prend tous les compteurs de la
+  catégorie « Energie » sauf les doublons que l'installateur signale
+  lui-même dans le nom (`DOUBLON_RE` : "déjà mesuré", "mesuré aussi",
+  plus la buanderie `CEnergie`/`CNrMachine`) ;
+- exiger que TOUS ces compteurs aient une donnée à chaque heure faisait
+  tomber 3 519 heures exploitables à 154, à cause des `M1-M6 Zähler` et de
+  la Wallbox qui n'existent que depuis le démarrage du collecteur. Filtre
+  sur la COUVERTURE des données (>= 95 % de la période), pas sur les noms.
+
+### Correctif dans `billing.py` (touche aussi `/decompte`)
+
+`CONTROLE_EXCLUDE_RE` excluait "chauffage" mais pas "chaleur" : le compteur
+de contrôle d'un lot de Sequoia était son compteur de **chaleur**
+("APP 35 compteur chaleur kWh [50]" passe avant "Appartement 35" dans
+l'ordre alphabétique de `_pick`, majuscules avant minuscules) -- des kWh
+thermiques dans une colonne électrique. Ajouté : `c[ch]aleur` (la coquille
+"Ccaleur" de l'App 34 est réelle, côté Loxone Config), `cenergie` et
+`nrmachine` (catégorie Loxone "Lessive" = part de buanderie commune du lot,
+déjà comprise dans le compteur des communs -- l'additionner
+double-compterait).
+
+### Livré et validé
+
+`repartition.py`, `tests/test_repartition.py` (20 tests, suite à 58, aucune
+régression), `scripts/export_appartement.py` branché dessus,
+`billing.py::CONTROLE_EXCLUDE_RE`. Vérifié sur les données réelles : App 35
+sur janvier-mai 2026 = **66,84 kWh** (33,60 réseau + 33,24 solaire), avec une
+part solaire mensuelle de 16,6 % -> 75,8 % qui suit la courbe du bâtiment
+(19,0 % -> 72,9 %), légèrement au-dessus en avril-mai (consommation diurne).
+Non-régression confirmée sur Arlopi (App 1 : mêmes séries qu'avant).
+Le classeur `docs/Consommations App 35 2026-01 a 2026-05.xlsx` explique la
+méthode au client dans son onglet "Lisez-moi", et les lignes calculées sont
+marquées comme telles dans le CSV.
+
+**Pas encore vu par l'utilisateur dans un navigateur** : `/decompte` continue
+d'utiliser les séries du Miniserver sans passer par `repartition.py` -- pour
+Sequoia, la page affichera donc encore la répartition fausse. Brancher
+`evaluer_site` dans `app.py`/`billing.py` est la suite logique.
+
+## Décompte consolidé tous appartements (`--tous`) — 2026-09-10
+
+L'installateur a corrigé la répartition solaire côté Loxone Config. **Ça ne
+change rien à l'historique** : les valeurs déjà enregistrées par la
+fonction Statistics restent celles que le bloc sortait à l'époque, et
+l'audit voit toujours l'anomalie jusqu'au 9 septembre inclus (63 heures,
+945 kWh impossibles sur les 9 premiers jours de septembre). Tout décompte
+portant sur une période passée doit donc continuer à passer par
+`repartition.py`. Ce sera vérifiable dans quelques jours de données neuves.
+
+`scripts/export_appartement.py` gagne un mode multi-zones :
+
+```bash
+# décompte consolidé, un seul fichier, prêt à facturer
+python3 scripts/export_appartement.py config.external.yaml \
+  --miniserver MS-PPE-Sequoia --tous --recap-seul \
+  --from-mois 2026-01 --to-mois 2026-08
+# + un classeur détaillé par appartement : enlever --recap-seul
+```
+
+Sorties : `docs/Decompte <site> <de> a <à>.xlsx` (3 onglets) + le CSV plat.
+L'onglet « Décompte » a une ligne par appartement, une colonne par poste, et
+un bloc de **prix unitaires modifiables** (cases jaunes) que des formules
+Excel appliquent aux quantités -> montants HT / TVA / TTC calculés dans le
+classeur, sans repasser par le script. Volontairement sans détail horaire ;
+le détail mensuel est dans le 2e onglet. `--tva` change le taux pré-rempli.
+
+### Trois bugs trouvés en généralisant à toutes les zones
+
+Ils étaient invisibles tant que le script ne tournait que sur un
+appartement d'Arlopi ou l'App 35 de Sequoia.
+
+- **Collision de clés = chauffage commun sous-compté.** `resolve_compteurs`
+  utilisait le nom de la RÈGLE comme clé (`chauffage_energie`), donc les
+  trois compteurs de chaleur des communs de Sequoia écrasaient leur entrée
+  dans `data` : le classeur affichait 484,00 kWh trois fois et n'en comptait
+  qu'un, au lieu de 1 228,25 + 1 783,00 + 484,00 = **3 495,25 kWh**. La clé
+  est désormais `<rôle>:<series_id>`, et le champ `role` (nouveau) porte la
+  logique métier (`grid`, `solaire`, `eau_chaude`...). Le commentaire du
+  code évoquait déjà « deux compteurs d'eau froide sur un lot » sans voir
+  qu'ils auraient collisionné.
+- **Ordre des étapes.** Écarter les compteurs de contrôle inexploitables
+  AVANT `appliquer_repartition_calculee` supprimait le compteur du lot
+  lui-même dès qu'il était muet sur un mois de la plage (décembre 2025), et
+  la répartition devenait impossible sur les 21 lots. Le tri passe après la
+  promotion du compteur en poste facturable.
+- **Zone fantôme APP100.** Née du nommage des points de buanderie
+  (`CEnergieApp100`, `Log Machine App 100`), pas un logement. Écartée
+  automatiquement : plus aucun compteur exploitable après filtrage.
+
+Aussi : les sorties du bloc « Répartition Solaire » (`Communs Sol`) ne sont
+plus affichées comme compteurs de contrôle -- ce sont des valeurs calculées,
+justement celles dont l'incohérence motive `repartition.py`.
+
+### Période exploitable à Sequoia
+
+L'historique Statistics ne commence pas à la même date selon le type :
+électricité et sorties du bloc au **01.12.2025**, mais eau au **28.12.2025**
+et chaleur au **29.12.2025**. Le premier mois complet pour TOUS les types
+est donc **janvier 2026**. Un décompte lancé depuis décembre 2025 sort une
+alerte « aucune donnée exploitable pour Décembre 2025 » sur l'eau et le
+chauffage de chaque lot -- ce n'est pas un bug.
+
+### Les « pertes » : signature systématique, pas un compteur en panne
+
+Écart de bouclage mois par mois (compteurs de bâtiment contre somme des
+compteurs de zone), décembre 2025 -> septembre 2026 :
+**-5,8 / -5,8 / -6,2 / -6,2 / -7,4 / -7,4 / -7,8 / -8,4 / -8,4 / -8,0 %**.
+
+Une dérive aussi faible et aussi stable d'une saison à l'autre oriente vers
+une cause systématique (consommateur non compté proportionnel à la charge,
+ou facteur d'échelle sur un compteur), pas vers un compteur défaillant qui
+donnerait des écarts erratiques. À croiser avec la vérification physique
+prévue par l'utilisateur.
+
+**RÉSOLU le 2026-09-10 : les « pertes » étaient `Salles Communes`.** Ce
+consommateur réel (catégorie « Energie », 1 602,9 kWh sur janvier-mai) était
+rattaché à la zone COMMUN mais facturé nulle part, parce que
+`billing.resolve_zones` ne retient qu'UN compteur de contrôle par zone. En
+l'ajoutant, le bouclage passe de **-6,5 % à -0,6 %** sur janvier-mai : il ne
+reste que 175 kWh sur 27 441, soit de la tolérance de compteur ordinaire.
+**Aucune vérification physique des compteurs n'est nécessaire** -- c'était
+une omission de comptage, pas un problème d'installation.
+
+### `Salles Communes` érigée en zone facturable — décisions de l'utilisateur
+
+Prises explicitement avec lui, **ne pas les redéfaire seul** :
+
+- `Salles Communes` est une **ligne à part** du décompte, pas une fusion
+  dans « Communs » (réparti réseau/solaire comme n'importe quelle zone).
+- Le compteur de chaleur **de la salle de réunion suit** (1 229 kWh sur
+  janvier-mai) ; ceux du **séjour (1 783 kWh) et de la cuisine (484 kWh)
+  restent aux Communs**, malgré leur préfixe Loxone commun « Commun - ».
+- `M1` à `M6 Zähler` (compteurs physiques des 6 machines, pièce Buanderie)
+  restent **hors du décompte** (décision 2026-09-10, confirmée 2026-09-18 :
+  seules les kWh `CEnergieAppXX` par lot).
+
+Mise en œuvre : pas de code spécial, une **reclassification en base** via
+`db.set_series_classification(..., apartment="SALLESCOMMUNES")`, donc avec
+`apartment_manual=1` -- le poller ne la réécrira jamais (règle stricte du
+projet) et la correction est réversible depuis `/admin`. 21 séries
+concernées : les 7 états du compteur électrique `Salles Communes` (UUID
+`1fc21501-00df-8f54`) et les 14 du compteur de chaleur de la salle de
+réunion (`1ff6ad9c-031e-d1d5` pour les kWh, `1ff6bfbf-038d-872c` pour le
+volume -- deux sorties du même compteur physique). Seul ajout de code :
+`SALLESCOMMUNES` dans `billing.ZONE_LABEL_OVERRIDES`.
+
+Conséquence à connaître : la zone existe désormais partout (sidebar,
+onglets Énergie / Consommations par zone, `/decompte`), pas seulement dans
+l'export -- c'est voulu.
+
+### Buanderie par badge (`CEnergieAppXX`) — 2026-09-18
+
+Décision de l'utilisateur : colonnes **Buanderie (kWh)** et **Buanderie --
+cycles** par appartement (`CEnergieAppXX` / `CNrMachineAppXX`). Pas les
+`M1`-`M6`. Non déduit des Communs.
+
+Note installateur « livré depuis le 17 juillet 2026 », vérifiée sur les
+relevés : avant cette date CEnergie incrémentait tous les lots (~37 kWh)
+avec 0 cycle (les cycles partaient sur APP100). À partir du 17.07, 0 cycle
+= 0 kWh. Le décompte buanderie est donc borné à cette date
+(`BUANDERIE_VALID_FROM` dans `export_appartement.py`).
+
+Un décompte janvier-mai n'a pas ces colonnes. Juin d'un décompte juin-août
+vaut 0. Lots jamais utilisés depuis le 17.07 : App 14, 25, 34, 35, 41, 42,
+43.
+
+### Wallbox (borne de recharge) — 2026-09-18
+
+Décision de l'utilisateur : ligne à part du décompte, pas rattachée à un
+lot (aucun badge NFC par appartement côté énergie). Mise en œuvre identique
+à Salles Communes : `apartment="WALLBOX"` + `apartment_manual=1` sur les
+12 états du compteur `Wallbox Energizähler` (UUID `204c74ad-02fe-30ba`,
+pièce Garage, catégorie Energie), et `WALLBOX` dans
+`billing.ZONE_LABEL_OVERRIDES`. Historique Statistics à partir du
+04.03.2026 (`WALLBOX_VALID_FROM` dans `export_appartement.py`) : les mois
+antérieurs sont à 0 kWh.
+
+Deux compteurs kWh existent ; un seul est utilisé :
+
+- **`Wallbox Energizähler (total)`** -- compteur d'énergie dédié, classé
+  `energie_consommee`. C'est la série de facturation. Index à 0,000 kWh
+  du 04.03.2026 au 09.09.2026 (aucune charge mesurée dans le sens
+  consommation ; `actual` toujours à 0).
+- `Wallbox 22kW 32A Tree (total)` -- compteur interne du bloc Loxone,
+  mal classé `eau_froide`, également figé à 0. **Non utilisé** (doublon).
+- `Wallbox Energizähler (totalNeg)` -- ~3,67 kWh de 03.2026 à 09.2026
+  (~0,55 kWh/mois, sans pic de puissance). Ce n'est pas une session de
+  recharge ; **non utilisé**.
+- `NFC Code Touch Tree Wallbox` -- accès badge, pas d'énergie, pas
+  d'historique d'utilisateur. Pas de répartition par appartement possible.
+
+La répartition réseau/solaire de cette ligne passe par `repartition.py`
+comme n'importe quelle zone (le Miniserver n'a pas de Grid/Solaire
+Wallbox).
+
+### Limite connue du garde-fou (non corrigée, hors périmètre demandé)
+
+`bilan_exploitable` juge sur UN pourcentage agrégé sur toute la fenêtre, ce
+qui peut masquer une variation saisonnière. Sur MS-Arlopi (compteur réseau
+à l'onduleur) l'écart mensuel va de -25,7 % en novembre à +182,0 % en juin :
+la moyenne tombe à +7,5 % sur janvier-mai (donc « exploitable », et le
+site bascule à tort en répartition recalculée) mais à +32,1 % sur
+janvier-août (« non exploitable », comportement attendu). Le verdict
+dépend donc de la fenêtre demandée. Sequoia n'est pas concerné (-5,8 à
+-8,4 %, stable). Correctif naturel si le sujet revient : exiger que la
+majorité des sous-périodes bouclent, pas seulement la moyenne.
+
+## Choix de stack figé : backend Flask/Python inchangé, frontend Vue 3 — 2026-09-23
+
+Suite à `docs/analyse-stack-ts-collecte-frontend-excel.md` (2026-09-21,
+recherche comparant TS/Node vs Python brique par brique). **Décisions
+prises avec l'utilisateur, à ne pas rouvrir sans nouvel élément :**
+
+- **Backend : Flask/Python reste l'unique backend, aucun framework backend
+  ne remplace ni ne s'ajoute.** Ce n'était pas vraiment une question de
+  "quel framework choisir" -- l'analyse conclut que les deux actifs qui
+  coûteraient le plus cher à reconstruire (le client HTTP/Websocket Loxone
+  `loxone_client.py`/`loxone_ws_client.py`, et le moteur de facturation
+  `billing.py`/`repartition.py`, 58 tests, calibré sur 3 sites réels avec
+  des anomalies découvertes empiriquement -- voir sections Sequoia/Horizon/
+  Arlopi ci-dessus) doivent rester en Python. Flask garde exactement son
+  rôle actuel de fournisseur d'API JSON (`/api/series`, `/api/decompte`,
+  `/api/tarifs`, `/api/miniservers`, à étendre avec une route d'export
+  Excel si besoin) -- **aucun changement de framework backend à faire.**
+- **Frontend : Vue 3 + Vite + TypeScript + Tailwind CSS**, confirmé par
+  l'utilisateur ("je vais choisir Vue3 et Tailwind car je connais" --
+  courbe d'apprentissage nulle pour lui, l'un des deux critères demandés
+  avec "simplifier le travail"). Tailwind ne figurait pas dans le
+  comparatif du doc (qui ne traitait que le choix de framework JS) mais
+  s'intègre sans friction à Vite/Vue -- aucune tension avec la
+  recommandation.
+- **Migration incrémentale, page par page**, pas de big-bang : `/decompte`
+  (la page la plus récente, la plus autonome, "pas un onglet" -- voir plus
+  haut) est le candidat naturel pour la première conversion. `/` (Explorer
+  + onglets Énergie/zone) et `/admin` restent en JS vanilla (modules ES
+  natifs, voir "Frontend modulaire" plus haut) jusqu'à ce que le besoin
+  d'interactivité ou la duplication déjà notée (palettes, formatage de
+  dates, options Chart.js) le justifie -- c'était déjà la position de
+  `CLAUDE.md` avant ce doc, l'analyse ne fait que la confirmer avec un choix
+  de framework concret.
+- **Le frontend reste un pur consommateur de `/api/decompte`** -- jamais de
+  logique de facturation/répartition recalculée côté client (Vue ou JS),
+  même partiellement. Rappel volontaire : la distinction taux
+  d'autoproduction/autoconsommation a déjà été inversée une fois par
+  erreur (voir "/decompte" plus haut), et `evaluer_site()` (ordre bilan
+  -> audit -> confiance) est une logique métier calibrée empiriquement,
+  pas un calcul générique portable sans risque.
+- **Export Excel : reste côté serveur, `openpyxl`.** Si le nouveau frontend
+  Vue doit déclencher un téléchargement, ajouter une route Flask dédiée
+  (ex: `GET /api/decompte/export.xlsx`) plutôt que régénérer les classeurs
+  (formules HT/TVA/TTC vivantes, cellules de prix modifiables) côté
+  navigateur.
+
+**Pas encore fait à ce stade** : aucun scaffolding npm/Vite n'existe
+encore dans le dépôt -- cette section fige le choix, l'implémentation
+(structure de dossier, intégration dev/build avec Flask, migration de
+`/decompte`) reste à faire dans une prochaine étape.
+
 ## Prochaine étape prévue
 
-Module de génération de factures / décomptes de charges par appartement,
-côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data` (agrégats
-horaires disponibles sur le long terme) combiné aux champs `apartment` /
-`resource_type` de `series_meta`, pour calculer une consommation par
-appartement et par type de charge sur une période de facturation.
+Court terme : scaffolder le projet Vue 3 + Vite + TypeScript + Tailwind
+(voir section ci-dessus) et migrer `/decompte` en premier, Flask
+continuant à servir l'API JSON sans changement.
+
+Ensuite : module de génération de factures / décomptes de charges par
+appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`
+(agrégats horaires disponibles sur le long terme) combiné aux champs
+`apartment` / `resource_type` de `series_meta`, pour calculer une
+consommation par appartement et par type de charge sur une période de
+facturation.
 
 ## Commandes utiles
 
