@@ -1149,23 +1149,48 @@ Chrome connectée. **À faire par l'utilisateur** : lancer
 vers sa propre config) et ouvrir `http://localhost:8082/decompte-vue` dans
 un vrai navigateur, à comparer à `http://localhost:8082/decompte`.
 
-**Reste à faire une fois la validation visuelle obtenue** (suite logique,
-pas encore commencée) :
-- Basculer `/decompte` lui-même sur le build Vue (remplacer le contenu de
-  la route `decompte()` par celui de `decompte_vue()`, ou l'inverse) et
-  supprimer `/decompte-vue`.
-- Supprimer le code mort : `templates/decompte.html` et
-  `static/js/decompte/*.js` (mais PAS `static/js/core/*.js`, partagé avec
-  `/` et `/admin`).
-- Ajouter `npm --prefix frontend run build` à la procédure de déploiement
-  (`journalctl -u loxone-collector`/systemd, voir "Commandes utiles") --
-  actuellement ce n'est documenté nulle part, le build doit être généré
-  avant (re)démarrage du service en prod.
+## Bascule `/decompte` sur le build Vue + nettoyage du code mort — 2026-09-23
+
+Fait dans la foulée, sur instruction explicite de l'utilisateur de
+continuer sans attendre un nouveau retour visuel (la validation de
+`/decompte-vue` demandée dans la section précédente n'a pas été confirmée
+explicitement avant cette bascule -- **si quelque chose cloche visuellement,
+c'est ici qu'il faut regarder en premier**, un `git revert` du commit
+correspondant restaure instantanément l'ancienne page).
+
+- `app.py` : le contenu de `decompte_vue()` a remplacé celui de
+  `decompte()` (même route `/decompte`, même nom de fonction/endpoint --
+  aucun `url_for('decompte')` à changer ailleurs) ; la route
+  `/decompte-vue` a été supprimée.
+- Supprimés : `templates/decompte.html` et les 6 fichiers de
+  `static/js/decompte/` (`main.js`/`api.js`/`table.js`/`charts.js`/
+  `tarifs.js`/`format.js`) -- plus aucune référence après vérification par
+  `grep` (`static/js/core/*.js`, partagé avec `/` et `/admin`, non touché).
+
+**Validé avant de rendre la main** : Flask redémarré avec le nouveau
+`app.py`, `GET /decompte` -> 200 (sert désormais le build Vue), `GET
+/decompte-vue` -> 404 (supprimée), assets `static/decompte-app/app.{js,css}`
+-> 200, et non-régression de `/` et `/admin` (200 tous les deux, aucune
+référence cassée au code supprimé).
+
+**Toujours pas de vérification visuelle dans un vrai navigateur** (aucun
+outil de navigateur disponible dans cette session) -- **à faire par
+l'utilisateur en priorité** : ouvrir `http://localhost:8082/decompte`
+(ou son port de config habituel) et confirmer que tout s'affiche et
+fonctionne correctement (sélecteurs site/mois, tuiles KPI, les 4 graphs,
+panneau tarifs -- essayer d'enregistrer un tarif pour vérifier le
+round-trip complet). En cas de souci, le commit de cette bascule se
+revert proprement (voir plus haut), la page legacy n'existe simplement
+plus dans l'arbre de travail mais reste récupérable depuis git.
+
+**Reste à faire** : ajouter `npm --prefix frontend run build` à la
+procédure de déploiement -- fait juste en dessous, dans "Commandes
+utiles".
 
 ## Prochaine étape prévue
 
-Court terme : validation visuelle de `/decompte-vue` par l'utilisateur
-(voir section ci-dessus), puis bascule + nettoyage du code mort.
+Court terme : validation visuelle de `/decompte` par l'utilisateur (voir
+section ci-dessus) -- priorité avant toute autre modification de cette page.
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`
@@ -1180,6 +1205,7 @@ facturation.
 # Setup
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 cp config.example.yaml config.yaml && cp .env.example .env   # puis éditer
+npm --prefix frontend install    # une fois, pour le frontend /decompte
 
 # Diagnostic connexion Loxone
 python3 scripts/diagnose_auth.py config.yaml
@@ -1194,6 +1220,10 @@ python3 scripts/check_statistics.py config.yaml maison
 python3 scripts/backfill_statistics.py config.external.yaml MS-Arlopi --dry-run
 python3 scripts/backfill_statistics.py config.external.yaml MS-Arlopi
 
+# Build du frontend /decompte (Vue) -- requis avant de lancer app.py, sinon
+# /decompte répond 404 (static/decompte-app/ n'existe pas encore)
+npm --prefix frontend run build
+
 # Lancer (prod ou config alternative)
 python3 app.py                     # config.yaml
 python3 app.py config.demo.yaml    # dashboard de démo, données synthétiques
@@ -1201,10 +1231,15 @@ python3 app.py config.demo.yaml    # dashboard de démo, données synthétiques
 # Démo / test dashboard sans Loxone réel
 python3 scripts/seed_demo_data.py config.demo.yaml && python3 app.py config.demo.yaml
 
+# Dev du frontend /decompte avec rechargement à chaud (utilise le proxy
+# Vite vers Flask -- voir frontend/vite.config.ts, VITE_API_PROXY_TARGET)
+npm --prefix frontend run dev
+
 # Maintenance DB (mensuel, manuel)
 python3 scripts/vacuum_db.py config.yaml
 
 # Déploiement (systemd, PC Ubuntu Server -- anciennement Pi)
+npm --prefix frontend run build    # AVANT le redémarrage du service
 sudo cp scripts/loxone-collector.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now loxone-collector
 journalctl -u loxone-collector -f

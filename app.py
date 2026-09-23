@@ -386,21 +386,17 @@ def api_series_daily(series_id: str):
 
 @app.route("/decompte")
 def decompte():
-    return render_template("decompte.html")
-
-
-@app.route("/decompte-vue")
-def decompte_vue():
-    """Aperçu de la réécriture Vue 3/TypeScript/Tailwind de /decompte
-    (voir CLAUDE.md, "Migration /decompte vers Vue 3") -- sert tel quel le
-    build de `frontend/` (`npm run build`, écrit dans
-    static/decompte-app/). Route temporaire de validation : /decompte
-    (Jinja + JS vanilla) reste la version de prod tant que celle-ci n'a pas
-    été vue et validée dans un vrai navigateur.
+    """Sert le build Vue 3/TypeScript/Tailwind de `frontend/`
+    (`npm run build`, écrit dans static/decompte-app/) -- voir CLAUDE.md,
+    "Migration /decompte vers Vue 3". A remplacé la version Jinja + JS
+    vanilla (`templates/decompte.html` + `static/js/decompte/*.js`,
+    supprimés) le 2026-09-23, après validation visuelle.
 
     404 si `npm run build` n'a pas encore été lancé (static/decompte-app/
     n'existe pas) -- c'est un `send_from_directory` standard, aucune gestion
-    d'erreur spécifique n'est nécessaire."""
+    d'erreur spécifique n'est nécessaire. Voir "Commandes utiles" pour la
+    procédure de déploiement (le build doit être généré AVANT de
+    redémarrer le service)."""
     return send_from_directory(Path(app.static_folder) / "decompte-app", "index.html")
 
 
