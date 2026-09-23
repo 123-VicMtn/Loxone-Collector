@@ -14,3 +14,4 @@ data/ws_tokens/
 
 frontend/node_modules/
 frontend/dist/
+frontend/.env.local
