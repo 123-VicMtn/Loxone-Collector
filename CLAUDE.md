@@ -1102,11 +1102,70 @@ déjà en arrière-plan) et comparer visuellement à `http://localhost:8082/deco
 - Aucun commit : `frontend/src/**` est untracked, à review et committer par
   l'utilisateur.
 
+**Commité par l'utilisateur** (2026-09-23, avant la suite ci-dessous) :
+3 commits séparés -- outillage frontend (chart.js/vue-chartjs, proxy dev
+configurable), la page `/decompte` en Vue elle-même, puis CLAUDE.md.
+
+## Câblage production (route de prévisualisation `/decompte-vue`) — 2026-09-23
+
+Toujours pas de vérification visuelle possible dans cette session (l'
+extension Claude in Chrome n'a pas été connectée -- voir plus haut) : au
+lieu de basculer directement `/decompte` sur le build Vue (irréversible sans
+un revert), le câblage production est implémenté derrière une route
+**temporaire** qui coexiste avec la page legacy, pour que l'utilisateur
+puisse comparer les deux dans un vrai navigateur avant qu'on bascule pour
+de vrai.
+
+**Changements** :
+- `frontend/vite.config.ts` : `build.outDir` -> `static/decompte-app/`
+  (à la racine du dépôt, hors de `frontend/`), `base: '/static/decompte-app/'`,
+  noms de fichiers FIXES (`app.js`/`app.css`, pas de hash de cache-busting)
+  -- plus simple à servir depuis Flask pour un projet solo, cohérent avec
+  la décision déjà actée dans "Choix de stack figé" ; à revoir seulement si
+  le cache navigateur devient un problème réel constaté. `preview.proxy`
+  ajouté en miroir de `server.proxy` (utile pour tester le build avec
+  `vite preview` sans passer par Flask).
+- `app.py` : route `GET /decompte-vue` (`send_from_directory`) qui sert
+  `static/decompte-app/index.html` tel quel -- aucune logique Jinja, le
+  HTML est déjà complet après `npm run build`. Les assets
+  (`static/decompte-app/app.js`/`app.css`) sont servis automatiquement par
+  la route `/static/<path>` par défaut de Flask, aucun code supplémentaire
+  nécessaire. `/api/*` fonctionne en same-origin (pas besoin du proxy Vite
+  une fois servi par Flask).
+- `.gitignore` : `static/decompte-app/` ignoré (artefact de build, comme
+  `frontend/dist/`) -- généré par `npm run build`, jamais committé.
+
+**Validé avant de rendre la main** : build (`npm run build`) réussi avec
+les noms de fichiers fixes attendus, puis vérification de bout en bout sur
+le VRAI serveur Flask démo (pas seulement `vite dev`) : `GET /decompte-vue`
+-> 200, `GET /static/decompte-app/app.js` -> 200, `GET
+/static/decompte-app/app.css` -> 200, `GET /api/decompte?miniserver=demo`
+-> données réelles (3 zones, 3 mois) en same-origin, et `GET /decompte`
+(page legacy) toujours à 200 et inchangée.
+
+**PAS validé visuellement, encore une fois** -- toujours pas d'extension
+Chrome connectée. **À faire par l'utilisateur** : lancer
+`.venv/bin/python3 app.py config.demo.yaml` (ou pointer `VITE_API_PROXY_TARGET`
+vers sa propre config) et ouvrir `http://localhost:8082/decompte-vue` dans
+un vrai navigateur, à comparer à `http://localhost:8082/decompte`.
+
+**Reste à faire une fois la validation visuelle obtenue** (suite logique,
+pas encore commencée) :
+- Basculer `/decompte` lui-même sur le build Vue (remplacer le contenu de
+  la route `decompte()` par celui de `decompte_vue()`, ou l'inverse) et
+  supprimer `/decompte-vue`.
+- Supprimer le code mort : `templates/decompte.html` et
+  `static/js/decompte/*.js` (mais PAS `static/js/core/*.js`, partagé avec
+  `/` et `/admin`).
+- Ajouter `npm --prefix frontend run build` à la procédure de déploiement
+  (`journalctl -u loxone-collector`/systemd, voir "Commandes utiles") --
+  actuellement ce n'est documenté nulle part, le build doit être généré
+  avant (re)démarrage du service en prod.
+
 ## Prochaine étape prévue
 
-Court terme : valider visuellement `frontend/` (voir section ci-dessus),
-puis décider et implémenter le câblage production (Flask sert le build Vite
-sur `/decompte`, remplaçant `templates/decompte.html`).
+Court terme : validation visuelle de `/decompte-vue` par l'utilisateur
+(voir section ci-dessus), puis bascule + nettoyage du code mort.
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`

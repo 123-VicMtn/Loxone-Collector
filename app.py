@@ -26,7 +26,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, abort
+from flask import Flask, jsonify, render_template, request, abort, send_from_directory
 
 import billing
 import classification
@@ -387,6 +387,21 @@ def api_series_daily(series_id: str):
 @app.route("/decompte")
 def decompte():
     return render_template("decompte.html")
+
+
+@app.route("/decompte-vue")
+def decompte_vue():
+    """Aperçu de la réécriture Vue 3/TypeScript/Tailwind de /decompte
+    (voir CLAUDE.md, "Migration /decompte vers Vue 3") -- sert tel quel le
+    build de `frontend/` (`npm run build`, écrit dans
+    static/decompte-app/). Route temporaire de validation : /decompte
+    (Jinja + JS vanilla) reste la version de prod tant que celle-ci n'a pas
+    été vue et validée dans un vrai navigateur.
+
+    404 si `npm run build` n'a pas encore été lancé (static/decompte-app/
+    n'existe pas) -- c'est un `send_from_directory` standard, aucune gestion
+    d'erreur spécifique n'est nécessaire."""
+    return send_from_directory(Path(app.static_folder) / "decompte-app", "index.html")
 
 
 def _resolve_miniserver(name: str | None) -> str:

@@ -9,13 +9,29 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const target = env.VITE_API_PROXY_TARGET || 'http://localhost:8082'
+  const proxy = { '/api': target, '/health': target }
   return {
     plugins: [vue(), tailwindcss()],
-    server: {
-      proxy: {
-        '/api': target,
-        '/health': target,
+    // Le build est servi par Flask depuis static/decompte-app/ (voir
+    // app.py::decompte_vue -- route de prévisualisation le temps de la
+    // migration, remplacera /decompte une fois validé visuellement).
+    base: '/static/decompte-app/',
+    build: {
+      outDir: '../static/decompte-app',
+      emptyOutDir: true,
+      rollupOptions: {
+        // Noms de fichiers fixes plutôt qu'un manifest de hashs de cache-
+        // busting : plus simple à servir depuis Flask pour un projet solo,
+        // voir CLAUDE.md "Choix de stack figé". À revoir si le cache
+        // navigateur pose un jour un problème réel après déploiement.
+        output: {
+          entryFileNames: 'app.js',
+          chunkFileNames: 'app-[name].js',
+          assetFileNames: 'app[extname]',
+        },
       },
     },
+    server: { proxy },
+    preview: { proxy },
   }
 })
