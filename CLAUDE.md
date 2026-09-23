@@ -1445,13 +1445,85 @@ Explorer/Énergie/Consommations par zone) -- le plus gros morceau, à traiter
 dans une prochaine étape, probablement sur plusieurs commits (sidebar
 d'abord, puis un onglet à la fois).
 
+## `pages/dashboard/` : sidebar + Explorer, derrière une route de prévisualisation — 2026-09-23
+
+Premier morceau du plus gros chantier restant. Même méthode que
+`/decompte-vue`/`/admin-vue` : `/dashboard-vue` (temporaire) à côté de `/`
+(intact). **Seul l'onglet Explorer est fonctionnel** -- Énergie et
+Consommations par zone affichent un placeholder "en cours de migration",
+la coquille à 3 onglets étant posée maintenant pour ne pas la retoucher à
+chaque futur onglet.
+
+### Nouveautés partagées (`frontend/shared/`)
+
+- `types/series.ts` -- `Series` déplacé ici depuis `pages/admin/` (même
+  forme, utilisée par `/admin` ET le dashboard ; `pages/admin/src/types/series.ts`
+  ré-exporte désormais depuis `@shared` plutôt que de la dupliquer).
+- `api/series.ts` -- `loadAllSeries`/`findSeries` (cache mémoire, un seul
+  `GET /api/series` par chargement de page, port de `core/api.js`) +
+  `fetchSeriesData`/`fetchLatest`/`fetchDaily`.
+- `config.ts` -- `loadResourceTypeLabels()` (`GET /api/resource-types`,
+  mis en cache) -- remplace `core/config.js::getResourceTypeLabels()` qui
+  lisait `window.RESOURCE_TYPE_LABELS` (injection Jinja, impossible sur une
+  page servie en statique pur).
+- `ranges.ts` -- `RANGE_PRESETS` (`1h`/`24h`/`7d`/`30d`/`1y`), miroir de la
+  constante Python `app.py::RANGE_PRESETS` -- pas d'endpoint dédié, c'est
+  une constante fixe du code, pas une valeur de config.yaml.
+
+### Sidebar (`pages/dashboard/src/components/`)
+
+Port de `static/js/sidebar.js`, décomposé en 3 composants plutôt qu'un
+seul : `Sidebar.vue` (calcule les groupes site > appartement/pièce >
+[type]), `SidebarGroupList.vue` (rendu récursif `<details>`, ne connaît que
+la structure), `SeriesCheckboxList.vue` (les cases à cocher, feuille de
+l'arbre). **`isSelected`/`onToggle` passés en provide/inject**
+(`sidebarSelection.ts`) plutôt qu'en props sur 3 niveaux : seul
+`SeriesCheckboxList.vue` en a besoin, les deux composants intermédiaires
+sont purement structurels.
+
+**Différence de structure importante par rapport au portage naïf** : dans
+`templates/index.html` d'origine, `.sidebar` est un FRÈRE de `.content`
+(qui contient les 3 onglets), pas un enfant de l'onglet Explorer -- la
+sidebar reste affichée quel que soit l'onglet actif. `DashboardPage.vue`
+respecte cette structure (sidebar dans une `<aside>` toujours rendue) ; la
+sélection multi-capteurs de l'Explorer vit dans un composable dédié
+(`useExplorerSelection.ts`) possédé par `DashboardPage.vue`, pas par
+`Sidebar.vue` ni par `ExplorerTab.vue` (qui sont frères, ni l'un ni l'autre
+ne peut posséder un état dont l'autre a besoin).
+
+### Explorer (`pages/dashboard/src/tabs/ExplorerTab.vue`)
+
+Port de `tabs/explorer-tab.js`. Reçoit `selected` (le `Map` réactif du
+composable) en prop, `watch(() => props.selected, ..., { deep: true })`
+pour re-render le graph à chaque coche -- un Map réactif muté en place
+(`.set()`/`.delete()`) ne change jamais de référence, donc pas de watch
+profond = jamais de re-render.
+
+### Validé avant de rendre la main
+
+`npm run build:dashboard` propre, sortie confirmée à `static/dashboard-app/`
+(pas `frontend/static/`), `pytest` 59/59. Vérification Playwright contre le
+vrai Flask démo : 143 cases à cocher (= nombre de séries), sélection de 2
+capteurs -> graph affiché avec 2 datasets, changement de plage (24h -> 7d),
+**bascule appartement/pièce avec sélection préservée** (le "bonus gratuit"
+du refactor sidebar d'origine, revérifié après portage), bouton "Tout
+désélectionner" fonctionnel, bascule vers les onglets Énergie/zone sans
+crash (placeholder affiché), zéro erreur console.
+
+**Pas de vérification visuelle humaine** (toujours aucun outil de
+navigateur dans cette session) -- capture d'écran inspectée par moi,
+mise en page cohérente avec l'original.
+
 ## Prochaine étape prévue
 
-`pages/dashboard/` -- migration de `/` (dernière page restante). À
-découper : sidebar de sélection des capteurs d'abord (partagée par les
-3 onglets), puis Explorer, Énergie, Consommations par zone un par un --
-plus gros morceau du projet à ce stade (sidebar.js seul fait 215 lignes,
-energy-tab.js 442).
+`pages/dashboard/` suite -- onglet Énergie (le plus gros morceau restant,
+`tabs/energy-tab.js` fait 442 lignes : tuiles réseau/solaire/batterie,
+autoconsommation, 3 graphs). Puis Consommations par zone (`zone-tab.js`,
+158 lignes, plus simple -- réutilise le même genre de logique qu'Énergie
+en plus générique). Enfin bascule `/` + suppression du code mort
+(`templates/index.html`, `static/js/{main,tabs,sidebar}.js`,
+`static/js/tabs/*.js`, `static/js/core/*.js` -- ce dernier à vérifier
+qu'aucune autre page ne le sert encore avant suppression).
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`

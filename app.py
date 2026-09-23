@@ -222,6 +222,17 @@ def index():
     )
 
 
+@app.route("/dashboard-vue")
+def dashboard_vue():
+    """Aperçu de la réécriture Vue de / (voir CLAUDE.md, "pages/dashboard/") --
+    même principe temporaire que /decompte-vue et /admin-vue en leur temps.
+    Seul l'onglet Explorer est fonctionnel à ce stade (Énergie/Consommations
+    par zone suivent dans une prochaine étape) ; / (Jinja + JS vanilla)
+    reste la version de prod jusqu'à ce que les 3 onglets soient prêts ET
+    validés. Sert static/dashboard-app/ (npm run build:dashboard)."""
+    return send_from_directory(Path(app.static_folder) / "dashboard-app", "index.html")
+
+
 @app.route("/admin")
 def admin():
     """Sert le build Vue de `frontend/pages/admin/` (`npm run build:admin`,
