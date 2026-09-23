@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "dev:decompte": "vite --config pages/decompte/vite.config.ts",
+    "build:decompte": "vue-tsc -p pages/decompte/tsconfig.json --noEmit && vite build --config pages/decompte/vite.config.ts",
+    "preview:decompte": "vite preview --config pages/decompte/vite.config.ts",
+    "build": "npm run build:decompte"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

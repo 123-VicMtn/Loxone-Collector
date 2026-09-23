@@ -1222,11 +1222,138 @@ testé) que ce script ne peut pas juger à ma place. Recommandé mais plus
 urgent au sens "est-ce que ça marche" -- désormais répondu par du réel, pas
 seulement par `vue-tsc`/`npm run build`.
 
+## Restructuration multi-pages (préparation `/` et `/admin`) — 2026-09-23
+
+Sur demande explicite de l'utilisateur de continuer la migration Vue au-delà
+de `/decompte` (revient sur la position plus prudente actée le 2026-08-26 --
+"un framework frontend redevient une option à évaluer si le besoin
+d'interactivité grandit" : le besoin est désormais confirmé explicitement
+par l'utilisateur, pas seulement déduit). `/` (dashboard 3 onglets +
+sidebar, ~900 lignes JS) et `/admin` (~115 lignes) restent à faire -- gros
+chantier, donc découpé en commits vérifiables, en commençant par
+l'infrastructure plutôt que par du contenu visible.
+
+### Pourquoi une restructuration d'abord
+
+`frontend/` était câblé pour UNE SEULE app (un `index.html`, un
+`vite.config.ts`, un `src/`). Ajouter une deuxième page pose un problème
+concret : Vite regroupe par défaut le code partagé entre plusieurs entrées
+d'un même build en chunks -- très bien avec des noms de fichiers hashés,
+mais on utilise volontairement des noms FIXES (`app.js`/`app.css`, voir
+"Choix de stack figé") pour rester simple à servir depuis Flask. Sans hash,
+un chunk partagé nommé de façon stable devient fragile (une évolution du
+graphe de modules peut le faire disparaître/réapparaître sous un autre nom,
+avec un vieux fichier caché par le navigateur qui ne correspond plus à rien).
+
+**Décision : chaque page reste un build Vite totalement indépendant**
+(aucun chunk partagé entre pages, Vue/Chart.js dupliqués par page plutôt que
+mutualisés) -- accepté sciemment : les bundles sont petits (~100 kB gzip
+pour decompte), et un utilisateur ne charge jamais deux pages à la fois.
+Le code partagé (l'équivalent de `static/js/core/*.js`) vit dans
+`frontend/shared/`, importé via un alias `@shared/*` (TS + Vite), mais reste
+une dépendance SOURCE, jamais un chunk de build partagé.
+
+### Structure livrée
+
+```
+frontend/
+  package.json          scripts par page : dev:<page>, build:<page> ; "build" = tous
+  tsconfig.base.json     options communes (ex tsconfig.app.json)
+  tsconfig.node.json      type-check des vite.config.ts (pages/*/vite.config.ts)
+  shared/                 équivalent TS de static/js/core/*.js
+    format.ts             fmtNumber, dates, zoneKey/parseZoneKey/matchesZone,
+                           resourceLabel, apartmentSortKey/compareApartments
+                           (nouveau -- portait déjà en double dans app.py ET
+                           sidebar.js, maintenant UNE seule source TS)
+    charts.ts              PALETTE_*, baseLineOptions/baseBarOptions, aggregateMonthly
+    api/http.ts             fetchJSON/postJSON/deleteJSON
+    api/health.ts
+    composables/useHealthFooter.ts
+  pages/
+    decompte/               déplacé tel quel depuis frontend/src/ (ancien
+      index.html             emplacement), + composants aplatis
+      vite.config.ts          (components/decompte/*.vue -> components/*.vue,
+      tsconfig.json            redondant maintenant que "decompte" est déjà
+      src/                     le dossier racine de la page)
+```
+
+`vite.config.ts` de chaque page : `root` fixé explicitement à son propre
+dossier (`import.meta.dirname`) -- le root par défaut de Vite est
+`process.cwd()`, pas le dossier du fichier de config, ce qui aurait cassé
+dès que les scripts npm invoquent `vite --config pages/X/vite.config.ts`
+depuis `frontend/`. `envDir`/`publicDir` recalés vers `frontend/` (fichiers
+partagés entre pages). `outDir` calculé via `path.resolve()` depuis la
+racine du dépôt plutôt qu'un chemin relatif en dur (`../../static/...`) --
+voir bug ci-dessous.
+
+### Bug réel trouvé et corrigé : le build écrivait au mauvais endroit
+
+En déplaçant `vite.config.ts` de `frontend/` vers `frontend/pages/decompte/`
+(un niveau de nesting de plus), le `outDir` relatif (`'../../static/decompte-app'`,
+mis à jour à la main pour compenser UN niveau de plus) était encore faux
+de UN niveau : il fallait trois `../` (decompte -> pages -> frontend ->
+racine du dépôt), pas deux. Résultat : `npm run build:decompte` écrivait
+dans `frontend/static/decompte-app/` (nouveau dossier, jamais servi par
+Flask) **sans toucher** à l'ancien `static/decompte-app/` à la racine --
+qui restait donc avec le build D'AVANT la restructuration, silencieusement
+périmé. Un premier tour de vérification (Playwright contre le vrai Flask)
+a montré une page qui fonctionnait parfaitement... parce qu'elle servait
+l'ancien code, pas le nouveau : **une vérification qui teste le mauvais
+fichier ne prouve rien**, même si son résultat a l'air bon.
+
+Repéré en comparant la taille de `app.css` générée (12,78 kB vs 14,45 kB
+attendus) plutôt que de faire confiance à un "build réussi" + "page
+identique à l'écran". Corrigé en calculant `outDir` par
+`path.resolve(repoRoot, 'static/decompte-app')` avec `repoRoot` lui-même
+dérivé de `frontendRoot` (jamais de `../../../...` en dur) -- un niveau de
+nesting supplémentaire à l'avenir (ex: une sous-catégorie sous `pages/`) ne
+peut plus décaler silencieusement la sortie.
+
+**Leçon retenue pour la suite** : après tout changement touchant
+`outDir`/`base`/`root`, vérifier l'EMPLACEMENT réel du fichier de sortie
+(taille, timestamp, `ls` du dossier cible) avant de faire confiance à un
+rendu visuel qui peut très bien tester du contenu périmé resté en place.
+
+### Validé avant de rendre la main
+
+`npm run build:decompte` propre (type-check + build), sortie confirmée au
+bon endroit (`static/decompte-app/`, absent de `frontend/static/`),
+`pytest` 59/59, puis **re-vérification complète Playwright** contre le vrai
+Flask (voir méthode dans la section précédente) : chargement propre, KPI et
+tableau corrects, **round-trip tarifs réel** (soumission -> recalcul ->
+suppression), aucune erreur console -- cette fois contre le bundle
+effectivement reconstruit. Tarifs de test nettoyés de `data/demo.db` après
+coup (au moins 3 lignes créées/supprimées pendant cette session de
+vérification, à cause d'une hypothèse erronée sur la réutilisation des
+`id` SQLite après suppression -- pas un bug applicatif, juste une hygiène
+de nettoyage à refaire par ID vérifié plutôt que supposé).
+
+Comportement et rendu strictement identiques à avant la restructuration
+(captures d'écran comparées, aucune classe Tailwind manquante malgré la
+taille de bundle CSS différente -- écart dû au tree-shaking de Tailwind
+v4, pas à du contenu perdu).
+
+### Reste à faire
+
+- `pages/admin/` -- la page la plus petite et la plus autonome des deux
+  restantes (~115 lignes JS+Jinja, aucune dépendance à `@shared/charts` ou
+  au health footer dans la version legacy), candidate naturelle pour la
+  prochaine étape.
+- Nouvelle route API nécessaire : `GET /api/resource-types` (n'existe pas
+  encore) -- `window.RESOURCE_TYPE_LABELS` est aujourd'hui injecté par
+  Jinja dans `templates/index.html`, impossible une fois la page servie en
+  statique pur. Nécessaire pour `/admin` ET pour le futur `/` (sidebar,
+  onglets Énergie/zone).
+- `pages/dashboard/` (le plus gros morceau : sidebar + 3 onglets) --
+  après `/admin`.
+- `package.json::"build"` à étendre (`build:decompte && build:admin && ...`)
+  au fur et à mesure que les pages s'ajoutent.
+
 ## Prochaine étape prévue
 
-Confirmation visuelle humaine de `/decompte` par l'utilisateur quand il en
-a l'occasion (voir section ci-dessus pour ce qui a déjà été vérifié
-automatiquement) -- non bloquant pour la suite.
+`pages/admin/` -- migration de `/admin` (voir section ci-dessus), en
+commençant par `GET /api/resource-types` côté Flask (bloquant pour cette
+page ET pour le futur dashboard).
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`

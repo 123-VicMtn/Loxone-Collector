@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import type { Tarif } from '../../types/decompte'
-import { deleteTarif, saveTarif } from '../../api/decompte'
-import { fmtCHF, fmtDay } from '../../utils/format'
+import type { Tarif } from '../types/decompte'
+import { deleteTarif, saveTarif } from '../api/decompte'
+import { fmtCHF, fmtDay } from '../utils/format'
 
 const props = defineProps<{ tarifs: Tarif[]; miniserver: string }>()
 const emit = defineEmits<{ changed: [] }>()

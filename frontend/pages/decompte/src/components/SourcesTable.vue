@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DecomptePayload, SourceRef } from '../../types/decompte'
+import type { DecomptePayload, SourceRef } from '../types/decompte'
 
 const props = defineProps<{ payload: DecomptePayload }>()
 

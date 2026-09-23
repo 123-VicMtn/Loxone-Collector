@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { DecomptePayload, Period } from '../../types/decompte'
-import { fmtKwh, fmtPct } from '../../utils/format'
+import type { DecomptePayload, Period } from '../types/decompte'
+import { fmtKwh, fmtPct } from '../utils/format'
 
 defineProps<{ payload: DecomptePayload; periodes: Period[] }>()
 </script>

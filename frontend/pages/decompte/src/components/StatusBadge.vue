@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ZonePeriod } from '../../types/decompte'
+import type { ZonePeriod } from '../types/decompte'
 
 const props = defineProps<{ entry: ZonePeriod }>()
 

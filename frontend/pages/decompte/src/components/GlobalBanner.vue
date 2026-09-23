@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { DecomptePayload } from '../../types/decompte'
+import type { DecomptePayload } from '../types/decompte'
 
 const props = defineProps<{ payload: DecomptePayload }>()
 

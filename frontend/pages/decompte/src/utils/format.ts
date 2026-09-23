@@ -1,17 +1,14 @@
 /**
- * Formatages du décompte : montants en francs, kWh, taux en pourcentage.
- * Tous rendent "—" pour une valeur absente, jamais "0" : sur une facture,
- * un montant nul par manque de données ne doit pas se confondre avec un
- * montant nul réellement dû. Port direct de static/js/decompte/format.js
- * et static/js/core/format.js (fmtNumber).
+ * Formatages propres au décompte : montants en francs, kWh, taux en
+ * pourcentage. Tous rendent "—" pour une valeur absente, jamais "0" : sur
+ * une facture, un montant nul par manque de données ne doit pas se
+ * confondre avec un montant nul réellement dû. Port direct de
+ * static/js/decompte/format.js -- fmtNumber lui-même vient de @shared
+ * (commun à toutes les pages, voir static/js/core/format.js).
  */
 
+import { fmtNumber } from '@shared/format'
 import type { Period } from '../types/decompte'
-
-export function fmtNumber(v: number | null | undefined, digits: number): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return '—'
-  return v.toLocaleString('fr-CH', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-}
 
 export function fmtKwh(v: number | null | undefined, digits = 0): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '—'

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { DecomptePayload } from '../../types/decompte'
-import { fmtKwh, fmtCHF, fmtPct } from '../../utils/format'
+import type { DecomptePayload } from '../types/decompte'
+import { fmtKwh, fmtCHF, fmtPct } from '../utils/format'
 import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{ payload: DecomptePayload; periodKey: string }>()

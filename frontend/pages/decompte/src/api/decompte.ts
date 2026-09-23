@@ -1,4 +1,4 @@
-import { fetchJSON, postJSON, deleteJSON } from './http'
+import { fetchJSON, postJSON, deleteJSON } from '@shared/api/http'
 import type { DecomptePayload, Tarif } from '../types/decompte'
 
 /** Sites configurés (config.yaml) -- alimente le sélecteur de site qui

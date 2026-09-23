@@ -1,17 +1,14 @@
 /**
- * Palette et options Chart.js partagées entre les 4 graphs du décompte.
- * Port direct de static/js/core/charts.js et static/js/decompte/charts.js
- * -- mêmes couleurs (orange = réseau, vert = solaire), pour rester
- * cohérent avec l'onglet Énergie du dashboard historique tant que les deux
- * coexistent.
+ * Options Chart.js propres aux 4 graphs du décompte (empilement kWh,
+ * double taux %). La palette elle-même vient de @shared/charts (commune à
+ * toutes les pages -- mêmes couleurs que l'onglet Énergie du dashboard).
+ * Port direct de static/js/decompte/charts.js.
  */
 
 import type { ChartOptions, TooltipItem } from 'chart.js'
-import { fmtNumber } from './format'
+import { fmtNumber } from '@shared/format'
 
-export const PALETTE_GRID = '#d97706'
-export const PALETTE_SOLAR = '#16a34a'
-export const PALETTE_GENERIC = '#2563eb'
+export { PALETTE_GRID, PALETTE_SOLAR, PALETTE_GENERIC } from '@shared/charts'
 
 export function stackedKwhOptions(): ChartOptions<'bar'> {
   return {
