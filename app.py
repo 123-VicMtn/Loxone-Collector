@@ -26,7 +26,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, abort, send_from_directory
+from flask import Flask, jsonify, request, abort, send_from_directory
 
 import billing
 import classification
@@ -207,29 +207,15 @@ def _read_conn():
 
 @app.route("/")
 def index():
-    # La sidebar de sélection des capteurs (regroupement par appartement ou
-    # par pièce) est entièrement rendue côté client (static/js/sidebar.js),
-    # à partir de GET /api/series -- la même source que les onglets Énergie
-    # et Consommations par zone. Avant ce refactor, ce regroupement était
-    # calculé ici en Python (build_apartment_groups/build_room_groups) ET
-    # refait côté JS pour les autres onglets : même donnée, deux
-    # implémentations à maintenir. Cette route ne fait donc plus que
-    # rendre le squelette de la page.
-    return render_template(
-        "index.html",
-        range_presets=list(RANGE_PRESETS.keys()),
-        resource_type_labels=_cfg().resource_type_labels,
-    )
+    """Sert le build Vue de `frontend/pages/dashboard/` (`npm run build:dashboard`,
+    écrit dans static/dashboard-app/) -- a remplacé la version Jinja + JS
+    vanilla (`templates/index.html`/`base.html` + `static/js/{main,tabs,
+    sidebar}.js`, `static/js/tabs/*.js`, `static/js/core/*.js`, tous
+    supprimés) le 2026-09-23, après vérification (voir CLAUDE.md,
+    "pages/dashboard/"). Dernière des 3 pages migrées.
 
-
-@app.route("/dashboard-vue")
-def dashboard_vue():
-    """Aperçu de la réécriture Vue de / (voir CLAUDE.md, "pages/dashboard/") --
-    même principe temporaire que /decompte-vue et /admin-vue en leur temps.
-    Seul l'onglet Explorer est fonctionnel à ce stade (Énergie/Consommations
-    par zone suivent dans une prochaine étape) ; / (Jinja + JS vanilla)
-    reste la version de prod jusqu'à ce que les 3 onglets soient prêts ET
-    validés. Sert static/dashboard-app/ (npm run build:dashboard)."""
+    404 si `npm run build` n'a pas encore été lancé, comportement standard
+    de `send_from_directory`."""
     return send_from_directory(Path(app.static_folder) / "dashboard-app", "index.html")
 
 

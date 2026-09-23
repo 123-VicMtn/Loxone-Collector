@@ -32,9 +32,14 @@ critère valable.
   ensuite (flags `apartment_manual`/`resource_type_manual` en base).
   **Règle stricte : ne jamais faire écrire le poller sur une valeur dont le
   flag `_manual` est à 1.**
-- Dashboard Flask (`/`) : sidebar appartement > type de ressource (bascule
-  `?group_by=room`), graphs Chart.js (vendored en local, pas de dépendance
-  internet), sélection multiple de capteurs.
+- Dashboard (`/`), page de décompte (`/decompte`) et classification
+  (`/admin`) : 3 pages **Vue 3 + TypeScript + Tailwind** indépendantes
+  (`frontend/pages/*/`), servies par Flask comme fichiers statiques
+  (`static/*-app/`, `npm run build`) -- Flask ne rend plus aucun template
+  Jinja, uniquement du JSON (`/api/*`) + les 3 pages compilées. Dashboard :
+  sidebar appartement/pièce (toggle client-side), 3 onglets (Explorer,
+  Énergie, Consommations par zone), Chart.js en dépendance npm. Détail
+  complet de la migration (2026-09-23) dans les sections dédiées plus bas.
 - Déployé et validé en production sur le Pi de l'utilisateur (réseau local),
   firmware Miniserver 17.1.7.27.
 - Accès externe (URL DynDNS Loxone) **entièrement fonctionnel** : structure
@@ -1611,17 +1616,82 @@ navigateur dans cette session).
 `/dashboard-vue`. Reste la bascule de `/` lui-même + le nettoyage du code
 mort -- dernière étape de toute la migration Vue.
 
+## Bascule `/` sur le build Vue -- migration Vue terminée — 2026-09-23
+
+Dernière bascule (même méthode que `/decompte` et `/admin`) : `index()`
+sert désormais `static/dashboard-app/`, `/dashboard-vue` supprimée.
+
+**Nettoyage bien plus large que les deux bascules précédentes** : `/`
+était la DERNIÈRE page encore en Jinja/JS vanilla, donc toute
+l'infrastructure partagée qui ne servait qu'à elle devient morte d'un
+coup, pas seulement ses propres fichiers :
+- `templates/index.html` ET `templates/base.html` (plus aucun template ne
+  l'`{% extends %}` -- `admin.html`/`decompte.html` étaient déjà supprimés
+  aux bascules précédentes).
+- `static/js/{main,tabs,sidebar}.js`, `static/js/tabs/*.js`,
+  `static/js/core/*.js` (5 fichiers -- `api`/`charts`/`config`/`format`/
+  `health`, remplacés par `frontend/shared/`).
+- `static/css/style.css` -- n'était référencé que par `base.html`.
+- `static/vendor/chart.umd.min.js` + sa licence -- le Chart.js vendored
+  n'était chargé que par `base.html` ; les 3 pages Vue utilisent `chart.js`
+  en dépendance npm (voir "Choix de stack figé").
+- `render_template` devenu un import mort dans `app.py` (plus aucune route
+  ne rend de template Jinja -- les 3 pages sont désormais du JSON pur
+  + 3 `send_from_directory` vers des builds statiques) -- retiré de
+  l'import Flask.
+
+Chaque suppression vérifiée par `grep` avant coup (aucune référence
+restante) plutôt que supposée.
+
+**Validé avant de rendre la main** : Flask redémarré sans erreur (import
+mort retiré proprement, pas de `NameError`), `GET /` -> 200 (nouvelle
+version), `GET /dashboard-vue` -> 404, `/admin` et `/decompte` toujours
+200, assets `static/dashboard-app/app.js` -> 200, `pytest` 59/59. Puis
+**vérification Playwright complète contre `/` en direct** (pas
+`/dashboard-vue`) : 143 cases à cocher, sélection Explorer -> graph
+affiché, onglet Énergie (22 tuiles KPI, 4 graphs), onglet Consommations
+par zone (2 graphs), liens vers `/admin` et `/decompte` corrects, **la
+sélection Explorer reste cochée après avoir navigué Énergie -> zone ->
+retour** (revérifié sur la vraie page, pas seulement en préview), zéro
+erreur console.
+
+**Pas de vérification visuelle humaine** (toujours aucun outil de
+navigateur dans cette session) -- capture d'écran inspectée par moi,
+mise en page cohérente sur toute la hauteur de page (143 capteurs
+développés).
+
+## Migration Vue 3 : terminée
+
+Les 3 pages (`/`, `/admin`, `/decompte`) sont maintenant servies par des
+builds Vue 3 + TypeScript + Tailwind indépendants (`frontend/pages/*/`),
+Flask ne faisant plus que du JSON + `send_from_directory` vers
+`static/*-app/`. Plus aucun template Jinja, plus de JS vanilla, plus de
+CSS/vendor legacy. Décision initiale et rationale complets dans "Choix de
+stack figé" plus haut ; chaque étape de la migration (avec ses bugs trouvés
+et corrigés en route) est détaillée dans les sections datées du
+2026-09-23 ci-dessus, dans l'ordre : scaffolding -> `/decompte` ->
+restructuration multi-pages -> `/admin` -> dashboard (sidebar/Explorer ->
+Énergie -> zone) -> bascule finale.
+
+**Reste vrai pour la suite** : le frontend consomme les API JSON de Flask
+sans jamais recalculer de logique métier (facturation, répartition,
+classification) -- règle qui a guidé tout le chantier, à ne pas relâcher
+pour de futures pages.
+
+**Non fait, hors du périmètre de cette migration** : vérification visuelle
+humaine complète (aucun outil de navigateur n'a été disponible dans cette
+session du début à la fin -- toute la validation fonctionnelle s'est faite
+via Playwright headless + inspection de captures d'écran par moi) ;
+responsive mobile non testé ; dark mode absent (l'app n'en avait pas avant
+non plus). À vérifier par l'utilisateur à l'occasion, non bloquant.
+
 ## Prochaine étape prévue
 
-Bascule `/` sur le build Vue + suppression du code mort
-(`templates/index.html`, `static/js/{main,tabs,sidebar}.js`,
-`static/js/tabs/*.js`, `static/js/core/*.js`) -- `/`, `/admin` et
-`/decompte` étant toutes les trois déjà en Vue à ce stade, `core/*.js`
-n'aura plus aucun consommateur, à vérifier par `grep` avant suppression
-comme pour les bascules précédentes. Dernière étape de la migration
-`/` -- après ça, ajouter `npm --prefix frontend run build` à la doc de
-déploiement (déjà fait pour `build`, qui couvre déjà les 3 pages) et
-clore le chantier dans "Ce qui fonctionne aujourd'hui".
+Aucune suite programmée à ce stade -- la migration Vue demandée par
+l'utilisateur est terminée. Prochain sujet naturel du projet (voir
+"Prochaine étape prévue" historique, avant le détour migration) : module
+de génération de factures / décomptes de charges par appartement, côté
+MCP-Loxone.
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`
