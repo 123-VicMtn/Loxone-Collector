@@ -205,16 +205,6 @@ def _read_conn():
     return db.get_connection(_cfg().db_path)
 
 
-def _apartment_sort_key(name: str):
-    """Tri "naturel" par numéro d'appartement (App 2 avant App 10) --
-    encore utilisé par /admin pour la liste d'autocomplete des appartements
-    connus. Le regroupement de la sidebar (qui utilisait aussi cette
-    fonction avant le refactor JS) a son équivalent côté client dans
-    static/js/sidebar.js (compareApartments)."""
-    m = re.search(r"\d+", name)
-    return (0, int(m.group())) if m else (1, name)
-
-
 @app.route("/")
 def index():
     # La sidebar de sélection des capteurs (regroupement par appartement ou
@@ -234,28 +224,12 @@ def index():
 
 @app.route("/admin")
 def admin():
-    with closing(_read_conn()) as conn:
-        series = db.list_series(conn)
-
-    labels = _cfg().resource_type_labels
-    known_apartments = sorted(
-        {s["apartment"] for s in series if s["apartment"]}, key=_apartment_sort_key
-    )
-
-    return render_template(
-        "admin.html",
-        series=series,
-        labels=labels,
-        known_apartments=known_apartments,
-    )
-
-
-@app.route("/admin-vue")
-def admin_vue():
-    """Aperçu de la réécriture Vue de /admin (voir CLAUDE.md, "Restructuration
-    multi-pages") -- même principe temporaire que /decompte-vue en son temps :
-    /admin (Jinja + JS vanilla) reste la version de prod tant que celle-ci
-    n'a pas été validée. Sert static/admin-app/ (npm run build:admin)."""
+    """Sert le build Vue de `frontend/pages/admin/` (`npm run build:admin`,
+    écrit dans static/admin-app/) -- a remplacé la version Jinja + JS
+    vanilla (`templates/admin.html` + `static/js/admin.js`, supprimés) le
+    2026-09-23, après vérification (voir CLAUDE.md, "Restructuration
+    multi-pages"). 404 si le build n'a pas encore été lancé, comportement
+    standard de `send_from_directory`."""
     return send_from_directory(Path(app.static_folder) / "admin-app", "index.html")
 
 

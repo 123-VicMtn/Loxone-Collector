@@ -1418,12 +1418,40 @@ que pour `/decompte`) ; vérification visuelle humaine (toujours aucun outil
 de navigateur disponible dans cette session -- capture d'écran inspectée
 par moi, mais un œil humain reste recommandé, non bloquant).
 
+## Bascule `/admin` sur le build Vue + nettoyage du code mort — 2026-09-23
+
+Même méthode que la bascule `/decompte` : le contenu de `admin_vue()` a
+remplacé celui de `admin()` (même route/endpoint `/admin`, `url_for('admin')`
+dans `templates/index.html` inchangé), `/admin-vue` supprimée. Supprimés :
+`templates/admin.html`, `static/js/admin.js`, et la fonction Python
+`_apartment_sort_key` (devenue morte -- son seul appelant était le rendu
+Jinja de `/admin` ; l'équivalent client `compareApartments` de
+`@shared/format` la remplace désormais, `static/js/sidebar.js` gardant sa
+propre copie JS tant que le dashboard n'est pas migré).
+
+**Validé avant de rendre la main** : Flask redémarré sans erreur (pas de
+`NameError` sur la fonction supprimée -- `grep` confirmé aucun autre
+appelant avant suppression), `GET /admin` -> 200 (nouvelle version),
+`GET /admin-vue` -> 404, `/` et `/decompte` non régressés, `pytest` 59/59.
+Puis **re-vérification Playwright complète contre la vraie route `/admin`**
+(pas seulement `/admin-vue`) : 143 lignes, édition + sauvegarde + lecture
+`/api/series` de confirmation + reset, zéro erreur console -- résultats
+identiques à la vérification précédente contre `/admin-vue`, confirmant que
+la bascule n'a rien changé au comportement. Ligne de test remise à sa
+valeur d'origine après coup (même procédure qu'avant).
+
+**Deux pages sur trois migrées.** Reste `/` (dashboard : sidebar + onglets
+Explorer/Énergie/Consommations par zone) -- le plus gros morceau, à traiter
+dans une prochaine étape, probablement sur plusieurs commits (sidebar
+d'abord, puis un onglet à la fois).
+
 ## Prochaine étape prévue
 
-Bascule `/admin` sur le build Vue + suppression du code mort
-(`templates/admin.html`, `static/js/admin.js`) -- même méthode que la
-bascule `/decompte` du 2026-09-23 (voir plus haut). Ensuite : `pages/dashboard/`,
-le plus gros morceau restant (sidebar + 3 onglets).
+`pages/dashboard/` -- migration de `/` (dernière page restante). À
+découper : sidebar de sélection des capteurs d'abord (partagée par les
+3 onglets), puis Explorer, Énergie, Consommations par zone un par un --
+plus gros morceau du projet à ce stade (sidebar.js seul fait 215 lignes,
+energy-tab.js 442).
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`
