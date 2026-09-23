@@ -89,23 +89,23 @@ async function handleDelete(t: Tarif) {
   <form class="mt-4 flex flex-wrap items-end gap-4" @submit.prevent="handleSubmit">
     <label class="flex flex-col text-sm text-neutral-600">
       Valable dès le
-      <input v-model="form.valid_from" type="date" required class="mt-1 rounded border border-neutral-300 px-2 py-1">
+      <input v-model="form.valid_from" type="date" name="valid_from" required class="mt-1 rounded border border-neutral-300 px-2 py-1">
     </label>
     <label class="flex flex-col text-sm text-neutral-600">
       Prix réseau (CHF/kWh)
-      <input v-model="form.prix_reseau" type="number" step="0.001" min="0" required class="mt-1 w-32 rounded border border-neutral-300 px-2 py-1">
+      <input v-model="form.prix_reseau" type="number" name="prix_reseau" step="0.001" min="0" required class="mt-1 w-32 rounded border border-neutral-300 px-2 py-1">
     </label>
     <label class="flex flex-col text-sm text-neutral-600">
       Prix solaire (CHF/kWh)
-      <input v-model="form.prix_solaire" type="number" step="0.001" min="0" required class="mt-1 w-32 rounded border border-neutral-300 px-2 py-1">
+      <input v-model="form.prix_solaire" type="number" name="prix_solaire" step="0.001" min="0" required class="mt-1 w-32 rounded border border-neutral-300 px-2 py-1">
     </label>
     <label class="flex flex-col text-sm text-neutral-600">
       TVA (%)
-      <input v-model="form.taux_tva" type="number" step="0.1" min="0" required class="mt-1 w-24 rounded border border-neutral-300 px-2 py-1">
+      <input v-model="form.taux_tva" type="number" name="taux_tva" step="0.1" min="0" required class="mt-1 w-24 rounded border border-neutral-300 px-2 py-1">
     </label>
     <label class="flex flex-1 min-w-[12rem] flex-col text-sm text-neutral-600">
       Note
-      <input v-model="form.note" type="text" placeholder="ex: tarif 2026, contrat Romande Énergie" class="mt-1 rounded border border-neutral-300 px-2 py-1">
+      <input v-model="form.note" type="text" name="note" placeholder="ex: tarif 2026, contrat Romande Énergie" class="mt-1 rounded border border-neutral-300 px-2 py-1">
     </label>
     <button type="submit" class="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
       Enregistrer

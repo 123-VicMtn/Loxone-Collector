@@ -1173,24 +1173,60 @@ correspondant restaure instantanément l'ancienne page).
 -> 200, et non-régression de `/` et `/admin` (200 tous les deux, aucune
 référence cassée au code supprimé).
 
-**Toujours pas de vérification visuelle dans un vrai navigateur** (aucun
-outil de navigateur disponible dans cette session) -- **à faire par
-l'utilisateur en priorité** : ouvrir `http://localhost:8082/decompte`
-(ou son port de config habituel) et confirmer que tout s'affiche et
-fonctionne correctement (sélecteurs site/mois, tuiles KPI, les 4 graphs,
-panneau tarifs -- essayer d'enregistrer un tarif pour vérifier le
-round-trip complet). En cas de souci, le commit de cette bascule se
-revert proprement (voir plus haut), la page legacy n'existe simplement
-plus dans l'arbre de travail mais reste récupérable depuis git.
-
 **Reste à faire** : ajouter `npm --prefix frontend run build` à la
 procédure de déploiement -- fait juste en dessous, dans "Commandes
 utiles".
 
+## Vérification headless Playwright + bug trouvé (name manquants) — 2026-09-23
+
+L'extension Claude in Chrome n'a jamais pu se connecter dans cette session,
+donc aucune vérification humaine directe n'a eu lieu -- mais un navigateur
+headless restait possible sans elle : Playwright + Chromium installés à la
+volée dans le scratchpad (pas dans `frontend/`, pas de dépendance ajoutée au
+projet) et lancés contre le VRAI serveur Flask démo (`localhost:8082`, pas
+`vite dev`), avec une interaction complète plutôt qu'un simple chargement de
+page.
+
+**Bug trouvé et corrigé avant validation** : `TarifsPanel.vue` n'avait pas
+d'attributs `name` sur les `<input>` du formulaire -- oubli du portage
+depuis `tarifs.js`, qui lisait le formulaire via `new FormData(form)` (donc
+`name` obligatoire), alors que la version Vue lit `form.*` par `v-model` et
+n'en a fonctionnellement pas besoin. Sans impact fonctionnel réel (le
+formulaire marchait), mais mauvaise pratique HTML (autofill, accessibilité,
+sémantique de formulaire) -- corrigé, les 5 champs ont maintenant leurs
+`name` d'origine.
+
+**Résultat de la vérification** (script + captures dans le scratchpad de la
+session, non conservées dans le dépôt) :
+- Chargement de `/decompte` : titre, h1, 5 tableaux, 4 canvas (les 4
+  graphs), 2 selects (site masqué -- un seul site en démo), **aucune
+  erreur console, aucune erreur JS, aucune requête réseau échouée**.
+- Tuiles KPI peuplées de vraies valeurs (1740 kWh conso totale, 446 réseau,
+  1295 solaire, 74 % autoproduction), tableau par zone correct (App 1/2/3),
+  bandeau d'alerte "2 mois facturables sur 3" affiché correctement.
+- **Round-trip tarifs testé en conditions réelles** : formulaire rempli et
+  soumis (0,25 CHF/kWh réseau, 0,15 solaire, TVA 8,1 %) -> `POST
+  /api/tarifs` -> message de succès -> tableau par zone recalculé
+  immédiatement (App 1 : 78.24 CHF HT / 6.34 TVA / 84.57 TTC, calcul vérifié
+  à la main, correct) -> tarif visible dans le panneau avec bouton
+  Supprimer. Le tarif de test a été supprimé après coup
+  (`DELETE /api/tarifs/1`) pour ne pas polluer `data/demo.db`.
+- Captures d'écran (avant/après tarif) inspectées visuellement par moi :
+  mise en page cohérente, cartes/tableaux/graphs bien alignés, palette
+  Tailwind (ambre/vert/bleu) cohérente avec la charte réseau/solaire du
+  reste du dashboard.
+
+**Ce que ça ne remplace pas** : un œil humain reste utile pour le jugement
+esthétique fin (espacements, choix de couleurs, responsive mobile -- non
+testé) que ce script ne peut pas juger à ma place. Recommandé mais plus
+urgent au sens "est-ce que ça marche" -- désormais répondu par du réel, pas
+seulement par `vue-tsc`/`npm run build`.
+
 ## Prochaine étape prévue
 
-Court terme : validation visuelle de `/decompte` par l'utilisateur (voir
-section ci-dessus) -- priorité avant toute autre modification de cette page.
+Confirmation visuelle humaine de `/decompte` par l'utilisateur quand il en
+a l'occasion (voir section ci-dessus pour ce qui a déjà été vérifié
+automatiquement) -- non bloquant pour la suite.
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`
