@@ -1514,16 +1514,67 @@ crash (placeholder affiché), zéro erreur console.
 navigateur dans cette session) -- capture d'écran inspectée par moi,
 mise en page cohérente avec l'original.
 
+## Onglet Énergie porté — 2026-09-23
+
+Le plus gros morceau du chantier dashboard (`tabs/energy-tab.js`, 442
+lignes). Toujours derrière `/dashboard-vue`, `/` intact.
+
+**Découpage en modules** (`pages/dashboard/src/tabs/energy/`), plutôt qu'un
+seul gros composant comme le fichier JS d'origine -- chaque fonction pure
+de `energy-tab.js` devient un module TS testable indépendamment du rendu :
+- `seriesFor.ts` -- résolution des ~25 séries d'une zone (grid/solaire/
+  batterie/EFM), port direct.
+- `periodGroup.ts` -- tuiles jour/semaine/mois/année avec repli sur le
+  relevé brut, **retourne des données plutôt que de manipuler le DOM**
+  (différence structurelle avec l'original : `renderPeriodGroup` prenait un
+  `container` et y poussait des éléments ; ici un objet `{tiles, any, dayV}`
+  que `EnergyTab.vue` rend avec `<KpiTile v-for>`).
+- `autoconso.ts`, `battery.ts` -- même principe, logique métier pure,
+  aucune référence DOM.
+- `charts.ts` -- 4 constructeurs de données Chart.js (`buildDailyGridSolarChart`,
+  `buildMonthlyGridSolarChart`, `buildBatteryChart`, `buildPowerChart`) ;
+  `dailyPairChart()` factorise la fusion de deux séries de points
+  journaliers par date (dupliquée à l'identique entre `renderDailyChart` et
+  `renderBatteryChart` dans le JS d'origine -- une seule version ici, avec
+  un paramètre de signe pour la décharge batterie qui doit s'afficher en
+  négatif).
+
+**Nouveaux composants partagés par les futurs onglets** (`components/`) :
+`ZoneSelect.vue` + `utils/zoneOptions.ts` (select groupé par site, factorisé
+depuis `energy-tab.js`/`zone-tab.js` qui avaient CHACUN leur propre
+`buildZoneOptions` identique), `KpiTile.vue`, `NoteText.vue`.
+
+**`EnergyTab.vue`** orchestre : un seul `refresh()` async (zone + range
+changés ensemble déclenchent un `watch([zone, range], refresh)`, comme
+l'original où `setupRangeButtons` rappelait `refresh()` en entier, pas
+seulement le graph de puissance).
+
+**Validé avant de rendre la main** : `npm run build:dashboard` propre,
+sortie confirmée à `static/dashboard-app/`, `pytest` 59/59. Playwright
+contre le vrai Flask démo : les 6 sections rendues (Réseau&solaire,
+Autoconsommation, Batterie avec son graph, Puissance instantanée,
+journalière, mensuelle), tuiles peuplées de vraies valeurs, **changement de
+zone recalcule bien toutes les tuiles** (valeurs différentes vérifiées),
+changement de plage fonctionnel, 4 canvas, zéro erreur console. Écart
+repéré et vérifié comme non-bug : le graph "Puissance instantanée" reste
+vide sur la démo (12h/24h) -- confirmé via `GET /api/series/.../data` que
+la série `actual` correspondante a 0 point bruts sur cette fenêtre dans
+`data/demo.db`, caractéristique du jeu de données démo, pas une régression
+du portage (même API, même donnée que la version legacy).
+
+**Pas de vérification visuelle humaine** (toujours aucun outil de
+navigateur dans cette session).
+
 ## Prochaine étape prévue
 
-`pages/dashboard/` suite -- onglet Énergie (le plus gros morceau restant,
-`tabs/energy-tab.js` fait 442 lignes : tuiles réseau/solaire/batterie,
-autoconsommation, 3 graphs). Puis Consommations par zone (`zone-tab.js`,
-158 lignes, plus simple -- réutilise le même genre de logique qu'Énergie
-en plus générique). Enfin bascule `/` + suppression du code mort
-(`templates/index.html`, `static/js/{main,tabs,sidebar}.js`,
-`static/js/tabs/*.js`, `static/js/core/*.js` -- ce dernier à vérifier
-qu'aucune autre page ne le sert encore avant suppression).
+`pages/dashboard/` suite -- Consommations par zone (`zone-tab.js`,
+158 lignes, le plus simple des 3 onglets -- réutilise `ZoneSelect.vue`,
+`KpiTile.vue`, `NoteText.vue`, `@shared/charts` déjà en place). Puis
+bascule `/` + suppression du code mort (`templates/index.html`,
+`static/js/{main,tabs,sidebar}.js`, `static/js/tabs/*.js`,
+`static/js/core/*.js` -- ce dernier à vérifier qu'aucune autre page ne le
+sert encore avant suppression, mais `/`, `/admin` et `/decompte` étant
+toutes les trois déjà en Vue à ce stade, ce sera le cas).
 
 Ensuite : module de génération de factures / décomptes de charges par
 appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`

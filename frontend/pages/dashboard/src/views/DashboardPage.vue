@@ -7,15 +7,15 @@
  * ici plutôt que dans l'onglet ou dans la sidebar.
  *
  * Migration en plusieurs commits (voir CLAUDE.md, "pages/dashboard/") :
- * seul Explorer est fonctionnel pour l'instant, Énergie/Consommations par
- * zone arrivent dans une prochaine étape -- le contour à 3 onglets est
- * posé dès maintenant pour ne pas avoir à retoucher cette coquille ensuite.
+ * Explorer et Énergie sont fonctionnels, Consommations par zone arrive
+ * dans une prochaine étape.
  */
 
 import { ref } from 'vue'
 import { useHealthFooter } from '@shared/composables/useHealthFooter'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
+import EnergyTab from '../tabs/EnergyTab.vue'
 import { useExplorerSelection } from '../composables/useExplorerSelection'
 
 type TabKey = 'explorer' | 'energie' | 'zone'
@@ -62,9 +62,8 @@ const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection(
       <section v-show="activeTab === 'explorer'">
         <ExplorerTab :selected="selected" @clear="clearSelection" />
       </section>
-      <section v-if="activeTab === 'energie'" class="text-sm text-neutral-500">
-        Onglet « Énergie » en cours de migration -- disponible sur l'ancien
-        dashboard en attendant.
+      <section v-show="activeTab === 'energie'">
+        <EnergyTab />
       </section>
       <section v-if="activeTab === 'zone'" class="text-sm text-neutral-500">
         Onglet « Consommations par zone » en cours de migration -- disponible
