@@ -31,7 +31,7 @@ import { computeAutoconso, type AutoconsoResult } from './energy/autoconso'
 import { computeBattery, type BatteryResult } from './energy/battery'
 import { buildDailyGridSolarChart, buildMonthlyGridSolarChart, buildPowerChart } from './energy/charts'
 
-const ENERGY_RESOURCE_TYPES = ['energie_reseau', 'energie_solaire', 'energie_batterie', 'energie_flux']
+const ENERGY_RESOURCE_TYPES = ['energie_reseau', 'energie_solaire', 'energie_batterie']
 
 const allSeries = ref<Series[]>([])
 const zone = ref('')
@@ -66,7 +66,7 @@ async function refresh() {
 
   hasAnyForZone.value = !!(
     sids.gridActual || sids.gridTotal || sids.solarActual || sids.solarTotal ||
-    sids.batteryActual || sids.batteryTotal || sids.efmGpwr || sids.efmPpwr
+    sids.batteryActual || sids.batteryTotal
   )
   if (!hasAnyForZone.value) return
 
@@ -78,7 +78,7 @@ async function refresh() {
   solarTiles.value = solar.tiles
   kpiNoteVisible.value = grid.any || gridExport.any || solar.any
 
-  autoconso.value = await computeAutoconso(sids, grid.todayKwh, gridExport.todayKwh, solar.todayKwh)
+  autoconso.value = computeAutoconso(grid.todayKwh, gridExport.todayKwh, solar.todayKwh)
   battery.value = await computeBattery(sids)
   powerChartData.value = await buildPowerChart(sids, range.value)
   dailyChartData.value = await buildDailyGridSolarChart(sids.gridTotal?.series_id, sids.solarTotal?.series_id)
@@ -188,8 +188,7 @@ watch(customBounds, refreshCustomRange)
           <Bar :data="dailyChartData as never" :options="barOptions" />
         </div>
         <NoteText>
-          Calculé ici à partir de deux relevés du compteur cumulatif ("total"), comme un décompte de charges -- le
-          Miniserver ne fournit nativement que le cumul du jour en cours, pas d'historique journalier au-delà.
+          Calculé ici à partir de deux relevés du compteur cumulatif ("total"), comme un décompte de charges.
         </NoteText>
       </section>
 

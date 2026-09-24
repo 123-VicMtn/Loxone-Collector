@@ -1,5 +1,4 @@
 import { fetchLatest } from '@shared/api/series'
-import { fmtNumber } from '@shared/format'
 import { periodGroupData, type PeriodTile } from './periodGroup'
 import { buildBatteryChart } from './charts'
 import type { ZoneEnergySeries } from './seriesFor'
@@ -17,12 +16,9 @@ export interface BatteryResult {
  * mesurée (évite d'afficher des zéros trompeurs pour une batterie pas
  * encore commissionnée). Charge = state "total", décharge = "totalNeg",
  * même logique bidirectionnelle que le compteur Réseau -- tuiles
- * jour/semaine/mois/année recalculées via periodGroupData (voir
- * energy/periodGroup.ts), `batteryStorage` (état de charge %, pas un
- * compteur cumulatif) reste sur fetchLatest. Port de
- * energy-tab.js::renderBattery. */
+ * jour/semaine/mois/année recalculées via periodGroupData. */
 export async function computeBattery(sids: ZoneEnergySeries): Promise<BatteryResult> {
-  const hasSeries = !!(sids.batteryActual || sids.batteryTotal || sids.batteryNegTotal || sids.batteryStorage)
+  const hasSeries = !!(sids.batteryActual || sids.batteryTotal || sids.batteryNegTotal)
   if (!hasSeries) {
     return { hasSeries: false, hasActivity: false, hint: '', tiles: [], note: '', chart: null }
   }
@@ -45,13 +41,6 @@ export async function computeBattery(sids: ZoneEnergySeries): Promise<BatteryRes
   const charge = await periodGroupData('Charge', sids.batteryTotal)
   const discharge = await periodGroupData('Décharge', sids.batteryNegTotal)
   const tiles = [...charge.tiles, ...discharge.tiles]
-
-  if (sids.batteryStorage) {
-    const storageV = await fetchLatest(sids.batteryStorage.series_id)
-    if (storageV !== null) {
-      tiles.push({ label: 'État de charge', value: fmtNumber(storageV, 0), unit: sids.batteryStorage.unit || '' })
-    }
-  }
 
   const note = 'Charge/décharge calculées ici (relevé de fin - relevé de début, jour/semaine/mois/année) à partir du ' +
     'compteur bidirectionnel de la batterie -- même méthode que Réseau import/export.'

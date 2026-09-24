@@ -69,24 +69,13 @@ export async function buildMonthlyGridSolarChart(
   }
 }
 
-/** Puissance instantanée : si un bloc EFM ("Moniteur de flux d'énergie")
- * existe pour la zone, ses states Gpwr/Ppwr/Spwr sont déjà signés (import/
- * export, charge/décharge) et cohérents avec la doc Loxone -- préférés aux
- * `actual` des compteurs Meter séparés, qui ne portent qu'une grandeur non
- * signée par compteur. */
+/** Puissance instantanée lue sur l'état `actual` de chaque compteur. */
 export async function buildPowerChart(sids: ZoneEnergySeries, range: RangeKey): Promise<BarChartData | null> {
-  const useEfm = sids.efmGpwr || sids.efmPpwr || sids.efmSpwr
-  const specs = useEfm
-    ? [
-        { s: sids.efmGpwr, label: 'Réseau — Gpwr (kW)', color: PALETTE_GRID },
-        { s: sids.efmPpwr, label: 'Solaire — Ppwr (kW)', color: PALETTE_SOLAR },
-        { s: sids.efmSpwr, label: 'Batterie — Spwr (kW)', color: PALETTE_BATTERY },
-      ]
-    : [
-        { s: sids.gridActual, label: 'Réseau (kW)', color: PALETTE_GRID },
-        { s: sids.solarActual, label: 'Solaire (kW)', color: PALETTE_SOLAR },
-        { s: sids.batteryActual, label: 'Batterie (kW)', color: PALETTE_BATTERY },
-      ]
+  const specs = [
+    { s: sids.gridActual, label: 'Réseau (kW)', color: PALETTE_GRID },
+    { s: sids.solarActual, label: 'Solaire (kW)', color: PALETTE_SOLAR },
+    { s: sids.batteryActual, label: 'Batterie (kW)', color: PALETTE_BATTERY },
+  ]
 
   let labels: string[] | null = null
   const datasets: Record<string, unknown>[] = []

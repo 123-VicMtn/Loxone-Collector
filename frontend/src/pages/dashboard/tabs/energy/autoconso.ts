@@ -1,7 +1,5 @@
-import { fetchLatest } from '@shared/api/series'
 import { fmtNumber } from '@shared/format'
 import type { PeriodTile } from './periodGroup'
-import type { ZoneEnergySeries } from './seriesFor'
 
 export interface AutoconsoResult {
   tiles: PeriodTile[]
@@ -9,22 +7,14 @@ export interface AutoconsoResult {
   visible: boolean
 }
 
-/** Autoconsommation : Scd = Pd - Ed (production du jour moins export du
- * jour), formule documentée par Loxone. Repli sur un taux de "couverture
- * solaire" (approximatif, clairement étiqueté comme tel) si l'export
- * réseau (totalNeg) n'est pas disponible pour cette zone. Ajoute aussi, à
- * titre indicatif seulement, la valeur brute exposée par le bloc EFM
- * Loxone (state selfConsumption) dont la sémantique exacte n'est pas
- * confirmée -- voir CLAUDE.md. Port de energy-tab.js::renderAutoconso --
- * `gridDayV`/`gridNegDayV`/`solarDayV` viennent désormais de
- * periodGroupData().todayKwh (relevé de fin - relevé de début sur "total",
- * pas des compteurs vivants Loxone totalDay). */
-export async function computeAutoconso(
-  sids: ZoneEnergySeries,
+/** Autoconsommation du jour : production − export, les deux lus sur les
+ * index cumulatifs (total / totalNeg). Repli sur la part du solaire dans
+ * import + production si l'export n'existe pas pour la zone. */
+export function computeAutoconso(
   gridDayV: number | null,
   gridNegDayV: number | null,
   solarDayV: number | null,
-): Promise<AutoconsoResult> {
+): AutoconsoResult {
   const tiles: PeriodTile[] = []
   const notes: string[] = []
   let visible = false
@@ -45,16 +35,6 @@ export async function computeAutoconso(
       "Estimation approximative (part du solaire dans import + production) : l'export réseau n'est pas " +
       "disponible pour cette zone, la vraie autoconsommation Loxone (production − export) ne peut pas être " +
       'calculée ici.',
-    )
-    visible = true
-  }
-
-  const efmRaw = await fetchLatest(sids.efmSelfConsumption?.series_id)
-  if (efmRaw !== null) {
-    tiles.push({ label: 'Autoconsommation (brute Loxone)', value: fmtNumber(efmRaw, 1), unit: '' })
-    notes.push(
-      'Valeur exposée directement par le bloc "Moniteur de flux d\'énergie" Loxone (state selfConsumption) -- ' +
-      'échelle et unité non confirmées, affichée à titre indicatif seulement.',
     )
     visible = true
   }
