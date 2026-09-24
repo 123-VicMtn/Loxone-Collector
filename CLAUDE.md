@@ -42,6 +42,12 @@ critère valable.
   dépendance npm. Détail complet de la migration Vue (2026-09-23) et de la
   séparation backend/frontend (2026-09-24) dans les sections dédiées plus
   bas.
+- **Authentification backend** (Flask-Login, `auth.py`) : toutes les routes
+  API protégées par `@login_required` sauf `/health`, `/api/login`,
+  `/api/me`. **Le frontend n'a pas encore de page de connexion** -- l'auth
+  backend est livrée mais pas utilisable tant que cette UI n'existe pas
+  (voir "Prochaine étape prévue"). Comptes créés via
+  `scripts/create_admin_user.py`, pas d'interface web de gestion.
 - Déployé et validé en production sur le Pi de l'utilisateur (réseau local),
   firmware Miniserver 17.1.7.27.
 - Accès externe (URL DynDNS Loxone) **entièrement fonctionnel** : structure
@@ -1786,13 +1792,101 @@ qui prévoit déjà Caddy en reverse proxy devant Flask -- son rôle s'étend
 maintenant à servir aussi les fichiers statiques du frontend avec ce
 fallback, pas seulement proxifier l'API).
 
+## Authentification backend (Flask-Login) — 2026-09-24
+
+Étape 1 du plan (`docs/plan-installation-auth-frontend-docker.md`), sur
+demande explicite de l'utilisateur de reprendre le plan en gardant Caddy
+pour plus tard. **Adaptation nécessaire par rapport au plan d'origine** :
+il prévoyait une page de login Jinja (`templates/login.html`, formulaire
+HTML classique) -- obsolète depuis que le backend est 100% API (voir
+section précédente). Remplacé par des routes JSON, consommées par une page
+de connexion côté frontend Vue (à faire -- voir "Prochaine étape prévue").
+
+**Livré côté backend uniquement** (le frontend n'a pas encore de UI de
+connexion -- toutes les routes API renvoient donc 401 tant que rien
+n'appelle `/api/login`, y compris depuis le navigateur) :
+
+- `db.py` : table `users` (`SCHEMA`, créée automatiquement comme `tarifs` --
+  aucun `ALTER` nécessaire) + `get_user_by_username`/`get_user_by_id`/
+  `create_user`, sur le modèle des accesseurs `tarifs` déjà en place.
+- `auth.py` (nouveau) : `LoginManager`, classe `User` (`UserMixin`),
+  `verify_login()`. **Différence clé avec le plan d'origine** :
+  `unauthorized_handler` renvoie `{"error": "unauthorized"}, 401` en JSON
+  au lieu de la redirection HTTP par défaut de Flask-Login (`login_view`)
+  -- une API ne redirige pas, elle répond par un code d'erreur que le
+  frontend interprète lui-même.
+- `app.py` : `app.secret_key` lu depuis `SECRET_KEY` (`.env`, refuse de
+  démarrer sinon avec un message clair -- `ConfigError`, même mécanisme que
+  les variables Loxone manquantes) ; `POST /api/login` (JSON
+  `{username, password}` -> cookie de session + `{"username": "..."}`,
+  ou 401 `{"error": "..."}`) ; `POST /api/logout` ; `GET /api/me` (session
+  en cours ou 401 -- **volontairement sans `@login_required`**, un 401 ici
+  est la réponse normale d'un visiteur non connecté au chargement de la
+  page, pas une erreur d'accès). **Toutes les autres routes API protégées
+  par `@login_required`, sauf `/health`** (reste public, nécessaire pour un
+  futur healthcheck Docker -- conforme au plan).
+- `scripts/create_admin_user.py` (nouveau) : crée un compte ou réinitialise
+  son mot de passe (détecte l'existant, demande confirmation) -- pas
+  d'interface web de gestion des comptes, volontairement (voir "Ce qu'on ne
+  fait pas" du plan).
+- `.env.example` : `SECRET_KEY` documentée (génération suggérée via
+  `secrets.token_hex(32)`).
+
+**Piège d'environnement découvert** : `werkzeug.security.generate_password_hash()`
+utilise `scrypt` par défaut, qui exige que `hashlib` soit compilé contre
+OpenSSL -- **absent sur ce Mac** (Python lié à LibreSSL 2.8.3, même limite
+déjà signalée par les warnings urllib3 vus dans les logs Flask). Résultat :
+`AttributeError: module 'hashlib' has no attribute 'scrypt'` à la création
+du premier compte. Corrigé en forçant `method="pbkdf2:sha256"` dans
+`create_admin_user.py` (supporté partout, `check_password_hash` détecte la
+méthode automatiquement depuis le hash stocké -- aucun changement côté
+vérification/`auth.py`). À garder en tête pour tout futur code touchant
+`werkzeug.security` sur cette machine.
+
+**CORS/déploiement cross-origin -- pas traité maintenant, volontairement** :
+avec Caddy différé, un déploiement où frontend et backend sont sur des
+domaines réellement différents (pas de reverse proxy qui les unifie sous
+une même origine) demanderait `flask-cors` + cookies `SameSite=None;
+Secure` (donc HTTPS obligatoire) pour que le cookie de session traverse
+les requêtes cross-site. Non ajouté maintenant : le dev local fonctionne
+sans (proxy Vite = same-origin du point de vue du navigateur), et la
+solution prévue reste Caddy en reverse proxy unifiant tout sous un seul
+domaine (voir le plan) -- ajouter CORS avant d'avoir tranché l'architecture
+de déploiement ajouterait de la complexité (SameSite/HTTPS) pour un
+besoin pas encore confirmé.
+
+### Validé avant de rendre la main
+
+`pytest` 59/59 (aucune régression). **Cycle complet vérifié en conditions
+réelles** (curl, cookie jar) sur le vrai serveur Flask démo : routes
+protégées -> 401 sans session ; `/health` -> 200 sans session (reste
+public) ; `POST /api/login` avec mauvais mot de passe -> 401 ; avec le bon
+-> cookie de session + `{"username": "demo"}` ; routes protégées -> 200
+avec le cookie ; `POST /api/logout` -> session révoquée, retour à 401
+immédiatement après (bug de test initial trouvé et corrigé en cours de
+route : `curl -b` seul ne suffit pas sur l'appel de logout, il faut aussi
+`-c` pour repersister le cookie invalidé -- sinon le test réutilise
+l'ancien cookie encore valide et fait croire à tort que le logout n'a rien
+fait).
+
+**Compte de test créé sur `config.demo.yaml`** : `demo` / `demo123` --
+utile pour tester le frontend une fois sa page de connexion prête, pas à
+utiliser ailleurs.
+
+**Pas encore fait** : aucune UI de connexion côté frontend -- l'app Vue
+entière est donc actuellement inutilisable en pratique (tout `fetch` vers
+`/api/*` échoue en 401 sans un `POST /api/login` préalable, qu'aucun code
+frontend n'émet encore). C'est la suite immédiate, pas une option.
+
 ## Prochaine étape prévue
 
-Aucune suite programmée à ce stade -- la migration Vue et la séparation
-backend/frontend demandées par l'utilisateur sont terminées. Point
-d'attention non résolu : le fallback SPA côté serveur de prod (voir
-section précédente) reste à câbler quand le déploiement (Docker/VPS/Caddy,
-`docs/plan-installation-auth-frontend-docker.md`) sera repris.
+Frontend : page de connexion Vue (`POST /api/login`) + garde de route
+(`vue-router` : rediriger vers `/login` si `GET /api/me` échoue) +
+gestion globale d'un 401 en cours de session (cookie expiré pendant la
+navigation -> retour à `/login`, sur le modèle prévu par le plan
+d'origine, section 2.4, adapté à `vue-router` plutôt qu'un simple rechargement
+de page). Sans ça, l'authentification backend livrée ci-dessus n'est pas
+utilisable par un humain.
 
 Prochain sujet naturel du projet (voir "Prochaine étape prévue" historique,
 avant le détour migration) : module de génération de factures / décomptes
@@ -1812,6 +1906,11 @@ Flask ne sert plus aucune page, `frontend/` est une SPA autonome qui parle
 # Setup backend
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 cp config.example.yaml config.yaml && cp .env.example .env   # puis éditer
+# puis générer SECRET_KEY dans .env (voir .env.example) :
+python3 -c "import secrets; print(secrets.token_hex(32))"
+
+# Créer un compte (requis pour se connecter -- pas d'inscription en ligne)
+python3 scripts/create_admin_user.py config.yaml
 
 # Setup frontend (une fois)
 npm --prefix frontend install

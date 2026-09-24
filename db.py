@@ -85,6 +85,17 @@ CREATE TABLE IF NOT EXISTS tarifs (
     updated_at   INTEGER,
     UNIQUE(miniserver, valid_from)
 );
+
+-- Comptes utilisateurs (Flask-Login, voir auth.py). Pas de notion de rôle :
+-- tous les comptes ont les mêmes droits, créés à la main via
+-- scripts/create_admin_user.py -- suffisant pour 1-3 utilisateurs connus,
+-- voir docs/plan-installation-auth-frontend-docker.md.
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at    INTEGER NOT NULL
+);
 """
 
 
@@ -490,4 +501,32 @@ def upsert_tarif(conn: sqlite3.Connection, miniserver: str, valid_from: str,
 
 def delete_tarif(conn: sqlite3.Connection, tarif_id: int) -> None:
     conn.execute("DELETE FROM tarifs WHERE id = ?", (tarif_id,))
+    conn.commit()
+
+
+def get_user_by_username(conn: sqlite3.Connection, username: str) -> dict | None:
+    row = conn.execute(
+        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "username": row[1], "password_hash": row[2]}
+
+
+def get_user_by_id(conn: sqlite3.Connection, user_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT id, username, password_hash FROM users WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "username": row[1], "password_hash": row[2]}
+
+
+def create_user(conn: sqlite3.Connection, username: str, password_hash: str) -> None:
+    conn.execute(
+        "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+        (username, password_hash, int(time.time())),
+    )
     conn.commit()

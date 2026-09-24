@@ -19,6 +19,7 @@ mono-process, suffit largement pour cette API sur quelques utilisateurs, et
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
@@ -27,11 +28,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, request, abort
+from flask_login import current_user, login_required, login_user, logout_user
 
+import auth
 import billing
 import classification
 import db
-from config import AppConfig, load_config
+from config import AppConfig, ConfigError, load_config
 from loxone_client import LoxoneAuthError, LoxoneClient, LoxoneError, extract_measurable_points
 from loxone_ws_client import LoxoneWsError, fetch_live_values
 
@@ -205,7 +208,49 @@ def _read_conn():
     return db.get_connection(_cfg().db_path)
 
 
+# --------------------------------------------------------------------------
+# Authentification (voir auth.py, docs/plan-installation-auth-frontend-docker.md)
+# --------------------------------------------------------------------------
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    """Connexion par cookie de session (Flask-Login). Le frontend Vue
+    affiche le formulaire ; ici on ne renvoie que du JSON, jamais de
+    redirection -- ce n'est pas une route de page."""
+    payload = request.get_json(force=True, silent=True) or {}
+    username = str(payload.get("username", "")).strip()
+    password = str(payload.get("password", ""))
+    if not username or not password:
+        abort(400, "username et password requis")
+
+    user = auth.verify_login(username, password)
+    if user is None:
+        return jsonify({"error": "identifiants invalides"}), 401
+
+    login_user(user)
+    return jsonify({"username": user.username})
+
+
+@app.route("/api/logout", methods=["POST"])
+@login_required
+def api_logout():
+    logout_user()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/me")
+def api_me():
+    """Session en cours, ou 401 -- interrogé par le frontend au chargement
+    pour savoir s'il doit afficher la page de connexion. Volontairement SANS
+    @login_required : un 401 ici est une réponse normale (pas connecté),
+    pas une erreur d'accès à signaler comme les autres routes protégées."""
+    if not current_user.is_authenticated:
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify({"username": current_user.username})
+
+
 @app.route("/api/series/<path:series_id>/classify", methods=["POST"])
+@login_required
 def api_classify(series_id: str):
     payload = request.get_json(force=True, silent=True) or {}
 
@@ -223,6 +268,7 @@ def api_classify(series_id: str):
 
 
 @app.route("/api/miniservers")
+@login_required
 def api_miniservers():
     """Sites configurés (config.yaml, clé `miniservers`) -- sert au
     sélecteur de site de /decompte, qui scope tout le reste de la page
@@ -232,6 +278,7 @@ def api_miniservers():
 
 
 @app.route("/api/resource-types")
+@login_required
 def api_resource_types():
     """Libellés des types de ressource (config.yaml, clé
     `resource_type_labels`) -- avant les pages Vue, ceci n'était injecté
@@ -257,6 +304,7 @@ def health():
 
 
 @app.route("/api/series")
+@login_required
 def api_series():
     with closing(_read_conn()) as conn:
         series = db.list_series(conn)
@@ -264,6 +312,7 @@ def api_series():
 
 
 @app.route("/api/series/<path:series_id>/data")
+@login_required
 def api_series_data(series_id: str):
     range_key = request.args.get("range", "24h")
     now = int(time.time())
@@ -294,6 +343,7 @@ def api_series_data(series_id: str):
 
 
 @app.route("/api/series/<path:series_id>/latest")
+@login_required
 def api_series_latest(series_id: str):
     """Dernière valeur connue d'une série (peu importe son âge) -- utilisé
     pour les tuiles de synthèse (ex: totalDay/totalWeek/totalMonth/totalYear
@@ -309,6 +359,7 @@ def api_series_latest(series_id: str):
 
 
 @app.route("/api/series/<path:series_id>/daily")
+@login_required
 def api_series_daily(series_id: str):
     """Relevés de fin de journée + consommation journalière dérivée (delta
     entre deux relevés successifs), pour une série cumulative -- un index
@@ -367,6 +418,7 @@ def _resolve_miniserver(name: str | None) -> str:
 
 
 @app.route("/api/decompte")
+@login_required
 def api_decompte():
     """Décompte mensuel complet, POUR UN SITE : par zone et par mois, la
     part réseau et la part solaire autoconsommée, le taux d'autoproduction,
@@ -414,6 +466,7 @@ def api_decompte():
 
 
 @app.route("/api/tarifs", methods=["GET", "POST"])
+@login_required
 def api_tarifs():
     """Tarifs appliqués au décompte d'UN site (chaque site peut avoir un
     fournisseur/contrat différent). Stockés en base (et non dans le
@@ -447,6 +500,7 @@ def api_tarifs():
 
 
 @app.route("/api/tarifs/<int:tarif_id>", methods=["DELETE"])
+@login_required
 def api_tarif_delete(tarif_id: int):
     ms_name = _resolve_miniserver(request.args.get("miniserver"))
     with closing(_read_conn()) as conn:
@@ -455,12 +509,23 @@ def api_tarif_delete(tarif_id: int):
 
 
 def create_app(config_path: str = "config.yaml") -> Flask:
-    cfg = load_config(config_path)
+    cfg = load_config(config_path)  # charge aussi .env (voir config.load_config)
     app.config["LOXONE_CFG"] = cfg
     # Crée la base + le schéma tout de suite, y compris si le poller n'a pas
     # encore tourné (évite une erreur 500 sur un dashboard vide au premier
-    # démarrage).
+    # démarrage) -- crée aussi la table `users` au passage (voir db.SCHEMA).
     db.get_connection(cfg.db_path).close()
+
+    if "SECRET_KEY" not in os.environ:
+        raise ConfigError(
+            "Variable d'environnement 'SECRET_KEY' absente (nécessaire pour "
+            "signer les cookies de session -- vérifie ton fichier .env, voir "
+            ".env.example). Générer une valeur : "
+            "python3 -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    app.secret_key = os.environ["SECRET_KEY"]
+    auth.login_manager.init_app(app)
+
     start_background_poller(cfg)
     return app
 
