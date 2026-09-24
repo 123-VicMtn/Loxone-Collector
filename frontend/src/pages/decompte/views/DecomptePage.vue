@@ -173,8 +173,8 @@ onMounted(async () => {
         </p>
       </div>
       <nav class="flex gap-4 text-sm text-blue-600">
-        <a href="/" class="hover:underline">← Dashboard</a>
-        <a href="/admin" class="hover:underline">⚙ Classification</a>
+        <router-link to="/" class="hover:underline">← Dashboard</router-link>
+        <router-link to="/admin" class="hover:underline">⚙ Classification</router-link>
       </nav>
     </header>
 
@@ -296,7 +296,7 @@ onMounted(async () => {
         <h4 class="mt-8 mb-1 font-semibold text-neutral-900">Quelle série alimente quelle colonne</h4>
         <p class="text-sm text-neutral-500">
           Une correspondance fausse se corrige dans
-          <a href="/admin" class="text-blue-600 hover:underline">⚙ Classification</a>
+          <router-link to="/admin" class="text-blue-600 hover:underline">⚙ Classification</router-link>
           (le type de ressource d'un capteur), pas ici.
         </p>
         <div class="mt-4">

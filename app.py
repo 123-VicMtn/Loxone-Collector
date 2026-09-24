@@ -2,18 +2,18 @@
 app.py
 ------
 Point d'entrée de l'application : lance en tâche de fond le poller qui
-interroge les Miniservers Loxone et écrit en SQLite, et sert un dashboard
-web (Flask) permettant de choisir un capteur et d'en visualiser l'historique
-sous forme de graph (Chart.js).
+interroge les Miniservers Loxone et écrit en SQLite, et expose une API
+JSON (`/api/*`, `/health`) consommée par le frontend Vue (`frontend/`,
+app autonome -- voir CLAUDE.md "Backend 100% API"). Flask ne sert aucune
+page HTML lui-même.
 
 Lancement (dev) :
     python app.py
 
 Lancement (prod, sur le Pi) : voir scripts/loxone-collector.service
 (gunicorn n'est volontairement pas utilisé ici : le serveur de dev Flask,
-mono-process, suffit largement pour un dashboard local sur quelques
-utilisateurs, et évite de multiplier les connexions SQLite/la RAM utilisée
-sur un Pi à 2 Go).
+mono-process, suffit largement pour cette API sur quelques utilisateurs, et
+évite de multiplier les connexions SQLite/la RAM utilisée sur un Pi à 2 Go).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, request, abort, send_from_directory
+from flask import Flask, jsonify, request, abort
 
 import billing
 import classification
@@ -205,31 +205,6 @@ def _read_conn():
     return db.get_connection(_cfg().db_path)
 
 
-@app.route("/")
-def index():
-    """Sert le build Vue de `frontend/pages/dashboard/` (`npm run build:dashboard`,
-    écrit dans static/dashboard-app/) -- a remplacé la version Jinja + JS
-    vanilla (`templates/index.html`/`base.html` + `static/js/{main,tabs,
-    sidebar}.js`, `static/js/tabs/*.js`, `static/js/core/*.js`, tous
-    supprimés) le 2026-09-23, après vérification (voir CLAUDE.md,
-    "pages/dashboard/"). Dernière des 3 pages migrées.
-
-    404 si `npm run build` n'a pas encore été lancé, comportement standard
-    de `send_from_directory`."""
-    return send_from_directory(Path(app.static_folder) / "dashboard-app", "index.html")
-
-
-@app.route("/admin")
-def admin():
-    """Sert le build Vue de `frontend/pages/admin/` (`npm run build:admin`,
-    écrit dans static/admin-app/) -- a remplacé la version Jinja + JS
-    vanilla (`templates/admin.html` + `static/js/admin.js`, supprimés) le
-    2026-09-23, après vérification (voir CLAUDE.md, "Restructuration
-    multi-pages"). 404 si le build n'a pas encore été lancé, comportement
-    standard de `send_from_directory`."""
-    return send_from_directory(Path(app.static_folder) / "admin-app", "index.html")
-
-
 @app.route("/api/series/<path:series_id>/classify", methods=["POST"])
 def api_classify(series_id: str):
     payload = request.get_json(force=True, silent=True) or {}
@@ -373,24 +348,9 @@ def api_series_daily(series_id: str):
 
 
 # --------------------------------------------------------------------------
-# Décompte de charges (page /decompte)
+# Décompte de charges (API -- la page /decompte est servie par le frontend
+# Vue en tant qu'app autonome, pas par Flask, voir CLAUDE.md "Backend 100% API")
 # --------------------------------------------------------------------------
-
-@app.route("/decompte")
-def decompte():
-    """Sert le build Vue 3/TypeScript/Tailwind de `frontend/`
-    (`npm run build`, écrit dans static/decompte-app/) -- voir CLAUDE.md,
-    "Migration /decompte vers Vue 3". A remplacé la version Jinja + JS
-    vanilla (`templates/decompte.html` + `static/js/decompte/*.js`,
-    supprimés) le 2026-09-23, après validation visuelle.
-
-    404 si `npm run build` n'a pas encore été lancé (static/decompte-app/
-    n'existe pas) -- c'est un `send_from_directory` standard, aucune gestion
-    d'erreur spécifique n'est nécessaire. Voir "Commandes utiles" pour la
-    procédure de déploiement (le build doit être généré AVANT de
-    redémarrer le service)."""
-    return send_from_directory(Path(app.static_folder) / "decompte-app", "index.html")
-
 
 def _resolve_miniserver(name: str | None) -> str:
     """Valide (ou choisit par défaut) le site sur lequel scoper un appel

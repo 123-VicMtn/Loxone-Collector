@@ -37,8 +37,8 @@ const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection(
       <h1 class="text-xl font-bold text-neutral-900">Loxone</h1>
       <p class="mb-4 text-sm text-neutral-500">Capteurs suivis</p>
       <div class="mb-4 flex flex-col gap-1 text-sm">
-        <a href="/admin" class="text-blue-600 hover:underline" title="Corriger la classification des capteurs">⚙ Classification</a>
-        <a href="/decompte" class="text-blue-600 hover:underline" title="Décompte de charges mensuel par zone">🧾 Décompte de charges</a>
+        <router-link to="/admin" class="text-blue-600 hover:underline" title="Corriger la classification des capteurs">⚙ Classification</router-link>
+        <router-link to="/decompte" class="text-blue-600 hover:underline" title="Décompte de charges mensuel par zone">🧾 Décompte de charges</router-link>
       </div>
       <Sidebar :is-selected="isSelected" :on-toggle="onToggle" />
     </aside>

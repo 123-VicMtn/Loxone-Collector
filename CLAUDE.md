@@ -32,14 +32,16 @@ critère valable.
   ensuite (flags `apartment_manual`/`resource_type_manual` en base).
   **Règle stricte : ne jamais faire écrire le poller sur une valeur dont le
   flag `_manual` est à 1.**
-- Dashboard (`/`), page de décompte (`/decompte`) et classification
-  (`/admin`) : 3 pages **Vue 3 + TypeScript + Tailwind** indépendantes
-  (`frontend/pages/*/`), servies par Flask comme fichiers statiques
-  (`static/*-app/`, `npm run build`) -- Flask ne rend plus aucun template
-  Jinja, uniquement du JSON (`/api/*`) + les 3 pages compilées. Dashboard :
-  sidebar appartement/pièce (toggle client-side), 3 onglets (Explorer,
-  Énergie, Consommations par zone), Chart.js en dépendance npm. Détail
-  complet de la migration (2026-09-23) dans les sections dédiées plus bas.
+- **Backend 100% API** : `app.py` ne sert plus aucune page HTML, uniquement
+  du JSON (`/api/*`, `/health`). Le **frontend est une SPA Vue 3 +
+  TypeScript + Tailwind autonome** (`frontend/`, un seul build, `vue-router`
+  en mode history pour les 3 routes `/`, `/admin`, `/decompte`), qui tourne
+  sur sa propre origine/hébergement et ne parle au backend que via HTTP.
+  Dashboard (`/`) : sidebar appartement/pièce (toggle client-side), 3
+  onglets (Explorer, Énergie, Consommations par zone), Chart.js en
+  dépendance npm. Détail complet de la migration Vue (2026-09-23) et de la
+  séparation backend/frontend (2026-09-24) dans les sections dédiées plus
+  bas.
 - Déployé et validé en production sur le Pi de l'utilisateur (réseau local),
   firmware Miniserver 17.1.7.27.
 - Accès externe (URL DynDNS Loxone) **entièrement fonctionnel** : structure
@@ -1685,28 +1687,134 @@ via Playwright headless + inspection de captures d'écran par moi) ;
 responsive mobile non testé ; dark mode absent (l'app n'en avait pas avant
 non plus). À vérifier par l'utilisateur à l'occasion, non bloquant.
 
+## Backend 100% API + frontend fusionné en une seule SPA — 2026-09-24
+
+Sur demande explicite de l'utilisateur : « le frontend entier doit être
+servi comme une seule app [...] le back en API pure, front qui s'adapte ».
+Ce n'était pas une contrainte liée à l'absence d'auth (question posée par
+l'utilisateur, clarifiée avant ce travail) -- l'auth, quand elle arrivera,
+se gérera côté Flask (cookie de session, `@login_required` sur les routes
+API) et fonctionne indifféremment du découpage du frontend. La vraie
+motivation : navigation sans rechargement complet entre `/`, `/admin`,
+`/decompte`, et un backend qui n'a plus aucune responsabilité de rendu.
+
+### Backend (`app.py`)
+
+Les 3 routes de page (`/`, `/admin`, `/decompte`, chacune un
+`send_from_directory` vers `static/*-app/index.html`) sont supprimées.
+Flask ne répond plus qu'en JSON (`/api/*`) ou 404/`/health` -- vérifié
+explicitement (`GET /`, `/admin`, `/decompte` -> 404 ; `/api/miniservers`,
+`/health` -> 200). Import `send_from_directory` retiré (mort). Docstring
+d'en-tête du fichier mis à jour (ne mentionne plus "sert un dashboard web").
+
+### Frontend : fusion des 3 apps en une seule (`vue-router`)
+
+Jusqu'ici chaque page (`pages/decompte/`, `pages/admin/`,
+`pages/dashboard/`) était un build Vite **indépendant** (voir
+"Restructuration multi-pages", 2026-09-23) -- nécessitait 3 serveurs dev
+sur 3 ports, et une navigation entre pages = rechargement complet
+(`<a href>` classique). Choix technique de l'époque (noms de fichiers
+fixes, pas de hash) rendu obsolète par la nouvelle contrainte : un seul
+build, une seule origine, navigation côté client.
+
+**Restructuration** :
+```
+frontend/
+  index.html, vite.config.ts, package.json   racine unique (avant : un jeu par page)
+  src/
+    main.ts        Chart.register() une fois, createApp().use(router).mount()
+    App.vue         <RouterView /> seul -- pas de chrome partagé, chaque
+                     page garde son propre <header> (voir *Page.vue)
+    router.ts        3 routes, createWebHistory() (URLs propres /admin,
+                      /decompte -- pas de hash #/admin)
+    style.css
+    pages/
+      dashboard/      contenu de l'ex pages/dashboard/src/ (views/
+      admin/          components/tabs/composables/utils/types), moins
+      decompte/       App.vue/main.ts/style.css (remplacés par les
+                       fichiers racine ci-dessus)
+  shared/             inchangé -- toujours la logique commune aux 3 pages
+```
+`tsconfig.app.json` (ex `tsconfig.base.json`, un seul projet maintenant)
+porte l'alias `@shared/*`. Les 3 `tsconfig.json`/`vite.config.ts` par page
+et leurs 3 `index.html` ont disparu.
+
+**Build** : `outDir` redevient `dist/` (relatif, standard Vite) et `base: '/'`
+-- ce build n'est plus copié dans `static/*-app/` par Flask (qui ne le sert
+plus), c'est un artefact de déploiement autonome (voir "Commandes utiles").
+`static/{decompte,admin,dashboard}-app/` (créés par les anciens builds)
+supprimés du disque, leurs entrées retirées de `.gitignore` (remplacées par
+`frontend/dist/`).
+
+**Navigation** : les `<a href="/admin">` etc. dans les 3 vues (`DashboardPage.vue`,
+`AdminPage.vue`, `DecomptePage.vue`) remplacés par `<router-link to="...">`
+-- seul le lien vers `/health` (route backend, pas une route du router)
+reste un `<a>` classique, volontairement.
+
+**`npm run dev`/`build`/`preview` redeviennent des scripts simples** (plus
+de `dev:decompte`/`build:admin`/etc. par page, plus de `concurrently` --
+un seul serveur Vite suffit maintenant qu'il n'y a qu'une seule app).
+
+### Validé avant de rendre la main
+
+`npm run build` propre (`vue-tsc -b` + `vite build`, 111 modules, un seul
+bundle ~360 kB / 123 kB gzip). `pytest` 59/59 (aucune régression Python).
+
+**Vérification Playwright déterminante** (pas seulement "ça s'affiche") :
+compté les requêtes réseau vers `/assets/index-*.js` pendant un clic sur
+un `router-link` -- **0 requête** lors des transitions `/` -> `/decompte`
+-> `/admin` (contre 2 requêtes au chargement initial) : preuve que la
+navigation est bien gérée côté client par `vue-router`, sans rechargement
+de page, pas seulement une URL qui change. Testé aussi : navigation directe
+(chargement dur) vers `/decompte` -- 200, le fallback SPA de `vite preview`
+sert `index.html` pour une route inconnue du serveur statique, comme le
+fera un reverse proxy en prod (voir note déploiement ci-dessous). Sidebar
+(143 capteurs), tableau de classification (143 lignes), décompte (KPI +
+graphs) tous fonctionnels après la fusion -- même comportement qu'avant,
+juste unifié. Zéro erreur console sur l'ensemble du parcours.
+
+### Point d'attention pour le déploiement (pas encore fait)
+
+`createWebHistory()` (URLs propres, pas de `#`) exige un **fallback SPA**
+côté serveur qui sert le frontend statique : toute route inconnue (ex:
+`/admin` demandé en direct, pas via un clic) doit renvoyer `index.html`,
+sinon 404 sur un serveur statique naïf. `vite preview` le fait
+automatiquement (vérifié ci-dessus) ; un vrai serveur de prod (nginx,
+Caddy...) doit être configuré explicitement pour ça -- à traiter avec le
+reste du plan de déploiement (`docs/plan-installation-auth-frontend-docker.md`,
+qui prévoit déjà Caddy en reverse proxy devant Flask -- son rôle s'étend
+maintenant à servir aussi les fichiers statiques du frontend avec ce
+fallback, pas seulement proxifier l'API).
+
 ## Prochaine étape prévue
 
-Aucune suite programmée à ce stade -- la migration Vue demandée par
-l'utilisateur est terminée. Prochain sujet naturel du projet (voir
-"Prochaine étape prévue" historique, avant le détour migration) : module
-de génération de factures / décomptes de charges par appartement, côté
-MCP-Loxone.
+Aucune suite programmée à ce stade -- la migration Vue et la séparation
+backend/frontend demandées par l'utilisateur sont terminées. Point
+d'attention non résolu : le fallback SPA côté serveur de prod (voir
+section précédente) reste à câbler quand le déploiement (Docker/VPS/Caddy,
+`docs/plan-installation-auth-frontend-docker.md`) sera repris.
 
-Ensuite : module de génération de factures / décomptes de charges par
-appartement, côté MCP-Loxone. Point d'entrée naturel : `/api/series/<id>/data`
-(agrégats horaires disponibles sur le long terme) combiné aux champs
-`apartment` / `resource_type` de `series_meta`, pour calculer une
-consommation par appartement et par type de charge sur une période de
-facturation.
+Prochain sujet naturel du projet (voir "Prochaine étape prévue" historique,
+avant le détour migration) : module de génération de factures / décomptes
+de charges par appartement, côté MCP-Loxone. Point d'entrée naturel :
+`/api/series/<id>/data` (agrégats horaires disponibles sur le long terme)
+combiné aux champs `apartment` / `resource_type` de `series_meta`, pour
+calculer une consommation par appartement et par type de charge sur une
+période de facturation.
 
 ## Commandes utiles
 
+Backend et frontend sont deux process séparés (voir "Backend 100% API" --
+Flask ne sert plus aucune page, `frontend/` est une SPA autonome qui parle
+à l'API en HTTP).
+
 ```bash
-# Setup
+# Setup backend
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 cp config.example.yaml config.yaml && cp .env.example .env   # puis éditer
-npm --prefix frontend install    # une fois, pour le frontend /decompte
+
+# Setup frontend (une fois)
+npm --prefix frontend install
 
 # Diagnostic connexion Loxone
 python3 scripts/diagnose_auth.py config.yaml
@@ -1721,27 +1829,34 @@ python3 scripts/check_statistics.py config.yaml maison
 python3 scripts/backfill_statistics.py config.external.yaml MS-Arlopi --dry-run
 python3 scripts/backfill_statistics.py config.external.yaml MS-Arlopi
 
-# Build du frontend /decompte (Vue) -- requis avant de lancer app.py, sinon
-# /decompte répond 404 (static/decompte-app/ n'existe pas encore)
-npm --prefix frontend run build
-
-# Lancer (prod ou config alternative)
+# Lancer le backend (API JSON seule, prod ou config alternative)
 python3 app.py                     # config.yaml
-python3 app.py config.demo.yaml    # dashboard de démo, données synthétiques
+python3 app.py config.demo.yaml    # API de démo, données synthétiques
 
-# Démo / test dashboard sans Loxone réel
+# Démo / test sans Loxone réel
 python3 scripts/seed_demo_data.py config.demo.yaml && python3 app.py config.demo.yaml
 
-# Dev du frontend /decompte avec rechargement à chaud (utilise le proxy
-# Vite vers Flask -- voir frontend/vite.config.ts, VITE_API_PROXY_TARGET)
-npm --prefix frontend run dev
+# Dev frontend avec rechargement à chaud, en parallèle du backend --
+# proxy /api + /health vers Flask (voir frontend/vite.config.ts,
+# VITE_API_PROXY_TARGET dans frontend/.env.local pour changer la cible)
+npm --prefix frontend run dev       # http://localhost:5173
+
+# Build frontend (prod) -- produit frontend/dist/, à déployer comme un
+# site statique (nginx/Caddy/CDN...), indépendamment du backend
+npm --prefix frontend run build
+npm --prefix frontend run preview   # tester ce build localement (avec proxy API)
 
 # Maintenance DB (mensuel, manuel)
 python3 scripts/vacuum_db.py config.yaml
 
-# Déploiement (systemd, PC Ubuntu Server -- anciennement Pi)
-npm --prefix frontend run build    # AVANT le redémarrage du service
+# Déploiement backend (systemd, PC Ubuntu Server -- anciennement Pi)
 sudo cp scripts/loxone-collector.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now loxone-collector
 journalctl -u loxone-collector -f
+
+# Déploiement frontend : servir frontend/dist/ (fichiers statiques) via
+# n'importe quel serveur web, en configurant un fallback SPA (toute route
+# inconnue -> index.html, nécessaire avec vue-router en mode history) et
+# un reverse proxy de /api + /health vers le backend -- voir
+# docs/plan-installation-auth-frontend-docker.md pour le détail (Caddy).
 ```
