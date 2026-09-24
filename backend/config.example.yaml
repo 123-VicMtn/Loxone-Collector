@@ -27,12 +27,11 @@ hourly_retention_days: 0
 # période creuse.
 maintenance_hour_utc: 3
 
-# Filtrage des points suivis.
-# include_types: ["*"] suit TOUTES les valeurs mesurables de chaque
-# contrôle Loxone (comportement choisi par défaut ici). Pour te limiter à
-# certains types, remplace par une liste explicite, ex:
-#   include_types: ["InfoOnlyAnalog", "Meter", "IRoomControllerV2"]
-include_types: ["*"]
+# Filtrage des points suivis. Seuls les compteurs (Meter) sont collectés.
+# À l'intérieur d'un compteur, le poller ne garde que actual / total /
+# totalNeg (voir loxone_client.BILLABLE_STATES) : le découpage par dates
+# se fait sur l'index total, pas sur totalDay/totalWeek/totalMonth.
+include_types: ["Meter"]
 exclude_types: []       # ex: ["Jalousie", "LightControllerV2"]
 exclude_rooms: []       # ex: ["Technique", "Extérieur"]
 

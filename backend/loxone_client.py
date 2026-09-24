@@ -44,11 +44,17 @@ class LoxoneAuthError(LoxoneError):
 # n'est pas exhaustive : elle peut être élargie via la config
 # (include_types / exclude_types) pour capter d'autres types de contrôles.
 DEFAULT_MEASURABLE_TYPES = {
-    "InfoOnlyAnalog",   # capteur analogique générique (température, %, kWh, ...)
-    "InfoOnlyDigital",  # capteur digital générique (0/1)
-    "Meter",            # compteur (énergie, eau, ...)
-    "IRoomControllerV2",  # contrôleur de pièce (température ambiante/consigne)
+    "Meter",  # compteur (énergie, eau, chaleur) — seul type facturable
 }
+
+# États d'un compteur conservés par le poller. `total` et `totalNeg` sont
+# des index cumulatifs historisés (Statistics) : un jour, une semaine ou un
+# mois se calcule par différence de relevés, donc les compteurs vivants
+# totalDay/totalWeek/totalMonth/totalYear (et leurs variantes Neg) ne sont
+# pas collectés. `actual` est la puissance instantanée du même compteur,
+# affichée par l'onglet Énergie. jLocked, EFM, textes, relais et badges
+# n'entrent dans aucun décompte.
+BILLABLE_STATES = frozenset({"actual", "total", "totalNeg"})
 
 
 @dataclass
@@ -164,9 +170,14 @@ def extract_measurable_points(
     """Parcourt le fichier de structure LoxAPP3.json et retourne la liste des
     points de donnée à suivre.
 
-    - include_types=None -> utilise DEFAULT_MEASURABLE_TYPES
-    - include_types=["*"] ou include_types=[] avec exclude_types seul -> tous
-      les types sont acceptés (mode "toutes les valeurs mesurables").
+    Seuls les états de BILLABLE_STATES sont retenus (actual, total, totalNeg).
+    Les compteurs glissants (totalDay, totalWeek, ...) et les états non
+    facturables (jLocked, textes, relais) sont ignorés : le découpage par
+    dates se calcule depuis l'index `total`.
+
+    - include_types=None -> utilise DEFAULT_MEASURABLE_TYPES (Meter)
+    - include_types=["*"] -> tous les types de contrôles, mais toujours
+      filtrés par BILLABLE_STATES
     """
     controls = structure.get("controls", {}) or {}
     rooms = structure.get("rooms", {}) or {}
@@ -208,6 +219,8 @@ def extract_measurable_points(
         output_units = _extract_statistic_output_units(control)
 
         for state_name, state_uuid in states.items():
+            if state_name not in BILLABLE_STATES:
+                continue
             # Certains states sont des listes d'UUID (ex: contrôles multi-valeurs) :
             # on les développe chacun en un point distinct.
             uuids = state_uuid if isinstance(state_uuid, list) else [state_uuid]

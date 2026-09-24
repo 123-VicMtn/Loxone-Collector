@@ -76,7 +76,7 @@ class AppConfig:
     raw_retention_days: int = 30
     hourly_retention_days: int = 0
     maintenance_hour_utc: int = 3
-    include_types: list[str] = field(default_factory=lambda: ["*"])
+    include_types: list[str] = field(default_factory=lambda: ["Meter"])
     exclude_types: list[str] = field(default_factory=list)
     exclude_rooms: list[str] = field(default_factory=list)
     miniservers: list[MiniserverConfig] = field(default_factory=list)

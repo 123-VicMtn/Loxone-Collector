@@ -2403,26 +2403,92 @@ redémarré et confirmé fonctionnel (`/health` 200, poll réel réussi).
 Empreinte de données identique avant/après sur toutes les tables
 (aucune perte, pas une supposition).
 
-## Dette technique différée (à reprendre après les prochaines fonctionnalités)
+## Tâches à faire (backlog consolidé) — mis à jour 2026-09-24
+
+Liste vivante, tenue à jour comme "Prochaine étape prévue"/"Commandes
+utiles" (contrairement aux sections datées ci-dessus, qui ne sont jamais
+réécrites) -- regroupe tout ce qui était jusqu'ici éparpillé en notes
+"reste à faire"/"pas encore fait" dans les sections historiques. Cocher/
+retirer une ligne d'ici quand elle est faite, plutôt que de laisser
+plusieurs endroits du fichier se contredire sur ce qui reste à faire.
+
+### Prochaine fonctionnalité
+
+- **Génération de factures / décomptes PDF** par zone et par mois --
+  détail dans "Prochaine étape prévue" ci-dessous (section suivante).
+- Compteurs `Chauffage App 2` (4167) et `Chauffage App 3` (2896) figés
+  depuis des mois (voir "Page de décompte de charges", 2026-08-28) -- hors
+  périmètre du décompte électrique actuel, à signaler seulement si le
+  chauffage doit être facturé un jour.
+
+### Déploiement (explicitement différé -- "garde Caddy pour plus tard")
+
+Tout regroupé dans `docs/plan-installation-auth-frontend-docker.md`, à
+reprendre en bloc quand l'utilisateur relance le sujet :
+
+- **Fallback SPA** côté serveur de prod pour `vue-router` en mode
+  `createWebHistory()` -- toute route inconnue (`/admin`, `/decompte` en
+  accès direct) doit renvoyer `index.html`, sinon 404 sur un serveur
+  statique naïf (`vite preview` le fait automatiquement, un vrai Caddy/
+  nginx de prod ne le fait pas sans configuration explicite -- voir
+  "Backend 100% API + frontend fusionné en une seule SPA", 2026-09-24).
+- **CORS / cookies cross-origin** si jamais frontend et backend finissent
+  sur des domaines réellement différents sans reverse proxy unificateur
+  (`flask-cors` + `SameSite=None; Secure`, donc HTTPS) -- volontairement
+  pas ajouté tant que l'architecture de déploiement (Caddy en reverse
+  proxy unique) n'est pas confirmée (voir "Authentification backend",
+  2026-09-24).
+- Caddy comme reverse proxy devant Flask + fichiers statiques du frontend
+  (avec le fallback SPA ci-dessus) + Docker -- portée complète du plan,
+  jamais commencée dans ce dépôt.
+- `backend/scripts/loxone-collector.service` (systemd) garde son
+  `User=pi`/chemin `/home/pi/...` d'origine -- à adapter par l'utilisateur
+  au déploiement réel (PC Ubuntu Server) le moment venu, jamais fait à sa
+  place (voir "Nettoyage de la structure du backend", 2026-09-24).
+
+### Dette technique (structure du code -- pas avant que l'utilisateur ne le redemande)
 
 Décidé explicitement avec l'utilisateur (2026-09-24) : se concentrer sur le
-fonctionnement d'abord, revenir sur la structure ensuite -- ne pas ouvrir
-ce chantier avant qu'il ne le redemande.
+fonctionnement d'abord, revenir sur la structure ensuite.
 
-- **Découper `app.py` en Blueprints Flask par feature** (`routes/auth.py`,
-  `routes/series.py` -- dashboard/Explorer/Énergie/zone --,
-  `routes/decompte.py`, `routes/admin.py` -- classification). `app.py` fait
-  aujourd'hui ~600 lignes, toutes les routes de toutes les features
-  mélangées. Pattern Flask standard, risque faible.
-- `db.py` (~650 lignes, tous les accesseurs SQLite -- séries, tarifs,
-  users -- mélangés) : candidat plus faible pour un découpage par feature
-  (disperserait une connexion SQLite unique et son schéma à travers
-  plusieurs fichiers pour un gain moins net à cette taille de projet) --
-  à revisiter seulement s'il continue à grossir, pas une évidence comme
-  `app.py`.
+- **Découper `backend/app.py` en Blueprints Flask par feature**
+  (`routes/auth.py`, `routes/series.py` -- dashboard/Explorer/Énergie/zone
+  --, `routes/decompte.py`, `routes/admin.py` -- classification). Pattern
+  Flask standard, risque faible.
+- `backend/db.py` (~650 lignes, tous les accesseurs SQLite -- séries,
+  tarifs, users -- mélangés) : candidat plus faible pour un découpage par
+  feature (disperserait une connexion SQLite unique et son schéma à
+  travers plusieurs fichiers pour un gain moins net à cette taille de
+  projet) -- à revisiter seulement s'il continue à grossir.
 - `README.md` reste partiellement daté (framing Raspberry Pi, ne mentionne
   pas le frontend Vue ni l'authentification) -- signalé lors du nettoyage
   de structure du 2026-09-24, pas repris.
+
+### Terrain / installateur (hors code, à relancer si besoin)
+
+- **MS-PPE-Sequoia** : 4 sorties du bloc de répartition solaire s'appellent
+  `Sol` au lieu de `Solaire` (`Communs Sol`, `App 13/21/32 Sol`) -- les
+  fait classer en `energie_consommee` au lieu de `energie_solaire` (voir
+  "Topologie MS-PPE-Sequoia...", 2026-09-09). Sans impact fonctionnel
+  (`repartition.py` ne dépend pas de ces séries pour recalculer), mais
+  cosmétique à corriger côté Loxone Config si l'installateur y retourne.
+  (Le vrai bug de répartition solaire de ce même chantier, lui, **a déjà
+  été corrigé par l'installateur** le 2026-09-10 -- ne pas le re-signaler.)
+
+### Nettoyage mineur, non bloquant
+
+- `_to_delete/` (gitignored, racine du dépôt) accumule des artefacts
+  d'anciens nettoyages jamais purgés pour de bon (ancienne base "maison"
+  + wal/shm, `config.external.yaml`, `test_probe.db(-journal)`,
+  `git-index.lock-leftover`, `_update.zip` -- ~230 Ko au total, rien de
+  volumineux mais à vider une fois confirmé qu'aucun de ces fichiers n'est
+  plus utile).
+- Limite connue du garde-fou `repartition.py::bilan_exploitable` : juge sur
+  UN pourcentage agrégé sur toute la fenêtre demandée, ce qui peut masquer
+  une variation saisonnière (détail chiffré dans "Topologie MS-PPE-Sequoia
+  + répartition solaire recalculée", 2026-09-09, sous-section "Limite
+  connue du garde-fou") -- correctif naturel si le sujet revient : exiger
+  que la majorité des sous-périodes bouclent, pas seulement la moyenne.
 
 ## Refactor extraction/lecture des données dashboard (backend) — 2026-09-24
 

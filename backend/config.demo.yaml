@@ -17,7 +17,7 @@ db_path: "data/demo.db"
 raw_retention_days: 3
 hourly_retention_days: 0
 maintenance_hour_utc: 3
-include_types: ["*"]
+include_types: ["Meter"]
 exclude_types: []
 exclude_rooms: []
 host_bind: "127.0.0.1"
