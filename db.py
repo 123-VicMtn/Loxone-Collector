@@ -530,3 +530,20 @@ def create_user(conn: sqlite3.Connection, username: str, password_hash: str) -> 
         (username, password_hash, int(time.time())),
     )
     conn.commit()
+
+
+def list_users(conn: sqlite3.Connection) -> list[dict]:
+    """Comptes existants, du plus ancien au plus récent -- app fermée,
+    accès accordé au cas par cas (voir scripts/create_admin_user.py) : il
+    faut pouvoir vérifier qui a accès aujourd'hui, pas seulement en créer."""
+    cur = conn.execute("SELECT id, username, created_at FROM users ORDER BY created_at ASC")
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def delete_user(conn: sqlite3.Connection, username: str) -> bool:
+    """Révoque un accès. Retourne False si le compte n'existait pas (pour
+    que l'appelant distingue "rien à faire" de "supprimé")."""
+    cur = conn.execute("DELETE FROM users WHERE username = ?", (username,))
+    conn.commit()
+    return cur.rowcount > 0

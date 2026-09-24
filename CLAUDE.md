@@ -1971,6 +1971,49 @@ disponible dans cette session).
 **Auth end-to-end maintenant complète et utilisable.** Compte de test :
 `demo`/`demo123` sur `config.demo.yaml` (créé à l'étape précédente).
 
+## Gestion des comptes : lister et révoquer (`create_admin_user.py`) — 2026-09-24
+
+Sur demande explicite de l'utilisateur -- app **complètement fermée** :
+accès donné au cas par cas (personnes ayant demandé l'accès, sur un
+miniserver dont il est admin), donc création ET révocation doivent être
+possibles sans page web, en CLI. `create_admin_user.py` ne couvrait que la
+création ; complété en gestionnaire de compte complet plutôt que d'ajouter
+un script séparé pour chaque opération (create/list/delete restent une
+seule responsabilité : le cycle de vie des comptes).
+
+**`db.py`** : `list_users()` (id/username/created_at, triés par date de
+création) et `delete_user()` (retourne `False` si le compte n'existait pas
+-- pour que l'appelant distingue "rien à faire" d'une vraie suppression).
+
+**`scripts/create_admin_user.py`** : passé à `argparse` avec deux nouveaux
+flags mutuellement exclusifs par rapport au comportement par défaut
+(création interactive, inchangé) :
+```bash
+python3 scripts/create_admin_user.py config.yaml                  # crée / réinitialise (inchangé)
+python3 scripts/create_admin_user.py config.yaml --list           # qui a accès aujourd'hui
+python3 scripts/create_admin_user.py config.yaml --delete USER    # révoque (confirmation demandée)
+```
+
+### Validé avant de rendre la main
+
+`pytest` 59/59. **Cycle complet vérifié sur le vrai serveur Flask démo**,
+pas seulement en local sur la base :
+1. `--list` -> 1 compte (`demo`) ;
+2. création d'un 2e compte -> `--list` en montre bien 2 ;
+3. connexion HTTP réelle avec ce nouveau compte -> 200 ;
+4. **point le plus important pour l'usage prévu** : compte encore
+   connecté (cookie de session valide en main) -> `--delete` de ce compte
+   -> **la MÊME session, déjà authentifiée, perd l'accès immédiatement**
+   (401 sur la requête suivante, sans attendre l'expiration du cookie ni
+   une nouvelle tentative de connexion) -- confirmé par un test dédié avec
+   un cookie conservé avant/après la révocation, pas juste supposé depuis
+   le fonctionnement de Flask-Login. C'est cette propriété qui rend la
+   révocation utilisable pour couper un accès en cours, pas seulement en
+   empêcher de nouveaux.
+5. `--list` revient à 1 compte après suppression.
+
+Base de démo nettoyée après coup (retour à `demo` seul).
+
 ## Prochaine étape prévue
 
 Prochain sujet naturel du projet (voir "Prochaine étape prévue" historique,
