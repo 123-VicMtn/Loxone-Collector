@@ -2403,22 +2403,113 @@ redémarré et confirmé fonctionnel (`/health` 200, poll réel réussi).
 Empreinte de données identique avant/après sur toutes les tables
 (aucune perte, pas une supposition).
 
+## Dette technique différée (à reprendre après les prochaines fonctionnalités)
+
+Décidé explicitement avec l'utilisateur (2026-09-24) : se concentrer sur le
+fonctionnement d'abord, revenir sur la structure ensuite -- ne pas ouvrir
+ce chantier avant qu'il ne le redemande.
+
+- **Découper `app.py` en Blueprints Flask par feature** (`routes/auth.py`,
+  `routes/series.py` -- dashboard/Explorer/Énergie/zone --,
+  `routes/decompte.py`, `routes/admin.py` -- classification). `app.py` fait
+  aujourd'hui ~600 lignes, toutes les routes de toutes les features
+  mélangées. Pattern Flask standard, risque faible.
+- `db.py` (~650 lignes, tous les accesseurs SQLite -- séries, tarifs,
+  users -- mélangés) : candidat plus faible pour un découpage par feature
+  (disperserait une connexion SQLite unique et son schéma à travers
+  plusieurs fichiers pour un gain moins net à cette taille de projet) --
+  à revisiter seulement s'il continue à grossir, pas une évidence comme
+  `app.py`.
+- `README.md` reste partiellement daté (framing Raspberry Pi, ne mentionne
+  pas le frontend Vue ni l'authentification) -- signalé lors du nettoyage
+  de structure du 2026-09-24, pas repris.
+
+## Refactor extraction/lecture des données dashboard (backend) — 2026-09-24
+
+Constat de l'utilisateur : le dashboard (onglets Énergie / Consommations
+par zone) et `/decompte` ne lisaient pas la même donnée. `/decompte` a
+toujours utilisé `total`/`totalNeg` (cumulatif, historisé via Statistics,
+voir section "Page de décompte de charges" du 2026-08-28) ; les tuiles KPI
+du dashboard, elles, lisaient `totalDay`/`totalWeek`/`totalMonth`/
+`totalYear` -- des compteurs **vivants recalculés par le Miniserver
+lui-même**, sans historique Statistics propre (voir "Dashboard énergie"
+du 2026-08-26). Vérifié avant tout changement, sur données réelles (App 1
+Grid, MS-Arlopi, mois en cours) : `totalMonth` Loxone = 142,42 kWh contre
+161,60 kWh en refaisant le calcul depuis `total` (méthode `/decompte`) --
+**19,18 kWh d'écart, 13,5 %**. Cause probable : les totalX du Miniserver ne
+suivent pas exactement les mêmes bornes de période (UTC vs local, arrondi
+de mise à jour) ni la même détection de rupture que `billing.py`.
+
+**Décision validée avec l'utilisateur** : le dashboard doit calculer sa
+consommation par la MÊME méthode que `/decompte` (relevé de fin - relevé
+de début sur `total`/`totalNeg`, via `billing.reading_delta`), pour tous
+les sites, tout en gardant la possibilité de choisir une plage de dates
+dans le dashboard (contrainte explicite de l'utilisateur -- ne pas juste
+recopier les 4 presets Loxone en dur côté serveur).
+
+**Livré (moitié backend seulement -- le frontend n'est pas encore branché
+dessus, voir "reste à faire" ci-dessous)** :
+
+- `billing.py` : `_reading_delta` renommée en `reading_delta` (publique --
+  2 appelants internes mis à jour, `_zone_period`/`_batiment_period`,
+  comportement inchangé). Nouveau `min_drop_for_resource_type()` : le seuil
+  de détection de rupture (`min_drop`) doit dépendre de l'échelle du
+  compteur -- 0,5 pour l'énergie (kWh), 0,05 pour l'eau (m³), la même
+  distinction que `scripts/export_appartement.py::RULES` (constaté avant de
+  coder : `unit` n'est pas fiable pour ça, les compteurs d'eau de la base
+  réelle ont souvent `unit=""`, donc la dérivation part de `resource_type`
+  -- préfixe `eau_*` -> seuil fin, sinon défaut kWh).
+- `db.py` : `get_series_resource_type()`, même forme que
+  `get_series_miniserver()` déjà utilisé par `_check_series_access`.
+- `app.py` : nouvelle route `GET /api/series/<id>/range?from=<epoch>&to=<epoch>`
+  -- réutilise `_check_series_access` (même contrôle d'accès que
+  `/data`/`/latest`/`/daily`), calcule `min_drop` depuis le `resource_type`
+  de la série, retourne exactement la forme de `billing.reading_delta`
+  (`kwh`, `releve_debut(_ts)`, `releve_fin(_ts)`, `alertes`) -- déjà le
+  type TypeScript `ReadingDelta` côté frontend (`decompte.ts`), réutilisable
+  tel quel pour cette nouvelle route.
+
+**Validé avant de s'arrêter** : suite de tests (`pytest`, 59 tests, les 6
+tests de `_reading_delta` mis à jour sur le nouveau nom, aucune régression)
++ vérification directe sur la vraie base (lecture `?immutable=1`, sans
+toucher au process `app.py config.yaml` déjà en cours d'exécution en prod
+sur cette machine -- pas de redémarrage fait) : le calcul du nouveau
+endpoint sur App 1 Grid / mois en cours retombe exactement sur les 161,60
+kWh du constat initial, et `min_drop_for_resource_type` renvoie bien 0,5
+pour une série `energie_reseau` et 0,05 pour une série `eau_chaude` réelle.
+
+**Reste à faire (frontend, pas commencé)** :
+
+- `frontend/shared/api/series.ts` : ajouter `fetchRange(seriesId, from, to)`.
+- `frontend/src/pages/dashboard/tabs/energy/periodGroup.ts` : remplacer la
+  logique actuelle (basée sur `fetchLatest()` + les states totalX) par des
+  appels à `/range` avec des bornes locales Europe/Zurich (aujourd'hui/
+  semaine/mois/année calées sur minuit local, même convention que
+  `billing.period_bounds` -- pas UTC).
+- `frontend/src/pages/dashboard/tabs/energy/seriesFor.ts` : simplifier --
+  n'a plus besoin de résoudre les states `*Day`/`*Week`/`*Month`/`*Year`/
+  `*NegDay`/etc, seulement `total`/`totalNeg`.
+- `EnergyTab.vue` / `ZoneTab.vue` : brancher sur le nouveau
+  `periodGroup.ts`, ajouter un sélecteur de plage de dates personnalisée
+  (contrainte explicite de l'utilisateur : pas seulement les 4 presets).
+- Les graphs barres journaliers/mensuels (`query_daily_last`) et
+  `/decompte` lui-même ne sont PAS concernés -- déjà basés sur `total`,
+  hors périmètre de ce refactor (voir proposition initialement validée par
+  l'utilisateur).
+
 ## Prochaine étape prévue
 
-Aucune suite programmée à ce nettoyage -- structure backend/frontend
-propre, collecteur réel de nouveau opérationnel sur la nouvelle
-arborescence. Point de vigilance pour la suite : `README.md` reste
-partiellement daté (framing Raspberry Pi, ne mentionne pas le frontend Vue
-ni l'authentification) -- à reprendre séparément si un jour quelqu'un
-d'autre que l'utilisateur doit suivre ce README pour déployer.
-
-Prochain sujet naturel du projet (voir "Prochaine étape prévue" historique,
-avant le détour migration) : module de génération de factures / décomptes
-de charges par appartement, côté MCP-Loxone. Point d'entrée naturel :
-`/api/series/<id>/data` (agrégats horaires disponibles sur le long terme)
-combiné aux champs `apartment` / `resource_type` de `series_meta`, pour
-calculer une consommation par appartement et par type de charge sur une
-période de facturation.
+Terminer la moitié frontend du refactor ci-dessus (dashboard =
+`GET /api/series/<id>/range`, plus sélecteur de dates). Ensuite seulement,
+reprendre la génération de factures / décomptes de charges par appartement
+-- **la visualisation existe déjà** (`/decompte`, tuiles + tableaux +
+graphs, voir section dédiée du 2026-08-28), ce qui manque est la
+génération du document facturable lui-même (PDF/impression, par zone et
+par mois) -- déjà noté comme "Reste à faire" dans cette même section,
+jamais repris depuis. Point d'entrée naturel : les données et montants
+HT/TVA/TTC calculés par `billing.py`/`repartition.py` existent déjà par
+zone et par mois (`/api/decompte`), il s'agit de les mettre en forme dans
+un document plutôt que de recalculer quoi que ce soit.
 
 ## Commandes utiles
 

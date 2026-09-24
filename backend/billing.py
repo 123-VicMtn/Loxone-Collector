@@ -306,7 +306,22 @@ def _zone_label(apt: str) -> str:
 # Relevés et consommation d'une période
 # --------------------------------------------------------------------------
 
-def _reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
+RUPTURE_MIN_DROP_EAU_M3 = 0.05
+
+
+def min_drop_for_resource_type(resource_type: str | None) -> float:
+    """Seuil de détection de rupture adapté à l'échelle du type de
+    ressource : un compteur d'eau (m^3) a des incréments bien plus petits
+    qu'un compteur d'énergie (kWh) -- reprend la distinction déjà encodée
+    par poste de facturation dans scripts/export_appartement.py::RULES.
+    Utilisé par la route générique /api/series/<id>/range (dashboard),
+    qui sert aussi bien des séries eau que chauffage/énergie."""
+    if resource_type and resource_type.startswith("eau_"):
+        return RUPTURE_MIN_DROP_EAU_M3
+    return RUPTURE_MIN_DROP_KWH
+
+
+def reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
                    now_ts: int, min_drop: float = RUPTURE_MIN_DROP_KWH) -> dict:
     """Consommation d'une série cumulative sur [start_ts, end_ts[ : relevé de
     fin - relevé de début, plus tout ce qui permet de juger sa fiabilité.
@@ -469,7 +484,7 @@ def _zone_period(conn, zone: dict, p: dict, tarifs: list[dict], now_ts: int,
 
     def delta(key):
         s = src[key]
-        return _reading_delta(conn, s["series_id"], p["start"], p["end"], now_ts) if s else _absent()
+        return reading_delta(conn, s["series_id"], p["start"], p["end"], now_ts) if s else _absent()
 
     reseau, solaire, controle = delta("reseau"), delta("solaire"), delta("controle")
     r, s = reseau["kwh"], solaire["kwh"]
@@ -510,7 +525,7 @@ def _batiment_period(conn, src: dict, zones: list[dict], p: dict, now_ts: int) -
     `totalNeg` du compteur Réseau, qui est sur un autre périmètre (voir
     resolve_batiment)."""
     production = (
-        _reading_delta(conn, src["production"]["series_id"], p["start"], p["end"], now_ts)
+        reading_delta(conn, src["production"]["series_id"], p["start"], p["end"], now_ts)
         if src["production"] else _absent()
     )
 

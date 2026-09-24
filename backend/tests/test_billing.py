@@ -209,7 +209,7 @@ class TestConsommationDunePeriode(unittest.TestCase):
         self.hourly("m", [(ts(2026, 1, 1), 100.0), (ts(2026, 1, 15), 160.0),
                           (ts(2026, 1, 31, 23), 180.0), (ts(2026, 2, 5), 190.0)])
         start, end = billing.period_bounds(2026, 1)
-        res = billing._reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
+        res = billing.reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
         # Le relevé du 5 février appartient au mois SUIVANT : le compter
         # ici le ferait apparaître deux fois sur deux factures.
         self.assertAlmostEqual(res["kwh"], 80.0)
@@ -218,7 +218,7 @@ class TestConsommationDunePeriode(unittest.TestCase):
     def test_releve_anterieur_a_la_periode_sert_de_point_de_depart(self):
         self.hourly("m", [(ts(2025, 12, 31, 23), 100.0), (ts(2026, 1, 20), 150.0)])
         start, end = billing.period_bounds(2026, 1)
-        res = billing._reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
+        res = billing.reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
         self.assertAlmostEqual(res["kwh"], 50.0)
 
     def test_reset_de_compteur_rend_la_periode_non_calculable(self):
@@ -229,7 +229,7 @@ class TestConsommationDunePeriode(unittest.TestCase):
                           (ts(2026, 1, 5), 100.0), (ts(2026, 1, 20), 9795.0),
                           (ts(2026, 1, 22), 1344.0), (ts(2026, 1, 25), 1500.0)])
         start, end = billing.period_bounds(2026, 1)
-        res = billing._reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
+        res = billing.reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
         self.assertIsNone(res["kwh"])
         self.assertEqual(len(res["ruptures"]), 1)
 
@@ -240,14 +240,14 @@ class TestConsommationDunePeriode(unittest.TestCase):
                           (ts(2026, 1, 5), 2048.0454678), (ts(2026, 1, 20), 2048.045),
                           (ts(2026, 1, 25), 2100.0)])
         start, end = billing.period_bounds(2026, 1)
-        res = billing._reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
+        res = billing.reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
         self.assertIsNotNone(res["kwh"])
         self.assertNotIn("ruptures", res)
 
     def test_trou_de_collecte_signale(self):
         self.hourly("m", [(ts(2025, 11, 1), 50.0), (ts(2026, 1, 20), 150.0)])
         start, end = billing.period_bounds(2026, 1)
-        res = billing._reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
+        res = billing.reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
         self.assertTrue(any("trou de collecte" in a for a in res["alertes"]))
 
     def test_pas_de_fausse_alerte_sur_une_periode_en_cours(self):
@@ -255,7 +255,7 @@ class TestConsommationDunePeriode(unittest.TestCase):
         # relevé est forcément "vieux" par rapport à elle.
         self.hourly("m", [(ts(2026, 1, 1), 100.0), (ts(2026, 1, 20), 150.0)])
         start, end = billing.period_bounds(2026, 1)
-        res = billing._reading_delta(self.conn, "m", start, end, ts(2026, 1, 20, 12))
+        res = billing.reading_delta(self.conn, "m", start, end, ts(2026, 1, 20, 12))
         self.assertEqual(res["alertes"], [])
 
 

@@ -458,6 +458,35 @@ def api_series_daily(series_id: str):
     return jsonify({"series_id": series_id, "days": days, "points": points})
 
 
+@app.route("/api/series/<path:series_id>/range")
+@login_required
+def api_series_range(series_id: str):
+    """Consommation d'une série cumulative sur [from, to[ : relevé de fin -
+    relevé de début (billing.reading_delta), la même méthode que /decompte,
+    plutôt qu'un compteur vivant totalDay/Week/Month/Year sans historique
+    Statistics propre (voir CLAUDE.md, "Prochaine étape prévue" /
+    refactor extraction des données 2026-09-24) -- utilisé par le dashboard
+    pour ses tuiles KPI et sélecteur de dates, pour tous les sites et tous
+    les types de ressource (pas seulement l'énergie, voir
+    billing.min_drop_for_resource_type)."""
+    try:
+        start_ts = int(request.args["from"])
+        end_ts = int(request.args["to"])
+    except (KeyError, ValueError):
+        abort(400, "from/to sont requis et doivent être des timestamps unix")
+    if end_ts <= start_ts:
+        abort(400, "to doit être strictement supérieur à from")
+
+    now = int(time.time())
+    with closing(_read_conn()) as conn:
+        _check_series_access(conn, series_id)
+        resource_type = db.get_series_resource_type(conn, series_id)
+        min_drop = billing.min_drop_for_resource_type(resource_type)
+        delta = billing.reading_delta(conn, series_id, start_ts, end_ts, now, min_drop=min_drop)
+
+    return jsonify({"series_id": series_id, "from": start_ts, "to": end_ts, **delta})
+
+
 # --------------------------------------------------------------------------
 # Décompte de charges (API -- la page /decompte est servie par le frontend
 # Vue en tant qu'app autonome, pas par Flask, voir CLAUDE.md "Backend 100% API")

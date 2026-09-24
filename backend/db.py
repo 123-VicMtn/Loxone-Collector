@@ -611,9 +611,22 @@ def revoke_miniserver(conn: sqlite3.Connection, user_id: int, miniserver: str) -
 def get_series_miniserver(conn: sqlite3.Connection, series_id: str) -> str | None:
     """Site propriétaire d'une série -- utilisé pour vérifier qu'un compte
     'user' a le droit de lire cette série avant de répondre
-    /api/series/<id>/data|latest|daily (voir app.py::_check_series_access)."""
+    /api/series/<id>/data|latest|daily|range (voir app.py::_check_series_access)."""
     row = conn.execute(
         "SELECT miniserver FROM series_meta WHERE series_id = ?",
+        (series_id,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def get_series_resource_type(conn: sqlite3.Connection, series_id: str) -> str | None:
+    """Type de ressource d'une série (ex: "energie_reseau", "eau_chaude"),
+    utilisé par /api/series/<id>/range pour choisir le bon seuil de
+    détection de rupture (voir billing.min_drop_for_resource_type) --
+    l'unité seule (`unit`) n'est pas fiable pour ça : les compteurs d'eau
+    de la base réelle ont souvent `unit=""`."""
+    row = conn.execute(
+        "SELECT resource_type FROM series_meta WHERE series_id = ?",
         (series_id,),
     ).fetchone()
     return row[0] if row else None
