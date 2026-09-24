@@ -74,8 +74,7 @@ const historiqueOptions = computed(() => {
 
 /** Un mois a des données dès qu'au moins une zone a une consommation
  * calculable. Sert à ne pas ouvrir la page sur une série de barres vides :
- * les compteurs du Moniteur de flux d'énergie n'existent que depuis
- * octobre 2025. */
+ * les compteurs Grid et Solaire n'existent que depuis octobre 2025. */
 function hasZoneData(p: DecomptePayload, periodKey: string): boolean {
   return p.zones.some((z) => {
     const e = z.periodes[periodKey]
@@ -227,11 +226,10 @@ onMounted(async () => {
         <ZoneTable :payload="payload" :period-key="periodeKey" />
         <p class="mt-4 text-sm text-neutral-500">
           La consommation de chaque zone est scindée en deux : les kWh
-          <strong>achetés au réseau</strong> (compteur « Grid » du Moniteur de
-          flux d'énergie Loxone) et les kWh <strong>solaires autoconsommés</strong>
-          (compteur « Solaire », que Loxone expose aussi sous le nom
-          <em>selfConsumption</em>). Les deux sont facturés à des prix
-          différents, comme dans un regroupement de consommation propre (RCP).
+          <strong>achetés au réseau</strong> (index cumulatif « Grid ») et les
+          kWh <strong>solaires autoconsommés</strong> (index cumulatif
+          « Solaire »). Les deux sont facturés à des prix différents, comme
+          dans un regroupement de consommation propre (RCP).
         </p>
       </Card>
 
@@ -292,12 +290,11 @@ onMounted(async () => {
         </summary>
         <p class="mt-4 text-sm text-neutral-500">
           Chaque zone possède aussi un compteur plus ancien (« Appartement 1 »,
-          « Commerce »…), posé avant les compteurs du Moniteur de flux
-          d'énergie en octobre 2025. Il mesure un <strong>périmètre
-          différent</strong> — sur App 1 en août 2026 il enregistre 6,3 kWh/jour
-          quand le seul compteur réseau en enregistre 7,0 — et n'est donc
-          <strong>pas</strong> utilisé pour facturer. Il est affiché ici à titre
-          de contrôle.
+          « Commerce »…), posé avant les compteurs Grid et Solaire en octobre
+          2025. Il mesure un <strong>périmètre différent</strong> — sur App 1
+          en août 2026 il enregistre 6,3 kWh/jour quand le seul compteur réseau
+          en enregistre 7,0 — et n'est donc <strong>pas</strong> utilisé pour
+          facturer. Il est affiché ici à titre de contrôle.
         </p>
         <div class="mt-4">
           <ControleTable :payload="payload" :periodes="visiblePeriods" />
