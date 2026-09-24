@@ -15,8 +15,10 @@ export interface AutoconsoResult {
  * réseau (totalNeg) n'est pas disponible pour cette zone. Ajoute aussi, à
  * titre indicatif seulement, la valeur brute exposée par le bloc EFM
  * Loxone (state selfConsumption) dont la sémantique exacte n'est pas
- * confirmée -- voir CLAUDE.md. Port direct de
- * energy-tab.js::renderAutoconso. */
+ * confirmée -- voir CLAUDE.md. Port de energy-tab.js::renderAutoconso --
+ * `gridDayV`/`gridNegDayV`/`solarDayV` viennent désormais de
+ * periodGroupData().todayKwh (relevé de fin - relevé de début sur "total",
+ * pas des compteurs vivants Loxone totalDay). */
 export async function computeAutoconso(
   sids: ZoneEnergySeries,
   gridDayV: number | null,

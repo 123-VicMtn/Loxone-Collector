@@ -15,9 +15,12 @@ export interface BatteryResult {
 
 /** Panneau Batterie : n'affiche les tuiles que si une vraie activité est
  * mesurée (évite d'afficher des zéros trompeurs pour une batterie pas
- * encore commissionnée). Charge = state "total"/totalX, décharge =
- * "totalNeg"/totalNegX, même logique bidirectionnelle que le compteur
- * Réseau. Port direct de energy-tab.js::renderBattery. */
+ * encore commissionnée). Charge = state "total", décharge = "totalNeg",
+ * même logique bidirectionnelle que le compteur Réseau -- tuiles
+ * jour/semaine/mois/année recalculées via periodGroupData (voir
+ * energy/periodGroup.ts), `batteryStorage` (état de charge %, pas un
+ * compteur cumulatif) reste sur fetchLatest. Port de
+ * energy-tab.js::renderBattery. */
 export async function computeBattery(sids: ZoneEnergySeries): Promise<BatteryResult> {
   const hasSeries = !!(sids.batteryActual || sids.batteryTotal || sids.batteryNegTotal || sids.batteryStorage)
   if (!hasSeries) {
@@ -39,12 +42,8 @@ export async function computeBattery(sids: ZoneEnergySeries): Promise<BatteryRes
     }
   }
 
-  const charge = await periodGroupData('Charge', {
-    day: sids.batteryDay, week: sids.batteryWeek, month: sids.batteryMonth, year: sids.batteryYear, total: sids.batteryTotal,
-  })
-  const discharge = await periodGroupData('Décharge', {
-    day: sids.batteryNegDay, week: sids.batteryNegWeek, month: sids.batteryNegMonth, year: sids.batteryNegYear, total: sids.batteryNegTotal,
-  })
+  const charge = await periodGroupData('Charge', sids.batteryTotal)
+  const discharge = await periodGroupData('Décharge', sids.batteryNegTotal)
   const tiles = [...charge.tiles, ...discharge.tiles]
 
   if (sids.batteryStorage) {
@@ -54,8 +53,8 @@ export async function computeBattery(sids: ZoneEnergySeries): Promise<BatteryRes
     }
   }
 
-  const note = 'Charge/décharge recalculées par le Miniserver (jour/semaine/mois/année) à partir du compteur ' +
-    'bidirectionnel de la batterie -- même logique que Réseau import/export.'
+  const note = 'Charge/décharge calculées ici (relevé de fin - relevé de début, jour/semaine/mois/année) à partir du ' +
+    'compteur bidirectionnel de la batterie -- même méthode que Réseau import/export.'
 
   const chart = await buildBatteryChart(sids.batteryTotal?.series_id, sids.batteryNegTotal?.series_id)
 

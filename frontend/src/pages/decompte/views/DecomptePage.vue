@@ -178,7 +178,7 @@ onMounted(async () => {
         <AuthStatus />
         <nav class="flex gap-4 text-sm text-blue-600">
           <router-link to="/" class="hover:underline">← Dashboard</router-link>
-          <router-link v-if="authState.role === 'admin'" to="/admin" class="hover:underline">⚙ Classification</router-link>
+          <router-link v-if="authState.role === 'admin'" to="/admin" class="hover:underline">Classification</router-link>
         </nav>
       </div>
     </header>

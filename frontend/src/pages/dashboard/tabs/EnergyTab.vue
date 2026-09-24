@@ -1,14 +1,15 @@
 <script setup lang="ts">
 /**
  * Onglet "Énergie" : réseau (import/export) vs solaire vs batterie, par
- * zone. Chaque groupe de tuiles jour/semaine/mois/année lit directement
- * les states totalX/totalNegX du Miniserver (déjà recalculés côté Loxone,
- * jamais redérivés côté dashboard) ; seuls les graphs journaliers/mensuels
- * (historique passé, non disponible nativement au-delà d'aujourd'hui)
- * utilisent un delta jour-sur-jour du compteur cumulatif ("total"/
- * "totalNeg"). Voir CLAUDE.md, section "Dashboard énergie", pour le détail
- * du modèle (mesuré / recalculé par le Miniserver / calculé par nous).
- * Port de tabs/energy-tab.js.
+ * zone. Chaque groupe de tuiles jour/semaine/mois/année est calculé ici
+ * (relevé de fin - relevé de début sur les séries "total"/"totalNeg", via
+ * /api/series/<id>/range) -- la même méthode que /decompte, plus une
+ * plage de dates personnalisable ; seuls les graphs journaliers/mensuels
+ * (historique passé) utilisent en plus un delta jour-sur-jour. Voir
+ * CLAUDE.md, "Refactor extraction/lecture des données dashboard"
+ * (2026-09-24) pour le détail (remplace les compteurs vivants Loxone
+ * totalDay/Week/Month/Year, qui s'écartaient du relevé réel de 13,5 % sur
+ * un mois testé). Port de tabs/energy-tab.js.
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
@@ -17,13 +18,15 @@ import { loadAllSeries } from '@shared/api/series'
 import type { Series } from '@shared/types/series'
 import { baseBarOptions, baseLineOptions } from '@shared/charts'
 import type { RangeKey } from '@shared/ranges'
+import type { Bounds } from '@shared/periods'
 import ZoneSelect from '../components/ZoneSelect.vue'
 import RangeButtons from '../components/RangeButtons.vue'
 import KpiTile from '../components/KpiTile.vue'
 import NoteText from '../components/NoteText.vue'
+import DateRangePicker from '../components/DateRangePicker.vue'
 import { buildZoneOptionGroups } from '../utils/zoneOptions'
 import { seriesFor, type ZoneEnergySeries } from './energy/seriesFor'
-import { periodGroupData, type PeriodTile } from './energy/periodGroup'
+import { periodGroupData, rangeTile, type PeriodTile } from './energy/periodGroup'
 import { computeAutoconso, type AutoconsoResult } from './energy/autoconso'
 import { computeBattery, type BatteryResult } from './energy/battery'
 import { buildDailyGridSolarChart, buildMonthlyGridSolarChart, buildPowerChart } from './energy/charts'
@@ -47,6 +50,9 @@ const kpiNoteVisible = ref(false)
 const autoconso = ref<AutoconsoResult>({ tiles: [], notes: [], visible: false })
 const battery = ref<BatteryResult>({ hasSeries: false, hasActivity: false, hint: '', tiles: [], note: '', chart: null })
 
+const customBounds = ref<Bounds | null>(null)
+const customTiles = ref<PeriodTile[]>([])
+
 const powerChartData = ref<Record<string, unknown> | null>(null)
 const dailyChartData = ref<{ labels: string[]; datasets: Record<string, unknown>[] } | null>(null)
 const monthlyChartData = ref<{ labels: string[]; datasets: Record<string, unknown>[] } | null>(null)
@@ -64,25 +70,31 @@ async function refresh() {
   )
   if (!hasAnyForZone.value) return
 
-  const grid = await periodGroupData('Réseau (import)', {
-    day: sids.gridDay, week: sids.gridWeek, month: sids.gridMonth, year: sids.gridYear, total: sids.gridTotal,
-  })
-  const gridExport = await periodGroupData('Réseau (export)', {
-    day: sids.gridNegDay, week: sids.gridNegWeek, month: sids.gridNegMonth, year: sids.gridNegYear, total: sids.gridNegTotal,
-  })
-  const solar = await periodGroupData('Solaire', {
-    day: sids.solarDay, week: sids.solarWeek, month: sids.solarMonth, year: sids.solarYear, total: sids.solarTotal,
-  })
+  const grid = await periodGroupData('Réseau (import)', sids.gridTotal)
+  const gridExport = await periodGroupData('Réseau (export)', sids.gridNegTotal)
+  const solar = await periodGroupData('Solaire', sids.solarTotal)
   gridTiles.value = grid.tiles
   gridExportTiles.value = gridExport.tiles
   solarTiles.value = solar.tiles
   kpiNoteVisible.value = grid.any || gridExport.any || solar.any
 
-  autoconso.value = await computeAutoconso(sids, grid.dayV, gridExport.dayV, solar.dayV)
+  autoconso.value = await computeAutoconso(sids, grid.todayKwh, gridExport.todayKwh, solar.todayKwh)
   battery.value = await computeBattery(sids)
   powerChartData.value = await buildPowerChart(sids, range.value)
   dailyChartData.value = await buildDailyGridSolarChart(sids.gridTotal?.series_id, sids.solarTotal?.series_id)
   monthlyChartData.value = await buildMonthlyGridSolarChart(sids.gridTotal?.series_id, sids.solarTotal?.series_id)
+  await refreshCustomRange()
+}
+
+async function refreshCustomRange() {
+  if (!customBounds.value || !zone.value) { customTiles.value = []; return }
+  const sids = seriesFor(zone.value)
+  const [gridT, gridExportT, solarT] = await Promise.all([
+    rangeTile('Réseau (import)', sids.gridTotal, customBounds.value),
+    rangeTile('Réseau (export)', sids.gridNegTotal, customBounds.value),
+    rangeTile('Solaire', sids.solarTotal, customBounds.value),
+  ])
+  customTiles.value = [gridT, gridExportT, solarT].filter((t): t is PeriodTile => t !== null)
 }
 
 onMounted(async () => {
@@ -94,6 +106,7 @@ onMounted(async () => {
 })
 
 watch([zone, range], refresh)
+watch(customBounds, refreshCustomRange)
 </script>
 
 <template>
@@ -114,7 +127,7 @@ watch([zone, range], refresh)
       <section>
         <h3 class="mb-2 text-lg font-semibold text-neutral-900">
           Réseau &amp; solaire
-          <span class="text-sm font-normal text-neutral-500">import/export, jour/semaine/mois/année déjà calculés par le Miniserver</span>
+          <span class="text-sm font-normal text-neutral-500">import/export, jour/semaine/mois/année</span>
         </h3>
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <KpiTile v-for="t in gridTiles" :key="t.label" :label="t.label" :value="t.value" :unit="t.unit" accent="grid" />
@@ -122,9 +135,18 @@ watch([zone, range], refresh)
           <KpiTile v-for="t in solarTiles" :key="t.label" :label="t.label" :value="t.value" :unit="t.unit" accent="solar" />
         </div>
         <NoteText v-if="kpiNoteVisible">
-          Valeurs recalculées et remises à zéro par le Miniserver Loxone lui-même (states totalDay/Week/Month/Year
-          et totalNegDay/Week/Month/Year) -- pas un delta calculé côté dashboard.
+          Calculé ici (relevé de fin - relevé de début sur le compteur cumulatif "total"/"totalNeg"), comme un
+          décompte de charges -- pas une lecture des compteurs vivants du Miniserver.
         </NoteText>
+
+        <div class="mt-4 rounded-lg border border-neutral-200 bg-white p-4">
+          <h4 class="mb-2 text-sm font-semibold text-neutral-700">Plage personnalisée</h4>
+          <DateRangePicker v-model:bounds="customBounds" />
+          <div v-if="customTiles.length" class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <KpiTile v-for="t in customTiles" :key="t.label" :label="t.label" :value="t.value" :unit="t.unit" accent="grid" />
+          </div>
+          <p v-else-if="customBounds" class="mt-2 text-sm text-neutral-500">Aucune donnée sur cette plage.</p>
+        </div>
       </section>
 
       <section v-if="autoconso.visible">

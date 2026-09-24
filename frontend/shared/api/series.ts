@@ -5,7 +5,7 @@
  */
 
 import { fetchJSON } from './http'
-import type { Series } from '../types/series'
+import type { ReadingDelta, Series } from '../types/series'
 
 let allSeries: Series[] = []
 let loaded = false
@@ -47,9 +47,32 @@ export async function fetchSeriesData(seriesId: string, range: string): Promise<
   return fetchJSON<SeriesDataResponse>(`/api/series/${encodeURIComponent(seriesId)}/data?range=${encodeURIComponent(range)}`)
 }
 
+/** Consommation d'une série cumulative sur [from, to[ (relevé de fin -
+ * relevé de début) -- voir billing.py::reading_delta / app.py::api_series_range.
+ * C'est la méthode utilisée par /decompte, désormais réutilisée pour les
+ * tuiles KPI du dashboard à la place des compteurs vivants Loxone
+ * totalDay/Week/Month/Year (voir CLAUDE.md, "Refactor extraction/lecture
+ * des données dashboard"). `from`/`to` sont des timestamps Unix (secondes). */
+export async function fetchRange(
+  seriesId: string | null | undefined,
+  from: number,
+  to: number,
+): Promise<ReadingDelta | null> {
+  if (!seriesId) return null
+  try {
+    return await fetchJSON<ReadingDelta>(
+      `/api/series/${encodeURIComponent(seriesId)}/range?from=${from}&to=${to}`,
+    )
+  } catch (err) {
+    console.error(err)
+    return null
+  }
+}
+
 /** Dernière valeur connue d'une série (peu importe son âge). Utilisé pour
- * les tuiles KPI (totalDay/Week/Month/Year : compteurs vivants sans
- * historique propre, voir db.query_daily_last côté serveur). */
+ * les valeurs qui ne sont PAS un compteur cumulatif (ex: état de charge %
+ * d'une batterie) -- voir CLAUDE.md, "Refactor extraction/lecture des
+ * données dashboard" pour la distinction avec fetchRange ci-dessus. */
 export async function fetchLatest(seriesId: string | null | undefined): Promise<number | null> {
   if (!seriesId) return null
   try {

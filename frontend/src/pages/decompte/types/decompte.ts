@@ -21,14 +21,8 @@ export interface SourceRef {
   unit: string
 }
 
-export interface ReadingDelta {
-  kwh: number | null
-  releve_debut: number | null
-  releve_fin: number | null
-  releve_debut_ts: number | null
-  releve_fin_ts: number | null
-  alertes: string[]
-}
+import type { ReadingDelta } from '@shared/types/series'
+export type { ReadingDelta }
 
 export interface Montants {
   ht: number | null

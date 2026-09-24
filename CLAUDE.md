@@ -2447,8 +2447,10 @@ les sites, tout en gardant la possibilité de choisir une plage de dates
 dans le dashboard (contrainte explicite de l'utilisateur -- ne pas juste
 recopier les 4 presets Loxone en dur côté serveur).
 
-**Livré (moitié backend seulement -- le frontend n'est pas encore branché
-dessus, voir "reste à faire" ci-dessous)** :
+**Livré en deux temps, backend puis frontend (les deux moitiés sont
+maintenant faites)** :
+
+### Backend
 
 - `billing.py` : `_reading_delta` renommée en `reading_delta` (publique --
   2 appelants internes mis à jour, `_zone_period`/`_batiment_period`,
@@ -2469,47 +2471,97 @@ dessus, voir "reste à faire" ci-dessous)** :
   type TypeScript `ReadingDelta` côté frontend (`decompte.ts`), réutilisable
   tel quel pour cette nouvelle route.
 
-**Validé avant de s'arrêter** : suite de tests (`pytest`, 59 tests, les 6
-tests de `_reading_delta` mis à jour sur le nouveau nom, aucune régression)
-+ vérification directe sur la vraie base (lecture `?immutable=1`, sans
+**Validé (backend)** : suite de tests (`pytest`, 59 tests, les 6 tests de
+`_reading_delta` mis à jour sur le nouveau nom, aucune régression) +
+vérification directe sur la vraie base (lecture `?immutable=1`, sans
 toucher au process `app.py config.yaml` déjà en cours d'exécution en prod
 sur cette machine -- pas de redémarrage fait) : le calcul du nouveau
 endpoint sur App 1 Grid / mois en cours retombe exactement sur les 161,60
 kWh du constat initial, et `min_drop_for_resource_type` renvoie bien 0,5
 pour une série `energie_reseau` et 0,05 pour une série `eau_chaude` réelle.
 
-**Reste à faire (frontend, pas commencé)** :
+### Frontend
 
-- `frontend/shared/api/series.ts` : ajouter `fetchRange(seriesId, from, to)`.
-- `frontend/src/pages/dashboard/tabs/energy/periodGroup.ts` : remplacer la
-  logique actuelle (basée sur `fetchLatest()` + les states totalX) par des
-  appels à `/range` avec des bornes locales Europe/Zurich (aujourd'hui/
-  semaine/mois/année calées sur minuit local, même convention que
-  `billing.period_bounds` -- pas UTC).
-- `frontend/src/pages/dashboard/tabs/energy/seriesFor.ts` : simplifier --
-  n'a plus besoin de résoudre les states `*Day`/`*Week`/`*Month`/`*Year`/
-  `*NegDay`/etc, seulement `total`/`totalNeg`.
-- `EnergyTab.vue` / `ZoneTab.vue` : brancher sur le nouveau
-  `periodGroup.ts`, ajouter un sélecteur de plage de dates personnalisée
-  (contrainte explicite de l'utilisateur : pas seulement les 4 presets).
-- Les graphs barres journaliers/mensuels (`query_daily_last`) et
-  `/decompte` lui-même ne sont PAS concernés -- déjà basés sur `total`,
-  hors périmètre de ce refactor (voir proposition initialement validée par
-  l'utilisateur).
+- `shared/types/series.ts` : `ReadingDelta` déplacé ici depuis
+  `pages/decompte/types/decompte.ts` (même raison que `Series` en son
+  temps -- devenu partagé entre `/decompte` et le dashboard,
+  `decompte/types/decompte.ts` ré-exporte désormais depuis `@shared`).
+- `shared/api/series.ts` : `fetchRange(seriesId, from, to)` --
+  `GET /api/series/<id>/range?from=&to=`.
+- `shared/periods.ts` (nouveau) : bornes de périodes en heure LOCALE
+  Europe/Zurich (aujourd'hui/semaine/mois/année + plage personnalisée),
+  même convention que `billing.period_bounds` -- **pas** UTC comme
+  `db.query_daily_last`. Calcul DST-safe sans dépendance : conversion
+  "aller-retour" classique (une estimation Y-M-D-00:00:00 traitée comme de
+  l'UTC, relue dans le fuseau cible via `Intl.DateTimeFormat`, l'écart
+  mesuré corrige l'estimation) -- gère les changements d'heure sans
+  bibliothèque de dates. Semaine calendaire = lundi (convention CH/UE).
+- `pages/dashboard/tabs/energy/periodGroup.ts` réécrit : `periodGroupData()`
+  prend désormais UNE SEULE série cumulative (plus un objet `{day, week,
+  month, year, total}` avec 4 séries Loxone séparées) et calcule les 4
+  tuiles via 4 appels `fetchRange()` en parallèle -- `dayV` renommé
+  `todayKwh` (même rôle : entrée pour `computeAutoconso`, mais calculé ici
+  plutôt que lu depuis un compteur Loxone). Nouveau `rangeTile()` : une
+  tuile pour une plage de dates arbitraire, réutilisée par le sélecteur de
+  plage personnalisée.
+- `pages/dashboard/tabs/energy/seriesFor.ts` simplifié : les champs
+  `gridDay/Week/Month/Year`, `gridNegDay/Week/Month/Year`,
+  `solarDay/Week/Month/Year`, `batteryDay/Week/Month/Year` (+ leurs
+  variantes Neg) ont disparu -- ne reste que `gridTotal`/`gridNegTotal`/
+  `solarTotal`/`batteryTotal`/`batteryNegTotal` (+ `batteryStorage`, un état
+  de charge %, resté sur `fetchLatest` -- pas un compteur cumulatif).
+- `pages/dashboard/tabs/energy/battery.ts` : même simplification (2 appels
+  `periodGroupData` au lieu de 2 objets `{day,week,month,year,total}`).
+- `pages/dashboard/components/DateRangePicker.vue` (nouveau) : 2
+  `<input type="date">`, émet des bornes calculées
+  (`shared/periods.ts::customRangeBounds`) dès que la plage est valide --
+  répond à l'exigence explicite de l'utilisateur ("garder en tête que dans
+  le dashboard il faudra choisir des dates").
+- `EnergyTab.vue` / `ZoneTab.vue` : branchés sur le `periodGroupData()`
+  réécrit, section "Plage personnalisée" ajoutée sous les tuiles
+  jour/semaine/mois/année (garde les 4 presets existants plutôt que de les
+  remplacer -- la demande était d'AJOUTER la sélection de dates, pas de
+  retirer les presets). Note de bas de tuiles corrigée (ne mentionne plus
+  le Miniserver comme source du calcul).
+- Non touchés, comme prévu : les graphs barres journaliers/mensuels
+  (`query_daily_last`, déjà basés sur `total`) et `/decompte` lui-même.
+
+**Validé (frontend)** : `npm run build` propre (`vue-tsc -b` + `vite
+build`, 119 modules). **Vérification Playwright contre le vrai backend
+Flask démo**, pas seulement `vite dev` : connectée en tant que `demo`,
+onglet Énergie -- tuiles Aujourd'hui/Cette semaine/Ce mois peuplées de
+vraies valeurs via `/api/series/.../range` (48 requêtes observées, toutes
+200, zéro erreur console), "Cette année" absente à raison (aucun relevé
+avant le 1er janvier dans les 60 jours d'historique de la démo -- comportement
+correct, pas un bug) ; plage personnalisée testée sur août 2026 -> Réseau
+(import) 86,66 kWh / Réseau (export) 180,27 kWh / Solaire 377,14 kWh,
+recalculé en direct au changement de dates. Onglet Consommations par zone :
+même vérification sur "Eau chaude" -- tuiles en m³ (pas kWh, confirme que
+`min_drop_for_resource_type` est bien appliqué de bout en bout), plage
+personnalisée -> 1,30 m³. Captures d'écran inspectées (mise en page
+cohérente, tuiles bien alignées). **Piège de test rencontré et corrigé**
+(pas un bug applicatif) : les 3 onglets du dashboard restent tous montés
+dans le DOM (`v-show`, pas `v-if` -- voir "pages/dashboard/", 2026-09-23),
+donc un sélecteur non scopé au panneau visible trouve les mêmes éléments en
+double (ex: 2× "Plage personnalisée") -- corrigé en scopant chaque
+recherche au conteneur `:visible`.
+
+Compte/base de démo inchangés après coup (aucune écriture faite par ce
+test, uniquement des lectures).
 
 ## Prochaine étape prévue
 
-Terminer la moitié frontend du refactor ci-dessus (dashboard =
-`GET /api/series/<id>/range`, plus sélecteur de dates). Ensuite seulement,
-reprendre la génération de factures / décomptes de charges par appartement
--- **la visualisation existe déjà** (`/decompte`, tuiles + tableaux +
-graphs, voir section dédiée du 2026-08-28), ce qui manque est la
-génération du document facturable lui-même (PDF/impression, par zone et
-par mois) -- déjà noté comme "Reste à faire" dans cette même section,
-jamais repris depuis. Point d'entrée naturel : les données et montants
-HT/TVA/TTC calculés par `billing.py`/`repartition.py` existent déjà par
-zone et par mois (`/api/decompte`), il s'agit de les mettre en forme dans
-un document plutôt que de recalculer quoi que ce soit.
+Le refactor d'extraction/lecture des données dashboard (section ci-dessus)
+est terminé, backend et frontend. Reprendre la génération de factures /
+décomptes de charges par appartement -- **la visualisation existe déjà**
+(`/decompte`, tuiles + tableaux + graphs, voir section dédiée du
+2026-08-28), ce qui manque est la génération du document facturable
+lui-même (PDF/impression, par zone et par mois) -- déjà noté comme "Reste
+à faire" dans cette même section, jamais repris depuis. Point d'entrée
+naturel : les données et montants HT/TVA/TTC calculés par
+`billing.py`/`repartition.py` existent déjà par zone et par mois
+(`/api/decompte`), il s'agit de les mettre en forme dans un document
+plutôt que de recalculer quoi que ce soit.
 
 ## Commandes utiles
 
