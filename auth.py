@@ -9,9 +9,13 @@ la page de connexion du frontend Vue. `unauthorized_handler` renvoie donc
 un 401 JSON plutôt que la redirection HTTP par défaut de Flask-Login (faite
 pour des pages, pas une API).
 
-Pas de gestion de rôles : tous les comptes créés via
-scripts/create_admin_user.py ont les mêmes droits -- suffisant pour 1-3
-utilisateurs connus (voir "Ce qu'on ne fait pas" dans le plan).
+Deux rôles (voir CLAUDE.md, "Rôles utilisateurs") : 'admin' (voit et
+modifie tous les sites) et 'user' (lecture seule, uniquement les sites
+accordés via `scripts/create_admin_user.py` -- app fermée, accès donné au
+cas par cas). `User.miniservers` n'a de sens que pour un compte 'user' ;
+un 'admin' voit tous les sites configurés indépendamment de cette liste
+(voir app.py::_allowed_miniservers, seul endroit qui doit trancher "quels
+sites cet utilisateur voit" -- pas dupliqué ici).
 """
 
 from __future__ import annotations
@@ -33,9 +37,15 @@ def _unauthorized():
 
 
 class User(UserMixin):
-    def __init__(self, id_: int, username: str):
+    def __init__(self, id_: int, username: str, role: str, miniservers: list[str]):
         self.id = id_
         self.username = username
+        self.role = role
+        self.miniservers = miniservers
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
 
 
 def _read_conn():
@@ -46,16 +56,21 @@ def _read_conn():
     return db.get_connection(current_app.config["LOXONE_CFG"].db_path)
 
 
+def _build_user(conn, row: dict) -> User:
+    miniservers = db.get_user_miniservers(conn, row["id"]) if row["role"] != "admin" else []
+    return User(row["id"], row["username"], row["role"], miniservers)
+
+
 @login_manager.user_loader
 def load_user(user_id: str) -> User | None:
     with closing(_read_conn()) as conn:
         row = db.get_user_by_id(conn, int(user_id))
-    return User(row["id"], row["username"]) if row else None
+        return _build_user(conn, row) if row else None
 
 
 def verify_login(username: str, password: str) -> User | None:
     with closing(_read_conn()) as conn:
         row = db.get_user_by_username(conn, username)
-    if row and check_password_hash(row["password_hash"], password):
-        return User(row["id"], row["username"])
+        if row and check_password_hash(row["password_hash"], password):
+            return _build_user(conn, row)
     return None

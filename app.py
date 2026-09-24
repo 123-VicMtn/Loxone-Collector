@@ -25,6 +25,7 @@ import threading
 import time
 from contextlib import closing
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 
 from flask import Flask, jsonify, request, abort
@@ -208,9 +209,63 @@ def _read_conn():
     return db.get_connection(_cfg().db_path)
 
 
+def _allowed_miniservers() -> list[str]:
+    """Sites que le compte courant peut voir -- tous les sites configurés
+    pour un 'admin', uniquement les siens pour un 'user' (voir CLAUDE.md,
+    "Rôles utilisateurs"). Filtré par les sites RÉELLEMENT configurés :
+    un site accordé à un 'user' puis retiré de config.yaml ne doit pas
+    ressusciter côté accès."""
+    configured = [ms.name for ms in _cfg().miniservers]
+    if current_user.is_admin:
+        return configured
+    granted = set(current_user.miniservers)
+    return [n for n in configured if n in granted]
+
+
+def admin_required(fn):
+    """Remplace @login_required sur les routes d'écriture (classification,
+    tarifs) : un compte 'user' est en lecture seule (décision explicite de
+    l'utilisateur, voir CLAUDE.md) -- 403, pas 401 (il EST authentifié,
+    juste pas autorisé à cette action)."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return auth.login_manager.unauthorized()
+        if not current_user.is_admin:
+            return jsonify({"error": "forbidden"}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def _check_series_access(conn, series_id: str) -> None:
+    """403 si la série n'appartient pas à un site que le compte courant
+    peut voir -- utilisé par les 3 routes qui servent les données d'UNE
+    série précise (data/latest/daily), qui ne passent pas par
+    _resolve_miniserver (elles ne prennent pas `miniserver` en paramètre,
+    le site se déduit de la série demandée)."""
+    if current_user.is_admin:
+        return
+    ms = db.get_series_miniserver(conn, series_id)
+    if ms is not None and ms not in current_user.miniservers:
+        abort(403, "accès refusé à cette série")
+
+
 # --------------------------------------------------------------------------
 # Authentification (voir auth.py, docs/plan-installation-auth-frontend-docker.md)
 # --------------------------------------------------------------------------
+
+def _user_payload() -> dict:
+    """Forme renvoyée par /api/login et /api/me -- `miniservers` est déjà
+    résolu via _allowed_miniservers() (tous les sites configurés pour un
+    admin, pas la liste brute de user_miniservers) : le frontend n'a pas à
+    connaître la distinction admin/user pour savoir quels sites afficher,
+    juste à lire ce champ."""
+    return {
+        "username": current_user.username,
+        "role": current_user.role,
+        "miniservers": _allowed_miniservers(),
+    }
+
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -228,7 +283,7 @@ def api_login():
         return jsonify({"error": "identifiants invalides"}), 401
 
     login_user(user)
-    return jsonify({"username": user.username})
+    return jsonify(_user_payload())
 
 
 @app.route("/api/logout", methods=["POST"])
@@ -246,11 +301,11 @@ def api_me():
     pas une erreur d'accès à signaler comme les autres routes protégées."""
     if not current_user.is_authenticated:
         return jsonify({"error": "unauthorized"}), 401
-    return jsonify({"username": current_user.username})
+    return jsonify(_user_payload())
 
 
 @app.route("/api/series/<path:series_id>/classify", methods=["POST"])
-@login_required
+@admin_required
 def api_classify(series_id: str):
     payload = request.get_json(force=True, silent=True) or {}
 
@@ -270,11 +325,12 @@ def api_classify(series_id: str):
 @app.route("/api/miniservers")
 @login_required
 def api_miniservers():
-    """Sites configurés (config.yaml, clé `miniservers`) -- sert au
-    sélecteur de site de /decompte, qui scope tout le reste de la page
-    (la consommation d'une zone n'a de sens que rattachée à un site
-    physique, voir CLAUDE.md)."""
-    return jsonify([ms.name for ms in _cfg().miniservers])
+    """Sites accessibles au compte courant (tous les sites configurés pour
+    un admin, seulement les siens pour un 'user' -- voir
+    _allowed_miniservers) -- sert au sélecteur de site de /decompte, qui
+    scope tout le reste de la page (la consommation d'une zone n'a de sens
+    que rattachée à un site physique, voir CLAUDE.md)."""
+    return jsonify(_allowed_miniservers())
 
 
 @app.route("/api/resource-types")
@@ -306,8 +362,9 @@ def health():
 @app.route("/api/series")
 @login_required
 def api_series():
+    allowed = set(_allowed_miniservers())
     with closing(_read_conn()) as conn:
-        series = db.list_series(conn)
+        series = [s for s in db.list_series(conn) if s["miniserver"] in allowed]
     return jsonify(series)
 
 
@@ -330,6 +387,7 @@ def api_series_data(series_id: str):
         end_ts = now
 
     with closing(_read_conn()) as conn:
+        _check_series_access(conn, series_id)
         rows = db.query_readings(conn, series_id, start_ts, end_ts)
 
     return jsonify(
@@ -351,6 +409,7 @@ def api_series_latest(series_id: str):
     propre, voir db.query_daily_last -- seule leur dernière valeur lue par
     le poller a un sens, pas un historique)."""
     with closing(_read_conn()) as conn:
+        _check_series_access(conn, series_id)
         latest = db.query_latest(conn, series_id)
     if latest is None:
         return jsonify({"series_id": series_id, "ts": None, "value": None})
@@ -382,6 +441,7 @@ def api_series_daily(series_id: str):
     start_ts = now - (days + 1) * 86400
 
     with closing(_read_conn()) as conn:
+        _check_series_access(conn, series_id)
         rows = db.query_daily_last(conn, series_id, start_ts, now)
 
     points = []
@@ -408,12 +468,23 @@ def _resolve_miniserver(name: str | None) -> str:
     /api/decompte ou /api/tarifs. Un décompte n'a de sens que rattaché à UN
     site physique (miniserver) : mélanger les zones de deux immeubles dans
     un même calcul fausserait consommations ET montants facturés -- voir
-    CLAUDE.md, "Décompte de charges"."""
-    names = [ms.name for ms in _cfg().miniservers]
+    CLAUDE.md, "Décompte de charges".
+
+    Scopé par _allowed_miniservers() (pas tous les sites configurés) : un
+    compte 'user' ne doit jamais pouvoir calculer le décompte d'un site qui
+    ne lui a pas été accordé, même en devinant/forçant le paramètre
+    `miniserver` dans l'URL -- 403 (site existant mais pas autorisé),
+    distinct du 400 (site qui n'existe pas du tout)."""
+    configured = [ms.name for ms in _cfg().miniservers]
+    allowed = _allowed_miniservers()
     if name is None:
-        return names[0] if names else ""
-    if name not in names:
-        abort(400, f"miniserver invalide: {name!r}. Valeurs possibles: {names}")
+        if not allowed:
+            abort(403, "aucun site accessible pour ce compte")
+        return allowed[0]
+    if name not in configured:
+        abort(400, f"miniserver invalide: {name!r}. Valeurs possibles: {configured}")
+    if name not in allowed:
+        abort(403, f"accès refusé au site {name!r}")
     return name
 
 
@@ -471,11 +542,21 @@ def api_tarifs():
     """Tarifs appliqués au décompte d'UN site (chaque site peut avoir un
     fournisseur/contrat différent). Stockés en base (et non dans le
     navigateur) pour qu'un mois déjà facturé reste reproductible à
-    l'identique après un changement de prix -- voir la table `tarifs`."""
+    l'identique après un changement de prix -- voir la table `tarifs`.
+
+    GET : lecture seule, ouverte à tout compte ayant accès à ce site
+    (`_resolve_miniserver` filtre déjà par _allowed_miniservers). POST :
+    admin uniquement -- un compte 'user' ne modifie jamais les tarifs
+    (décision explicite, voir CLAUDE.md "Rôles utilisateurs"). Une seule
+    fonction de vue plutôt que @admin_required en décorateur : GET et POST
+    n'ont pas les mêmes droits ici, contrairement aux autres routes."""
     if request.method == "GET":
         ms_name = _resolve_miniserver(request.args.get("miniserver"))
         with closing(_read_conn()) as conn:
             return jsonify(db.list_tarifs(conn, ms_name))
+
+    if not current_user.is_admin:
+        return jsonify({"error": "forbidden"}), 403
 
     payload = request.get_json(force=True, silent=True) or {}
     ms_name = _resolve_miniserver(payload.get("miniserver"))
@@ -500,7 +581,7 @@ def api_tarifs():
 
 
 @app.route("/api/tarifs/<int:tarif_id>", methods=["DELETE"])
-@login_required
+@admin_required
 def api_tarif_delete(tarif_id: int):
     ms_name = _resolve_miniserver(request.args.get("miniserver"))
     with closing(_read_conn()) as conn:

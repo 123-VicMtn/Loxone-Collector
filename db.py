@@ -86,15 +86,29 @@ CREATE TABLE IF NOT EXISTS tarifs (
     UNIQUE(miniserver, valid_from)
 );
 
--- Comptes utilisateurs (Flask-Login, voir auth.py). Pas de notion de rôle :
--- tous les comptes ont les mêmes droits, créés à la main via
--- scripts/create_admin_user.py -- suffisant pour 1-3 utilisateurs connus,
--- voir docs/plan-installation-auth-frontend-docker.md.
+-- Comptes utilisateurs (Flask-Login, voir auth.py). Deux rôles : 'admin'
+-- (voit et modifie tous les sites) et 'user' (lecture seule, uniquement
+-- les sites listés dans user_miniservers -- app fermée, accès donné au cas
+-- par cas via scripts/create_admin_user.py, voir CLAUDE.md "Rôles
+-- utilisateurs"). role a une valeur par défaut ('user') plutôt que NULL :
+-- un compte sans rôle explicite ne doit jamais se retrouver admin par
+-- accident.
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'user',
     created_at    INTEGER NOT NULL
+);
+
+-- Sites qu'un compte 'user' peut voir -- sans effet pour un compte 'admin'
+-- (qui voit tout, voir app.py::_allowed_miniservers). Plusieurs sites par
+-- compte possibles (ex: un gérant qui suit 2 immeubles) : table de liaison
+-- plutôt qu'une colonne unique sur `users`.
+CREATE TABLE IF NOT EXISTS user_miniservers (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    miniserver TEXT NOT NULL,
+    PRIMARY KEY (user_id, miniserver)
 );
 """
 
@@ -157,6 +171,19 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             "note, updated_at FROM tarifs_old"
         )
         conn.execute("DROP TABLE tarifs_old")
+        conn.commit()
+
+    # `users` : ajout de `role`. Défaut 'admin' pour les comptes DÉJÀ
+    # existants (créés avant que les rôles n'existent, donc avec un accès
+    # complet implicite -- les rétrograder silencieusement en 'user'
+    # couperait leur propre accès, y compris celui du propriétaire du
+    # projet). Les comptes créés APRÈS cette migration reçoivent leur rôle
+    # explicitement via db.create_user() (toujours appelé avec `role` en
+    # Python, jamais par ce DEFAULT SQL) -- voir CLAUDE.md, "Rôles
+    # utilisateurs".
+    users_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "role" not in users_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'")
         conn.commit()
 
 
@@ -506,28 +533,31 @@ def delete_tarif(conn: sqlite3.Connection, tarif_id: int) -> None:
 
 def get_user_by_username(conn: sqlite3.Connection, username: str) -> dict | None:
     row = conn.execute(
-        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        "SELECT id, username, password_hash, role FROM users WHERE username = ?",
         (username,),
     ).fetchone()
     if row is None:
         return None
-    return {"id": row[0], "username": row[1], "password_hash": row[2]}
+    return {"id": row[0], "username": row[1], "password_hash": row[2], "role": row[3]}
 
 
 def get_user_by_id(conn: sqlite3.Connection, user_id: int) -> dict | None:
     row = conn.execute(
-        "SELECT id, username, password_hash FROM users WHERE id = ?",
+        "SELECT id, username, password_hash, role FROM users WHERE id = ?",
         (user_id,),
     ).fetchone()
     if row is None:
         return None
-    return {"id": row[0], "username": row[1], "password_hash": row[2]}
+    return {"id": row[0], "username": row[1], "password_hash": row[2], "role": row[3]}
 
 
-def create_user(conn: sqlite3.Connection, username: str, password_hash: str) -> None:
+def create_user(conn: sqlite3.Connection, username: str, password_hash: str, role: str = "user") -> None:
+    """`role` toujours fourni explicitement par l'appelant (jamais laissé
+    au DEFAULT SQL de la colonne, qui ne sert qu'à la migration d'une base
+    existante -- voir _migrate_schema) : 'admin' ou 'user'."""
     conn.execute(
-        "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
-        (username, password_hash, int(time.time())),
+        "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+        (username, password_hash, role, int(time.time())),
     )
     conn.commit()
 
@@ -536,14 +566,54 @@ def list_users(conn: sqlite3.Connection) -> list[dict]:
     """Comptes existants, du plus ancien au plus récent -- app fermée,
     accès accordé au cas par cas (voir scripts/create_admin_user.py) : il
     faut pouvoir vérifier qui a accès aujourd'hui, pas seulement en créer."""
-    cur = conn.execute("SELECT id, username, created_at FROM users ORDER BY created_at ASC")
+    cur = conn.execute("SELECT id, username, role, created_at FROM users ORDER BY created_at ASC")
     cols = [c[0] for c in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
 def delete_user(conn: sqlite3.Connection, username: str) -> bool:
     """Révoque un accès. Retourne False si le compte n'existait pas (pour
-    que l'appelant distingue "rien à faire" de "supprimé")."""
+    que l'appelant distingue "rien à faire" de "supprimé"). Les lignes de
+    `user_miniservers` du compte partent avec (ON DELETE CASCADE, voir
+    SCHEMA)."""
     cur = conn.execute("DELETE FROM users WHERE username = ?", (username,))
     conn.commit()
     return cur.rowcount > 0
+
+
+def get_user_miniservers(conn: sqlite3.Connection, user_id: int) -> list[str]:
+    """Sites accordés à un compte 'user' -- sans effet pour un 'admin', qui
+    voit tous les sites configurés (voir app.py::_allowed_miniservers)."""
+    cur = conn.execute(
+        "SELECT miniserver FROM user_miniservers WHERE user_id = ? ORDER BY miniserver",
+        (user_id,),
+    )
+    return [row[0] for row in cur.fetchall()]
+
+
+def grant_miniserver(conn: sqlite3.Connection, user_id: int, miniserver: str) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO user_miniservers (user_id, miniserver) VALUES (?, ?)",
+        (user_id, miniserver),
+    )
+    conn.commit()
+
+
+def revoke_miniserver(conn: sqlite3.Connection, user_id: int, miniserver: str) -> bool:
+    cur = conn.execute(
+        "DELETE FROM user_miniservers WHERE user_id = ? AND miniserver = ?",
+        (user_id, miniserver),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_series_miniserver(conn: sqlite3.Connection, series_id: str) -> str | None:
+    """Site propriétaire d'une série -- utilisé pour vérifier qu'un compte
+    'user' a le droit de lire cette série avant de répondre
+    /api/series/<id>/data|latest|daily (voir app.py::_check_series_access)."""
+    row = conn.execute(
+        "SELECT miniserver FROM series_meta WHERE series_id = ?",
+        (series_id,),
+    ).fetchone()
+    return row[0] if row else None

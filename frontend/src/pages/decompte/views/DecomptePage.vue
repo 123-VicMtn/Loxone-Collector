@@ -14,6 +14,7 @@ import { fetchDecompte, fetchMiniservers, fetchTarifs } from '../api/decompte'
 import type { DecomptePayload, Period, Tarif } from '../types/decompte'
 import { fmtPeriodBounds } from '../utils/format'
 import { useHealthFooter } from '@shared/composables/useHealthFooter'
+import { authState } from '@shared/auth'
 import AuthStatus from '@shared/components/AuthStatus.vue'
 
 import Card from '../components/Card.vue'
@@ -177,7 +178,7 @@ onMounted(async () => {
         <AuthStatus />
         <nav class="flex gap-4 text-sm text-blue-600">
           <router-link to="/" class="hover:underline">← Dashboard</router-link>
-          <router-link to="/admin" class="hover:underline">⚙ Classification</router-link>
+          <router-link v-if="authState.role === 'admin'" to="/admin" class="hover:underline">⚙ Classification</router-link>
         </nav>
       </div>
     </header>
@@ -277,7 +278,12 @@ onMounted(async () => {
       </Card>
 
       <Card title="Tarifs" hint="appliqués aux mois commençant après leur date de prise d'effet">
-        <TarifsPanel :tarifs="tarifs" :miniserver="currentSite" @changed="reloadDecompteAndTarifs" />
+        <TarifsPanel
+          :tarifs="tarifs"
+          :miniserver="currentSite"
+          :read-only="authState.role !== 'admin'"
+          @changed="reloadDecompteAndTarifs"
+        />
       </Card>
 
       <details class="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
@@ -299,9 +305,14 @@ onMounted(async () => {
 
         <h4 class="mt-8 mb-1 font-semibold text-neutral-900">Quelle série alimente quelle colonne</h4>
         <p class="text-sm text-neutral-500">
-          Une correspondance fausse se corrige dans
-          <router-link to="/admin" class="text-blue-600 hover:underline">⚙ Classification</router-link>
-          (le type de ressource d'un capteur), pas ici.
+          <template v-if="authState.role === 'admin'">
+            Une correspondance fausse se corrige dans
+            <router-link to="/admin" class="text-blue-600 hover:underline">⚙ Classification</router-link>
+            (le type de ressource d'un capteur), pas ici.
+          </template>
+          <template v-else>
+            Une correspondance fausse se corrige dans la classification des capteurs -- contactez un administrateur.
+          </template>
         </p>
         <div class="mt-4">
           <SourcesTable :payload="payload" />

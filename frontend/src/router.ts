@@ -10,7 +10,11 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: DashboardPage },
-    { path: '/admin', component: AdminPage },
+    // Corrections de classification -- admin uniquement, un compte 'user'
+    // est en lecture seule (voir CLAUDE.md, "Rôles utilisateurs" ;
+    // le backend refuse déjà POST /api/series/<id>/classify en 403 pour
+    // un 'user', ce meta évite en plus d'afficher une page inutilisable).
+    { path: '/admin', component: AdminPage, meta: { adminOnly: true } },
     { path: '/decompte', component: DecomptePage },
     { path: '/login', component: LoginPage },
   ],
@@ -20,11 +24,14 @@ const router = createRouter({
  * page (authState.checked), pas à chaque navigation -- les navigations
  * suivantes ne font que lire l'état déjà connu. Toute route protégée sans
  * session connue redirige vers /login en mémorisant la destination
- * (`redirect`, lu par LoginPage.vue pour y revenir après connexion). */
+ * (`redirect`, lu par LoginPage.vue pour y revenir après connexion). Une
+ * route `adminOnly` redirige un compte 'user' vers / -- pas de page
+ * "403" dédiée, la classification n'est simplement pas dans son périmètre. */
 router.beforeEach(async (to) => {
   if (to.path === '/login') return true
   if (!authState.checked) await checkAuth()
   if (!authState.username) return { path: '/login', query: { redirect: to.fullPath } }
+  if (to.meta.adminOnly && authState.role !== 'admin') return { path: '/' }
   return true
 })
 

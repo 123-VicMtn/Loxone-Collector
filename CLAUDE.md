@@ -42,13 +42,19 @@ critère valable.
   dépendance npm. Détail complet de la migration Vue (2026-09-23) et de la
   séparation backend/frontend (2026-09-24) dans les sections dédiées plus
   bas.
-- **Authentification** (Flask-Login) : toutes les routes API protégées par
-  `@login_required` sauf `/health`, `/api/login`, `/api/me`. Page de
-  connexion Vue (`/login`) + garde de route + redirection automatique sur
-  session expirée en cours de navigation -- end-to-end complet et
-  utilisable. Comptes créés via `scripts/create_admin_user.py`, pas
-  d'interface web de gestion (voir sections "Authentification backend" /
-  "Authentification frontend", 2026-09-24).
+- **Authentification + rôles** (Flask-Login) : app complètement fermée,
+  accès donné au cas par cas. Deux rôles : `admin` (tous les sites,
+  lecture/écriture) et `user` (lecture seule, uniquement les sites
+  explicitement accordés -- un compte peut couvrir plusieurs sites). Toutes
+  les routes API protégées (`@login_required`/`@admin_required` selon
+  l'action) sauf `/health`, `/api/login`, `/api/me`. Page de connexion Vue
+  (`/login`) + garde de route + redirection automatique sur session
+  expirée en cours de navigation + UI adaptée au rôle (liens/formulaires
+  d'admin masqués pour un `user`) -- end-to-end complet et utilisable.
+  Comptes gérés via `scripts/create_admin_user.py` (créer/lister/révoquer/
+  accorder-retirer un site/changer de rôle), pas d'interface web de
+  gestion (voir sections "Authentification backend" / "Authentification
+  frontend" / "Rôles utilisateurs", 2026-09-24).
 - Déployé et validé en production sur le Pi de l'utilisateur (réseau local),
   firmware Miniserver 17.1.7.27.
 - Accès externe (URL DynDNS Loxone) **entièrement fonctionnel** : structure
@@ -2013,6 +2019,150 @@ pas seulement en local sur la base :
 5. `--list` revient à 1 compte après suppression.
 
 Base de démo nettoyée après coup (retour à `demo` seul).
+
+## Rôles utilisateurs : admin / user (lecture seule, scopé par site) — 2026-09-24
+
+Sur demande explicite de l'utilisateur -- app complètement fermée : accès
+donné au cas par cas à des personnes ayant demandé l'accès à UN immeuble
+dont il est admin, pas à tout le parc. Revient sur une décision
+explicitement actée le 2026-09-23 ("pas de gestion de rôles") -- assumé
+consciemment, le besoin réel a changé.
+
+**Deux décisions prises AVEC l'utilisateur avant d'implémenter** (via
+question posée, pas devinées) :
+- Un compte `user` est **en lecture seule** : voit son dashboard et son
+  décompte de charges, mais ne peut RIEN modifier (classification, tarifs)
+  -- seul un `admin` administre. Un `admin` voit et modifie tous les sites.
+- Un compte peut être accordé sur **plusieurs sites** (table de liaison
+  `user_miniservers`, pas une colonne unique sur `users`) -- prévu dès
+  maintenant plutôt qu'ajouté au besoin, sur demande explicite de
+  l'utilisateur (cas d'usage cité : un gérant qui suit 2 immeubles).
+
+### `db.py`
+
+- `users` gagne `role TEXT NOT NULL DEFAULT 'user'`. **Migration
+  critique** : sur une base existante (compte(s) déjà créés avant les
+  rôles), l'`ALTER TABLE` backfill `role='admin'` pour les lignes
+  existantes -- PAS `'user'` (le défaut des NOUVEAUX comptes). Rétrograder
+  silencieusement un compte déjà créé (potentiellement le vôtre) en lecture
+  seule aurait été une régression de sécurité invisible au déploiement.
+  Vérifié explicitement : le compte `demo` (créé avant ce commit) reste
+  `admin` après migration, pas basculé en `user`.
+- Nouvelle table `user_miniservers` (user_id, miniserver -- clé composite,
+  `ON DELETE CASCADE`, `PRAGMA foreign_keys=ON` déjà actif). Pas de
+  migration nécessaire (`CREATE TABLE IF NOT EXISTS`, comme `tarifs` en son
+  temps).
+- `create_user()` prend `role` en paramètre Python explicite, **jamais
+  laissé au défaut SQL de la colonne** (qui ne sert qu'à la migration
+  ci-dessus) -- évite qu'une base migrée et une base neuve se comportent
+  différemment pour un `INSERT` qui omettrait `role` par erreur.
+- Nouveaux : `list_users` (inclut le rôle), `get_user_miniservers`,
+  `grant_miniserver`, `revoke_miniserver`, `get_series_miniserver` (site
+  propriétaire d'une série -- sert au contrôle d'accès par série, voir
+  app.py).
+
+### `auth.py`
+
+`User` porte désormais `role` + `miniservers` (résolus une fois à la
+connexion/au chargement de session, pas requêtés à chaque route).
+`User.is_admin` (property). `miniservers` n'a de sens que pour un `user` --
+vide pour un `admin`, qui voit tout indépendamment de cette liste (la
+vraie liste "quels sites cet utilisateur voit" est calculée UNE SEULE FOIS
+côté app.py::_allowed_miniservers, jamais dupliquée).
+
+### `app.py` -- contrôle d'accès sur TOUTES les routes de données
+
+- `_allowed_miniservers()` : tous les sites configurés pour un admin,
+  intersection configurés∩accordés pour un `user` (un site retiré de
+  `config.yaml` après avoir été accordé ne "ressuscite" pas).
+- `admin_required` (nouveau décorateur, remplace `@login_required` sur les
+  routes d'écriture) : 403 si authentifié mais pas admin, 401 (via le
+  handler existant) si pas authentifié du tout -- distinction volontaire,
+  ce sont deux causes différentes.
+- `_check_series_access()` : vérifie qu'une série demandée appartient à un
+  site autorisé -- utilisé par les 3 routes qui servent UNE série précise
+  (`/data`, `/latest`, `/daily`), qui ne passent pas par `_resolve_miniserver`
+  (pas de paramètre `miniserver`, le site se déduit de la série).
+- `_resolve_miniserver()` réécrit : scope désormais par
+  `_allowed_miniservers()` et non plus tous les sites configurés --
+  distingue 400 (site qui n'existe pas) de 403 (site réel mais pas
+  accordé à ce compte).
+- Routes protégées passées en `@admin_required` : `POST /api/series/<id>/classify`,
+  `DELETE /api/tarifs/<id>`. `POST /api/tarifs` reste sur `@login_required`
+  (GET et POST partagent la même route Flask) mais avec un contrôle de rôle
+  inline juste avant la logique d'écriture -- GET doit rester lisible par
+  un `user` scopé à son site, seul POST doit être bloqué.
+- `/api/miniservers` renvoie désormais `_allowed_miniservers()` (pas tous
+  les sites configurés) -- conséquence : le frontend n'a RIEN à faire de
+  spécial pour scoper les sélecteurs de site, ils affichent déjà ce que le
+  backend a filtré.
+- `/api/series` filtre par site autorisé avant de renvoyer la liste.
+- `/api/login` et `/api/me` renvoient désormais `{username, role,
+  miniservers}` (miniservers = `_allowed_miniservers()` déjà résolu, pas la
+  table brute `user_miniservers` -- le frontend n'a pas à connaître la
+  distinction admin/user pour savoir quels sites afficher).
+
+### `scripts/create_admin_user.py`
+
+Passé à un vrai gestionnaire de comptes multi-commandes (`argparse`,
+groupe mutuellement exclusif) :
+```bash
+python3 scripts/create_admin_user.py config.yaml                       # créer (prompt : username, password, rôle, sites si 'user')
+python3 scripts/create_admin_user.py config.yaml --list                # rôle + sites accordés par compte
+python3 scripts/create_admin_user.py config.yaml --delete USER
+python3 scripts/create_admin_user.py config.yaml --grant USER SITE     # accorder un site (compte déjà créé)
+python3 scripts/create_admin_user.py config.yaml --revoke USER SITE    # retirer un site
+python3 scripts/create_admin_user.py config.yaml --set-role USER ROLE  # promouvoir/rétrograder
+```
+Bug de compatibilité Python 3.9 trouvé et corrigé en testant : `dict |
+None` (syntaxe PEP 604) plante à l'exécution sans `from __future__ import
+annotations` -- absent du script au premier jet (présent dans app.py/auth.py/
+db.py, mais ce fichier avait été écrit avant ce besoin). Ajouté, conforme à
+la convention déjà suivie par les autres scripts CLI du projet.
+
+### Frontend
+
+- `shared/auth.ts` : `authState` gagne `role`/`miniservers`, peuplés par
+  `/api/login`/`/api/me`.
+- `src/router.ts` : route `/admin` marquée `meta: { adminOnly: true }` --
+  le garde de route redirige un `user` vers `/` (pas de page "403" dédiée,
+  la classification n'est simplement pas dans son périmètre).
+- Liens "⚙ Classification" masqués pour un `user` dans `DashboardPage.vue`
+  et `DecomptePage.vue` (2 endroits) -- pas seulement bloqués côté
+  serveur, pas de lien mort affiché.
+- `TarifsPanel.vue` gagne une prop `readOnly` : masque la colonne
+  "Supprimer", le formulaire de saisie, remplacés par "Lecture seule --
+  contactez un administrateur". `DecomptePage.vue` la calcule depuis
+  `authState.role !== 'admin'`.
+- `AuthStatus.vue` affiche "(lecture seule)" à côté du nom pour un `user`.
+
+### Validé avant de rendre la main
+
+`pytest` 59/59, `npm run build` propre. **Vérification HTTP directe (curl)
+du contrôle d'accès réel**, pas seulement de la UI :
+- migration : compte `demo` pré-existant reste `admin` après l'ALTER TABLE
+  (vérifié par lecture directe du schéma SQLite avant/après) ;
+- `/api/login` et `/api/me` renvoient bien `{role, miniservers}` pour les
+  3 profils testés (admin, user avec 1 site, user sans aucun site) ;
+- admin : `POST /api/series/<id>/classify` -> 200. Compte `user` scopé sur
+  le même site : -> 403 `{"error":"forbidden"}` ;
+- **le test le plus révélateur** : un compte `user` avec le site `demo`
+  accordé lit `/api/series/<id>/latest` -> 200 sur une VRAIE série de ce
+  site ; après `--revoke USER demo`, la MÊME requête sur la MÊME série
+  réelle -> 403 (pas un test avec un site fictif, qui n'aurait rien prouvé
+  -- corrigé après un premier essai qui ne testait rien de réel) ;
+- `/api/miniservers` et `/api/series` renvoient bien une liste vide pour
+  un compte sans aucun site accordé (pas une erreur, une liste vide --
+  cohérent avec une UI qui doit s'afficher sans planter).
+
+**Vérification Playwright des 2 rôles côte à côte**, contre le vrai
+backend : admin voit "Classification", accède à `/admin` (143 lignes),
+formulaire tarifs visible ; compte `user` scopé ne voit pas
+"Classification", redirigé de `/admin` vers `/`, décompte de SON site
+visible en lecture (KPI, tableaux, graphs tous peuplés), panneau tarifs en
+lecture seule avec message explicite. Capture d'écran inspectée.
+Comptes de test supprimés après coup, base démo revenue à l'état
+`demo`/admin seul.
 
 ## Prochaine étape prévue
 

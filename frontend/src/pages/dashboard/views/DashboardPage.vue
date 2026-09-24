@@ -12,6 +12,7 @@
 
 import { ref } from 'vue'
 import { useHealthFooter } from '@shared/composables/useHealthFooter'
+import { authState } from '@shared/auth'
 import AuthStatus from '@shared/components/AuthStatus.vue'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
@@ -38,7 +39,12 @@ const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection(
       <h1 class="text-xl font-bold text-neutral-900">Loxone</h1>
       <p class="mb-4 text-sm text-neutral-500">Capteurs suivis</p>
       <div class="mb-4 flex flex-col gap-1 text-sm">
-        <router-link to="/admin" class="text-blue-600 hover:underline" title="Corriger la classification des capteurs">⚙ Classification</router-link>
+        <router-link
+          v-if="authState.role === 'admin'"
+          to="/admin"
+          class="text-blue-600 hover:underline"
+          title="Corriger la classification des capteurs"
+        >⚙ Classification</router-link>
         <router-link to="/decompte" class="text-blue-600 hover:underline" title="Décompte de charges mensuel par zone">🧾 Décompte de charges</router-link>
       </div>
       <AuthStatus class="mb-4" />
