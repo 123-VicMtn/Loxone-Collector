@@ -80,10 +80,13 @@ cd /home/pi
 # ... copier/cloner loxone-collector ici ...
 cd loxone-collector
 
+# Le venv reste à la racine du repo, le code applicatif est sous backend/
+# (voir CLAUDE.md, "Nettoyage de la structure du backend")
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 
+cd backend
 cp config.example.yaml config.yaml
 cp .env.example .env
 nano .env          # renseigne les identifiants Loxone
@@ -101,17 +104,20 @@ le Pi.
 
 ```bash
 source .venv/bin/activate
+cd backend
 python app.py
 ```
 
-Puis ouvre `http://<ip-du-pi>:8080` depuis un navigateur sur le même réseau.
-`http://<ip-du-pi>:8080/health` donne l'état du dernier cycle de poll par
-miniserver (utile pour diagnostiquer un souci d'identifiants/réseau).
+`http://<ip-du-pi>:<port>/health` donne l'état du dernier cycle de poll par
+miniserver (utile pour diagnostiquer un souci d'identifiants/réseau). Le
+backend est une API JSON pure (voir CLAUDE.md, "Backend 100% API") -- le
+dashboard lui-même est servi séparément par le frontend Vue (`frontend/`,
+voir CLAUDE.md pour son propre déploiement).
 
 ### Démarrage automatique (systemd)
 
 ```bash
-sudo cp scripts/loxone-collector.service /etc/systemd/system/
+sudo cp backend/scripts/loxone-collector.service /etc/systemd/system/
 sudo nano /etc/systemd/system/loxone-collector.service   # vérifie User/chemins
 sudo systemctl daemon-reload
 sudo systemctl enable --now loxone-collector
@@ -148,7 +154,7 @@ config :
   moyennes horaires, qui pèsent beaucoup moins lourd.
 - **`checkpoint_wal` quotidien** : évite que le fichier `loxone.db-wal` ne
   grossisse indéfiniment entre deux VACUUM.
-- **`scripts/vacuum_db.py`** : à lancer une fois par mois (cron) pour
+- **`backend/scripts/vacuum_db.py`** : à lancer une fois par mois (cron) pour
   compacter le fichier `.db` — pas plus souvent, car c'est une opération
   qui réécrit toute la base.
 - Ordres de grandeur : avec ~50 capteurs suivis, un poll toutes les 60s

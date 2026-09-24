@@ -1,13 +1,13 @@
-.env
-config.yaml
-data/*.db
-data/*.db-wal
-data/*.db-shm
+backend/.env
+backend/config.yaml
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
 __pycache__/
 *.pyc
 .venv/
 _to_delete/
-data/ws_tokens/
+backend/data/ws_tokens/
 .DS_Store
 /docs
 

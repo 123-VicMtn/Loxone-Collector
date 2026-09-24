@@ -13,7 +13,7 @@ import tailwindcss from '@tailwindcss/vite'
 // (gitignored).
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, import.meta.dirname, '')
-  const target = env.VITE_API_PROXY_TARGET || 'http://localhost:8082'
+  const target = env.VITE_API_PROXY_TARGET || 'http://localhost:5050'
   const proxy = { '/api': target, '/health': target }
   return {
     plugins: [vue(), tailwindcss()],

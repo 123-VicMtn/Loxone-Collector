@@ -20,6 +20,16 @@ les raisons historiques de minimalisme (Pi 2 Go, SD card) ne s'appliquent
 plus, seule la simplicité de maintenance pour un développeur solo reste un
 critère valable.
 
+**Structure du dépôt (mise à jour 2026-09-24)** : tout le code Python
+backend (`app.py`, `db.py`, `config.py`, etc.), ses scripts CLI, ses tests,
+sa config et ses données vivent sous `backend/` (voir "Nettoyage de la
+structure du backend" plus bas). Le venv Python reste à la racine du repo.
+`frontend/` (SPA Vue) est resté un dossier séparé, inchangé par ce
+nettoyage. **Partout dans ce fichier, une mention nue de `app.py`,
+`db.py`, `scripts/...` etc. (y compris dans les sections historiques
+datées ci-dessous, écrites avant ce déplacement) désigne le fichier sous
+`backend/`** -- pas la peine de préfixer chaque occurrence individuellement.
+
 ## Ce qui fonctionne aujourd'hui
 
 - Poller Python (thread de fond dans `app.py`) qui interroge un ou plusieurs
@@ -2282,17 +2292,125 @@ rapport avec les configs actuelles) repéré au passage mais volontairement
 pas touché -- hors périmètre de cette demande, à traiter séparément si
 besoin.
 
+## Nettoyage de la structure du backend — 2026-09-24
+
+Sur demande explicite de l'utilisateur ("la structure du dossier de l'app
+backend n'est pas propre"), même jour que le nettoyage des configs.
+**Proposition présentée avant toute exécution** (arborescence cible +
+points d'attention), deux décisions tranchées par l'utilisateur avant
+d'agir :
+- déplacer `data/` (1,1 Go de vraie donnée de prod) dans la même passe que
+  le code, pas séparément plus tard ;
+- `.venv` reste à la racine du repo (pas de `backend/.venv`).
+
+### Constat
+
+9 modules Python + `requirements*.txt` étaient à plat à la racine du dépôt,
+à côté de `frontend/`, `docs/`, `CLAUDE.md`, les fichiers de config --
+aucune séparation "backend" contrairement à `frontend/`, déjà proprement
+isolé dans son propre dossier depuis la fusion en SPA unique. `templates/`
+était un dossier vide (reste mort de la migration Jinja -> Vue).
+
+### Ce qui a bougé
+
+Tout, sous `backend/`, `git mv` pour tout ce qui était suivi (historique
+préservé) :
+- Les 9 modules (`app.py`, `auth.py`, `billing.py`, `classification.py`,
+  `config.py`, `db.py`, `loxone_client.py`, `loxone_ws_client.py`,
+  `repartition.py`) + `requirements.txt`/`requirements-websocket.txt`.
+- `scripts/` -> `backend/scripts/` (16 scripts CLI + le `.service` systemd)
+  et `tests/` -> `backend/tests/` **tels quels, sans modifier leur code** :
+  les deux utilisaient déjà `sys.path.insert(0, .../parent.parent)` pour
+  importer les modules -- en les déplaçant à la MÊME profondeur relative
+  que les modules (un cran en dessous), ce mécanisme continue de
+  fonctionner sans aucune édition.
+- `config.yaml`, `config.demo.yaml`, `config.example.yaml`, `.env`,
+  `.env.example` -> `backend/`.
+- `data/` -> `backend/data/` (voir sous-section dédiée, opération à risque
+  gérée séparément avec vérification).
+- `templates/` (vide) supprimé.
+
+**Ce qui n'a PAS bougé** : `.venv/` (racine du repo, décision de
+l'utilisateur), `frontend/`, `docs/`, `CLAUDE.md`, `README.md`.
+
+### Déplacement de `data/` -- avec arrêt/redémarrage coordonné du collecteur réel
+
+Contrairement au renommage du fichier `.db` fait plus tôt dans la journée
+(aucun process actif à ce moment-là), **un process réel tournait cette
+fois** (`app.py config.yaml`, PID 63388, sur les 3 sites clients). Risque
+identifié avant d'agir : ce n'est pas qu'une histoire de descripteur de
+fichier resté valide après un `mv` (ça, c'est sûr, vérifié plus tôt) --
+Flask ouvre une NOUVELLE connexion SQLite à CHAQUE requête HTTP, via
+`db_path` (chemin relatif) figé en mémoire depuis le démarrage. Déplacer le
+fichier sans arrêter le process aurait fait que la prochaine requête API
+ouvre "data/loxone.db" à l'ANCIEN emplacement (relatif au cwd du process,
+inchangé) -- et SQLite crée silencieusement un fichier vide s'il n'existe
+pas. Un vrai risque de split-brain (le poller écrivant dans l'ancien
+fichier pendant qu'une requête API en lirait un nouveau, vide), propre à
+une appli qui ouvre des connexions à la demande, pas au renommage isolé
+d'avant.
+
+**Séquence exécutée** :
+1. `kill -TERM` sur le process, `fuser`/`lsof` pour confirmer l'arrêt
+   complet et l'absence de handle restant sur `data/`.
+2. Empreinte des données AVANT déplacement (comptage de lignes + checksum
+   sur `series_meta`/`readings`/`readings_hourly`/`tarifs`/`users` --
+   2456 séries, 1 485 197 lectures, 2 956 576 moyennes horaires, 1 compte
+   utilisateur réel déjà créé entre-temps par l'utilisateur).
+3. `mv data backend/data` (répertoire entier, même système de fichiers).
+4. Même empreinte reprise après déplacement -- identique, confirmée aussi
+   via `db.list_series()` (le vrai chemin de lecture applicatif) depuis
+   `backend/` comme répertoire de travail.
+5. Redémarrage : `cd backend && ../.venv/bin/python3 app.py` -- poll
+   immédiat réussi sur MS-Arlopi (368 points), `/health` répond 200.
+   Interruption réelle de la collecte : quelques secondes, aucune donnée
+   déjà écrite perdue.
+
+### Autres mises à jour de cohérence
+
+- `.gitignore` : `config.yaml`/`data/*.db*`/`.env` -> `backend/config.yaml`/
+  `backend/data/*.db*`/`backend/.env` (`__pycache__/`, sans slash de tête,
+  matchait déjà à toute profondeur -- aucun changement nécessaire pour ça).
+- `backend/scripts/loxone-collector.service` : `WorkingDirectory`/
+  `ExecStart`/`ReadWritePaths` mis à jour vers `.../loxone-collector/backend`
+  (et `.../backend/data`) -- le binaire Python reste celui du venv à la
+  racine (`.../loxone-collector/.venv/bin/python`), seul le code applicatif
+  a bougé. `User`/chemin de base (`/home/pi/...`) laissés tels quels
+  (toujours à adapter par l'utilisateur au déploiement réel, comme avant --
+  **pas** renommés en `/opt/...` dans une première tentative trop
+  ambitieuse, corrigée avant livraison : inventer un nouvel utilisateur/
+  chemin système non demandé aurait été un vrai dérapage de périmètre).
+- `README.md` : les commandes d'installation/lancement/systemd corrigées
+  pour refléter `backend/` (un seul `cd backend` ajouté après le clone,
+  plutôt que préfixer chaque ligne individuellement). Le reste du README
+  (framing "Raspberry Pi", absence de mention du frontend/de l'auth) reste
+  daté pour d'autres raisons, **pas retouché ici** -- hors périmètre de ce
+  nettoyage de structure, une refonte complète serait un chantier séparé.
+- `CLAUDE.md` : note d'orientation ajoutée en tête de fichier plutôt que de
+  réécrire chaque mention de `app.py`/`scripts/...` dans les 2300+ lignes
+  (y compris les sections historiques, qui décrivent l'état au moment où
+  elles ont été écrites et ne doivent pas être réécrites) -- "Commandes
+  utiles" (section volontairement tenue à jour) entièrement corrigée avec
+  `backend/` explicite.
+
+### Validé avant de rendre la main
+
+Depuis `backend/` comme répertoire de travail : `config.load_config()`
+charge correctement (`db_path`, sites, port), `db.list_series()` retourne
+les 2456 séries, `scripts/create_admin_user.py config.yaml --list` répond
+correctement. `pytest` 59/59 exécuté depuis `backend/`. Process réel
+redémarré et confirmé fonctionnel (`/health` 200, poll réel réussi).
+Empreinte de données identique avant/après sur toutes les tables
+(aucune perte, pas une supposition).
+
 ## Prochaine étape prévue
 
-Lancer `python3 scripts/create_admin_user.py config.yaml` pour créer un
-premier compte réel : la vraie base de prod n'en a encore aucun (0 ligne
-dans `users`, confirmé pendant le renommage ci-dessus) -- sans ça,
-personne ne peut se connecter une fois `app.py` relancé sur cette config.
-
-Puis démarrer le process de collecte réel (`python3 app.py`, sans argument
-= `config.yaml`) -- aucun process n'est actuellement en cours (vérifié
-pendant ce nettoyage), donc pas de coupure de collecte à gérer, juste à
-lancer quand c'est pratique.
+Aucune suite programmée à ce nettoyage -- structure backend/frontend
+propre, collecteur réel de nouveau opérationnel sur la nouvelle
+arborescence. Point de vigilance pour la suite : `README.md` reste
+partiellement daté (framing Raspberry Pi, ne mentionne pas le frontend Vue
+ni l'authentification) -- à reprendre séparément si un jour quelqu'un
+d'autre que l'utilisateur doit suivre ce README pour déployer.
 
 Prochain sujet naturel du projet (voir "Prochaine étape prévue" historique,
 avant le détour migration) : module de génération de factures / décomptes
@@ -2306,27 +2424,35 @@ période de facturation.
 
 Backend et frontend sont deux process séparés (voir "Backend 100% API" --
 Flask ne sert plus aucune page, `frontend/` est une SPA autonome qui parle
-à l'API en HTTP).
+à l'API en HTTP). Depuis le "Nettoyage de la structure du backend"
+(2026-09-24), tout le code Python + sa config + ses données vivent sous
+`backend/` (le venv, lui, reste à la racine du repo -- voir cette section
+pour le détail) : les commandes ci-dessous supposent qu'on est entré dans
+`backend/` (`cd backend`), sauf mention contraire explicite.
 
 ```bash
-# Setup backend
-python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+# Setup backend (venv à la racine du repo, PAS dans backend/)
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+cd backend
 cp config.example.yaml config.yaml && cp .env.example .env   # puis éditer
 # puis générer SECRET_KEY dans .env (voir .env.example) :
 python3 -c "import secrets; print(secrets.token_hex(32))"
 
+# À partir d'ici, on est dans backend/ (cd backend fait ci-dessus)
+
 # Créer un compte (requis pour se connecter -- pas d'inscription en ligne)
 python3 scripts/create_admin_user.py config.yaml
 
-# Setup frontend (une fois)
-npm --prefix frontend install
+# Setup frontend (une fois -- depuis la racine du repo, pas backend/)
+npm --prefix ../frontend install    # si on est dans backend/
+# ou, depuis la racine : npm --prefix frontend install
 
 # Diagnostic connexion Loxone
 python3 scripts/diagnose_auth.py config.yaml
 
 # Diagnostic websocket (lecture live à distance) -- MS-Arlopi/MS-PPE-Horizon/
-# MS-PPE-Sequoia vivent tous dans le config.yaml unique de prod désormais
-# (voir "Nettoyage des configs", 2026-09-24)
+# MS-PPE-Sequoia vivent tous dans le config.yaml unique de prod
 python3 scripts/diagnose_websocket.py config.yaml MS-Arlopi 8
 
 # Diagnostic historique Statistics (SD card Loxone)
@@ -2343,9 +2469,10 @@ python3 app.py config.demo.yaml    # API de démo, données synthétiques
 # Démo / test sans Loxone réel
 python3 scripts/seed_demo_data.py config.demo.yaml && python3 app.py config.demo.yaml
 
-# Dev frontend avec rechargement à chaud, en parallèle du backend --
-# proxy /api + /health vers Flask (voir frontend/vite.config.ts,
-# VITE_API_PROXY_TARGET dans frontend/.env.local pour changer la cible)
+# Dev frontend avec rechargement à chaud, en parallèle du backend -- depuis
+# la racine du repo (pas backend/) ; proxy /api + /health vers Flask (voir
+# frontend/vite.config.ts, VITE_API_PROXY_TARGET dans frontend/.env.local
+# pour changer la cible)
 npm --prefix frontend run dev       # http://localhost:5173
 
 # Build frontend (prod) -- produit frontend/dist/, à déployer comme un
@@ -2353,11 +2480,14 @@ npm --prefix frontend run dev       # http://localhost:5173
 npm --prefix frontend run build
 npm --prefix frontend run preview   # tester ce build localement (avec proxy API)
 
-# Maintenance DB (mensuel, manuel)
+# Maintenance DB (mensuel, manuel) -- depuis backend/
 python3 scripts/vacuum_db.py config.yaml
 
-# Déploiement backend (systemd, PC Ubuntu Server -- anciennement Pi)
+# Déploiement backend (systemd, PC Ubuntu Server -- anciennement Pi) --
+# depuis backend/ (le .service référence déjà les chemins backend/app.py
+# et backend/data, voir backend/scripts/loxone-collector.service)
 sudo cp scripts/loxone-collector.service /etc/systemd/system/
+sudo nano /etc/systemd/system/loxone-collector.service   # adapte User/chemins
 sudo systemctl daemon-reload && sudo systemctl enable --now loxone-collector
 journalctl -u loxone-collector -f
 
