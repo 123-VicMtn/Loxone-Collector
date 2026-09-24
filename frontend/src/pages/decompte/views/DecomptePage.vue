@@ -45,6 +45,7 @@ const historiqueKey = ref('')
 const loading = ref(true)
 const loadingMessage = ref('Chargement du décompte…')
 const errored = ref(false)
+const empty = ref(false)
 
 const selectedPeriod = computed<Period | null>(() => {
   if (!payload.value) return null
@@ -103,6 +104,7 @@ async function loadSite(site: string) {
 
   loading.value = true
   errored.value = false
+  empty.value = false
   loadingMessage.value = 'Chargement du décompte…'
 
   try {
@@ -114,6 +116,8 @@ async function loadSite(site: string) {
     tarifs.value = t
 
     if (!data.periodes.length || !data.zones.length) {
+      loading.value = false
+      empty.value = true
       loadingMessage.value =
         'Aucune donnée exploitable pour un décompte sur ce site : il faut au moins ' +
         'une zone avec des compteurs cumulatifs (state « total ») en base.'
@@ -182,23 +186,24 @@ onMounted(async () => {
       </div>
     </header>
 
-    <GlobalBanner v-if="payload && !loading" :payload="payload" />
+    <label v-if="sites.length > 1" class="flex w-fit flex-col text-sm text-neutral-600">
+      Site
+      <select
+        class="mt-1 rounded border border-neutral-300 px-2 py-1"
+        :value="currentSite"
+        @change="loadSite(($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="s in sites" :key="s" :value="s">{{ s }}</option>
+      </select>
+    </label>
 
-    <p v-if="loading" class="text-sm text-neutral-500">{{ loadingMessage }}</p>
+    <GlobalBanner v-if="payload && !loading && !empty" :payload="payload" />
+
+    <p v-if="loading || empty" class="text-sm text-neutral-500">{{ loadingMessage }}</p>
 
     <template v-else-if="payload && !errored">
       <Card>
         <div class="flex flex-wrap items-end gap-4">
-          <label v-if="sites.length > 1" class="flex flex-col text-sm text-neutral-600">
-            Site
-            <select
-              class="mt-1 rounded border border-neutral-300 px-2 py-1"
-              :value="currentSite"
-              @change="loadSite(($event.target as HTMLSelectElement).value)"
-            >
-              <option v-for="s in sites" :key="s" :value="s">{{ s }}</option>
-            </select>
-          </label>
           <label class="flex flex-col text-sm text-neutral-600">
             Mois à facturer
             <select v-model="periodeKey" class="mt-1 rounded border border-neutral-300 px-2 py-1">
