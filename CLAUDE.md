@@ -42,12 +42,13 @@ critère valable.
   dépendance npm. Détail complet de la migration Vue (2026-09-23) et de la
   séparation backend/frontend (2026-09-24) dans les sections dédiées plus
   bas.
-- **Authentification backend** (Flask-Login, `auth.py`) : toutes les routes
-  API protégées par `@login_required` sauf `/health`, `/api/login`,
-  `/api/me`. **Le frontend n'a pas encore de page de connexion** -- l'auth
-  backend est livrée mais pas utilisable tant que cette UI n'existe pas
-  (voir "Prochaine étape prévue"). Comptes créés via
-  `scripts/create_admin_user.py`, pas d'interface web de gestion.
+- **Authentification** (Flask-Login) : toutes les routes API protégées par
+  `@login_required` sauf `/health`, `/api/login`, `/api/me`. Page de
+  connexion Vue (`/login`) + garde de route + redirection automatique sur
+  session expirée en cours de navigation -- end-to-end complet et
+  utilisable. Comptes créés via `scripts/create_admin_user.py`, pas
+  d'interface web de gestion (voir sections "Authentification backend" /
+  "Authentification frontend", 2026-09-24).
 - Déployé et validé en production sur le Pi de l'utilisateur (réseau local),
   firmware Miniserver 17.1.7.27.
 - Accès externe (URL DynDNS Loxone) **entièrement fonctionnel** : structure
@@ -1878,15 +1879,99 @@ entière est donc actuellement inutilisable en pratique (tout `fetch` vers
 `/api/*` échoue en 401 sans un `POST /api/login` préalable, qu'aucun code
 frontend n'émet encore). C'est la suite immédiate, pas une option.
 
-## Prochaine étape prévue
+## Authentification frontend (page de connexion + garde de route) — 2026-09-24
 
-Frontend : page de connexion Vue (`POST /api/login`) + garde de route
-(`vue-router` : rediriger vers `/login` si `GET /api/me` échoue) +
-gestion globale d'un 401 en cours de session (cookie expiré pendant la
-navigation -> retour à `/login`, sur le modèle prévu par le plan
-d'origine, section 2.4, adapté à `vue-router` plutôt qu'un simple rechargement
-de page). Sans ça, l'authentification backend livrée ci-dessus n'est pas
-utilisable par un humain.
+Suite de l'étape précédente : sans ça, l'auth backend livrée le
+2026-09-24 n'était pas utilisable par un humain (aucun code frontend
+n'appelait encore `/api/login`). Implémente la section 2.4 du plan
+(`docs/plan-installation-auth-frontend-docker.md`), adaptée à `vue-router`
+plutôt qu'un rechargement de page complet.
+
+**`frontend/shared/auth.ts`** (nouveau) -- état réactif unique
+(`authState.username`/`checked`), pas de store dédié (Pinia serait
+sur-dimensionné pour une seule valeur globale) : `checkAuth()`
+(`GET /api/me`), `login()`, `logout()`.
+
+**`frontend/shared/api/http.ts`** étendu : `fetchJSON`/`postJSON`/`deleteJSON`
+prennent un `opts.skipAuthRedirect` optionnel, et un handler global
+(`setUnauthorizedHandler`, câblé une fois dans `router.ts`) se déclenche
+sur tout 401 **sauf** ceux volontairement exclus (`GET /api/me`,
+`POST /api/login` -- un 401 y est une réponse normale, pas une session
+expirée ; le rediriger vers `/login` alors qu'on y est déjà, ou avant même
+d'avoir affiché l'erreur "identifiants invalides", casserait le flux).
+C'est ce mécanisme qui gère le cas "cookie expiré EN COURS DE NAVIGATION"
+(section 2.4 du plan) : n'importe quel appel API normal qui reçoit un 401
+déclenche la redirection, sans qu'aucun composant n'ait à s'en soucier.
+
+**`frontend/src/router.ts`** : route `/login` (seule route publique) +
+garde de route (`beforeEach`) qui appelle `checkAuth()` une seule fois par
+chargement de page (`authState.checked`), redirige vers `/login?redirect=<cible>`
+si pas connecté -- `LoginPage.vue` relit ce `redirect` pour renvoyer
+l'utilisateur là où il voulait aller, pas systématiquement sur `/`.
+
+**`frontend/src/pages/auth/LoginPage.vue`** (nouveau) : formulaire minimal
+(nom d'utilisateur + mot de passe), pas d'inscription en ligne (comptes
+créés via `scripts/create_admin_user.py`, comme prévu par le plan).
+
+**`frontend/shared/components/AuthStatus.vue`** (nouveau, premier composant
+Vue dans `shared/` -- jusqu'ici uniquement du `.ts`) : "nom d'utilisateur ·
+Déconnexion", identique sur les 3 pages -- inséré DANS l'en-tête existant
+de chacune (`DashboardPage.vue`, `AdminPage.vue`, `DecomptePage.vue`),
+sans remplacer leur structure (décision déjà actée : "chaque page garde
+son propre `<header>`", pas de chrome partagé). `tsconfig.app.json` étendu
+(`shared/**/*.vue` ajouté à `include`, qui ne couvrait que `shared/**/*.ts`
+jusqu'ici) pour que ce nouveau fichier soit type-checké.
+
+### Deux bugs de test trouvés en vérifiant (pas des bugs applicatifs)
+
+- **Proxy Vite pointant sur le mauvais port.** `frontend/.env.local`
+  (créé le 2026-09-24 pour le workflow habituel de l'utilisateur --
+  `config.external.yaml` sur le port 8081) faisait échouer TOUTES les
+  requêtes API en 502 dès que je testais contre `config.demo.yaml` (port
+  8082) sans le surcharger -- rien à voir avec l'auth, le proxy pointait
+  juste sur un port où personne n'écoutait. Contourné pour les tests avec
+  `VITE_API_PROXY_TARGET=http://localhost:8082 npm run preview`, sans
+  toucher au `.env.local` de l'utilisateur (légitime pour son propre usage).
+- **Faux négatif du test "session expirée en cours de route".** Un premier
+  essai déclenchait l'action en cliquant l'onglet Énergie après avoir vidé
+  les cookies -- mais `loadAllSeries()` (`shared/api/series.ts`) met en
+  cache `/api/series` en mémoire pour toute la durée de vie de la page :
+  l'onglet Énergie réutilisait le cache sans réémettre de requête réseau,
+  donc sans jamais recevoir de 401, donc sans jamais déclencher la
+  redirection -- pas un défaut du handler, juste une action de test qui ne
+  touchait pas le réseau. Corrigé en cochant une case de capteur à la place
+  (`GET /api/series/<id>/data`, jamais mis en cache) : confirmé, la
+  redirection vers `/login` se déclenche bien dans ce cas.
+
+### Validé avant de rendre la main
+
+`npm run build` propre (116 modules, vue-tsc sans erreur). **Parcours
+Playwright complet contre le vrai backend Flask** (pas de mock) :
+1. visite non authentifiée de `/` -> redirigé vers `/login?redirect=/` ;
+2. mauvais mot de passe -> message d'erreur affiché, reste sur `/login` ;
+3. bon mot de passe -> redirigé vers `/` (la page initialement demandée) ;
+4. dashboard fonctionnel (143 capteurs), "demo" affiché dans le statut ;
+5. navigation client (`router-link`) vers `/admin` sans re-authentification
+   -- 143 lignes de classification ;
+6. navigation directe (dure) vers `/decompte` en restant authentifié -- 200 ;
+7. clic sur Déconnexion -> retour à `/login` ;
+8. navigation directe vers `/admin` après déconnexion -> redirigé vers
+   `/login?redirect=/admin` (pas de fuite d'accès après logout) ;
+9. **session expirée en cours de page** (cookies vidés sans recharger,
+   puis une action qui touche vraiment le réseau) -> redirection globale
+   vers `/login` déclenchée par `setUnauthorizedHandler`, confirmant que ce
+   mécanisme fonctionne indépendamment du garde de route.
+
+Captures d'écran inspectées (page de connexion, dashboard avec "demo ·
+Déconnexion" dans la sidebar) -- mise en page cohérente avec le reste de
+l'app. `pytest` 59/59 (aucun changement backend dans cette étape). Pas de
+vérification visuelle humaine (toujours aucun outil de navigateur
+disponible dans cette session).
+
+**Auth end-to-end maintenant complète et utilisable.** Compte de test :
+`demo`/`demo123` sur `config.demo.yaml` (créé à l'étape précédente).
+
+## Prochaine étape prévue
 
 Prochain sujet naturel du projet (voir "Prochaine étape prévue" historique,
 avant le détour migration) : module de génération de factures / décomptes

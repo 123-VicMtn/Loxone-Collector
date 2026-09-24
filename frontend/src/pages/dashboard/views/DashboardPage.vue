@@ -12,6 +12,7 @@
 
 import { ref } from 'vue'
 import { useHealthFooter } from '@shared/composables/useHealthFooter'
+import AuthStatus from '@shared/components/AuthStatus.vue'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
 import EnergyTab from '../tabs/EnergyTab.vue'
@@ -40,6 +41,7 @@ const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection(
         <router-link to="/admin" class="text-blue-600 hover:underline" title="Corriger la classification des capteurs">⚙ Classification</router-link>
         <router-link to="/decompte" class="text-blue-600 hover:underline" title="Décompte de charges mensuel par zone">🧾 Décompte de charges</router-link>
       </div>
+      <AuthStatus class="mb-4" />
       <Sidebar :is-selected="isSelected" :on-toggle="onToggle" />
     </aside>
 

@@ -14,6 +14,7 @@ import { fetchDecompte, fetchMiniservers, fetchTarifs } from '../api/decompte'
 import type { DecomptePayload, Period, Tarif } from '../types/decompte'
 import { fmtPeriodBounds } from '../utils/format'
 import { useHealthFooter } from '@shared/composables/useHealthFooter'
+import AuthStatus from '@shared/components/AuthStatus.vue'
 
 import Card from '../components/Card.vue'
 import GlobalBanner from '../components/GlobalBanner.vue'
@@ -172,10 +173,13 @@ onMounted(async () => {
           autoconsommée, mois par mois — heure locale Europe/Zurich.
         </p>
       </div>
-      <nav class="flex gap-4 text-sm text-blue-600">
-        <router-link to="/" class="hover:underline">← Dashboard</router-link>
-        <router-link to="/admin" class="hover:underline">⚙ Classification</router-link>
-      </nav>
+      <div class="flex flex-col items-end gap-2">
+        <AuthStatus />
+        <nav class="flex gap-4 text-sm text-blue-600">
+          <router-link to="/" class="hover:underline">← Dashboard</router-link>
+          <router-link to="/admin" class="hover:underline">⚙ Classification</router-link>
+        </nav>
+      </div>
     </header>
 
     <GlobalBanner v-if="payload && !loading" :payload="payload" />
