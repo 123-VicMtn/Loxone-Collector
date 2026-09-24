@@ -155,16 +155,23 @@ Scripts de diagnostic disponibles :
   CLI (`python app.py config.demo.yaml`), utilisé pour les configs de
   test/démo sans toucher à la prod (`config.yaml`).
 
-## Fichiers de config (aucun n'est commité sauf les `.example`)
+## Fichiers de config
 
-- `config.yaml` — production (PC Ubuntu Server dédié, réseau local).
-- `config.external.yaml` — test d'accès via URL externe Loxone (voir
-  limitation ci-dessus). Non poursuivi activement.
-- `config.demo.yaml` + `scripts/seed_demo_data.py` — génère une base
-  synthétique mais réaliste (3 appartements, tous les types de ressource,
-  14 jours d'historique) pour valider le dashboard **sans dépendre d'un
-  accès Loxone réel**. Utile pour isoler un bug d'affichage d'un bug de
-  connexion.
+Exactement 2 configs utilisables + 1 template (voir "Nettoyage des configs"
+plus bas pour l'historique -- il y en avait 4 avant le 2026-09-24) :
+
+- `config.yaml` (gitignored, jamais commité) — **production**, les 3 sites
+  clients réels (MS-Arlopi, MS-PPE-Horizon, MS-PPE-Sequoia), accédés en
+  websocket via URL DynDNS Loxone.
+- `config.demo.yaml` (commité -- pas de secret réel dedans) +
+  `scripts/seed_demo_data.py` — génère une base synthétique mais réaliste
+  (3 appartements, tous les types de ressource, 14 jours d'historique) pour
+  valider le dashboard **sans dépendre d'un accès Loxone réel**. Utile pour
+  isoler un bug d'affichage d'un bug de connexion.
+- `config.example.yaml` (commité) — template unique pour créer un nouveau
+  `config.yaml` (`cp config.example.yaml config.yaml`), documente les deux
+  styles de connexion (miniserver LAN en HTTP simple, miniserver distant en
+  websocket).
 
 ## Piège d'environnement important (sessions Claude/Cowork)
 
@@ -2164,7 +2171,128 @@ lecture seule avec message explicite. Capture d'écran inspectée.
 Comptes de test supprimés après coup, base démo revenue à l'état
 `demo`/admin seul.
 
+## Nettoyage des configs : prod + demo uniquement — 2026-09-24
+
+Sur demande explicite de l'utilisateur -- 4 fichiers de config existaient
+(`config.yaml` local "maison" obsolète, `config.external.yaml` devenu la
+vraie prod malgré son nom, `config.demo.yaml`, 2 `.example`). Réduit à
+2 configs utilisables + 1 template.
+
+**Constat avant de toucher quoi que ce soit** : l'ancien `config.yaml`
+pointait vers UN miniserver local ("maison", 192.168.0.241) -- le test
+initial d'avant le pivot vers le PC dédié + 3 sites clients.
+`config.external.yaml`, malgré son nom et son en-tête ("Ce n'est PAS une
+config de production"), contenait en réalité les 3 vrais sites clients
+(MS-Arlopi/MS-PPE-Horizon/MS-PPE-Sequoia) sur lesquels reposent tous les
+exports de facturation réels documentés plus haut. **Deux décisions
+demandées explicitement à l'utilisateur avant d'agir** (un renommage/fusion
+de config touche un process de collecte réel déjà en cours) :
+- "maison" abandonné (obsolète, pas fusionné) -- la nouvelle prod ne
+  contient que les 3 sites clients.
+- La config de prod fusionnée écoute sur `0.0.0.0:5000` (accessible sur le
+  réseau, port déjà utilisé comme référence "prod" dans les échanges
+  précédents) plutôt que sur `127.0.0.1:8081` (l'ancien réglage "test" de
+  `config.external.yaml`).
+
+**`db_path` laissé inchangé dans un premier temps** (`data/loxone_externe_test.db`,
+nom hérité) -- un renommage de fichier de données réelles (mois d'historique
+Statistics sur 3 immeubles) est plus risqué qu'un renommage de config, pas
+fait à la légère dans le même geste. Renommé proprement juste après (voir
+sous-section suivante), une fois vérifié que c'était possible sans aucun
+risque.
+
+**Fichiers finaux** :
+- `config.yaml` (gitignored) -- contenu de l'ancien `config.external.yaml`
+  (3 sites), `host_bind`/`port`/`db_path` mis à jour (voir sous-section
+  suivante pour `db_path`).
+- `config.demo.yaml` (commité) -- inchangé.
+- `config.example.yaml` (commité) -- fusion des deux anciens templates
+  (`config.example.yaml` + `config.external.yaml.example`), documente les
+  deux styles de connexion (LAN http / distant websocket) dans un seul
+  fichier. `config.external.yaml.example` supprimé (`git rm`, récupérable
+  depuis l'historique git si jamais nécessaire).
+- Anciens `config.yaml` ("maison") et `config.external.yaml` déplacés dans
+  `_to_delete/` (gitignored) plutôt que supprimés -- réversible, comme
+  toute suppression dans cette session.
+- `.env.example` : variables mises à jour pour la vraie prod
+  (`LOXONE_PROD_USER`/`LOXONE_PROD_SEQUOIA_USER` au lieu de
+  `LOXONE_MAISON_*`/`LOXONE_EXTERNE_*`, devenues obsolètes). Le vrai `.env`
+  de l'utilisateur n'a pas été touché (déjà les bonnes valeurs).
+- `.gitignore` : entrée `config.external.yaml` retirée (fichier qui n'existe
+  plus sous ce nom).
+
+### Validé avant de rendre la main
+
+`config.yaml` chargé avec `config.load_config()` : `host_bind=0.0.0.0`,
+`port=5000`, les 3 sites présents. `config.demo.yaml` toujours chargeable
+sans erreur. `pytest` 59/59. Au moment de ce nettoyage, **aucun process
+`app.py` n'était en fait en cours** (vérifié par `ps`/`lsof`/`fuser` --
+le process vu plus tôt dans la session s'était arrêté entre-temps), donc
+aucune coordination avec un process actif n'a été nécessaire ici.
+
+### Renommage effectif de `data/loxone_externe_test.db` — même jour
+
+Sur demande explicite de l'utilisateur ("vérifie si c'est possible
+maintenant et renomme directement, sans perdre aucune donnée") : vérifié
+que c'était sûr, puis fait, plutôt que remis à plus tard.
+
+**Vérifications avant toute écriture** :
+- `lsof`/`fuser` sur le fichier -- rien ne l'avait ouvert (confirmé plus
+  haut : aucun process actif à ce moment). Zéro risque de conflit avec un
+  poller en cours.
+- `data/loxone.db` (le nom cible) existait déjà -- c'était l'ancienne base
+  "maison" abandonnée (45 Ko, dernière écriture le 26 août, sans rapport
+  avec les 3 sites clients). Déplacée dans `_to_delete/` avant de libérer
+  le nom, pas écrasée silencieusement.
+- Empreinte des données prise AVANT toute opération (comptage de lignes +
+  checksum sur `series_meta`/`readings`/`readings_hourly`/`tarifs` :
+  2456 séries, 1 481 807 lectures brutes, 2 956 576 moyennes horaires) --
+  base de comparaison pour prouver l'absence de perte, pas une simple
+  supposition.
+
+**Opérations** :
+1. `db.checkpoint_wal()` sur le fichier -- fusionne le `-wal` dans le
+   fichier principal avant renommage (hygiène : moins de fichiers à
+   déplacer en cohérence, `-wal` passé à 0 octet). Effet de bord constaté
+   et vérifié sans conséquence : ceci ouvre une connexion, donc exécute
+   aussi `_migrate_schema()` -- la vraie base de prod n'avait encore
+   jamais tourné avec le code rôles (`users`/`user_miniservers`), les
+   tables ont donc été créées ici. Confirmé par une deuxième empreinte
+   identique à la première sur toutes les tables de données : seul du
+   schéma a été ajouté, aucune ligne de données touchée.
+2. `data/loxone.db(+ -wal + -shm)` (l'ancienne "maison") déplacés vers
+   `_to_delete/*.maison-obsolete`.
+3. `data/loxone_externe_test.db(+ -wal + -shm)` renommés vers
+   `data/loxone.db(+ -wal + -shm)` -- `mv` simple (même dossier, même
+   système de fichiers) : un renommage POSIX ne modifie que l'entrée de
+   répertoire, jamais le contenu ni l'inode, donc sans risque même pour
+   un process qui aurait eu le fichier ouvert (pas le cas ici, mais bon à
+   savoir pour la prochaine fois).
+4. `config.yaml::db_path` mis à jour vers `"data/loxone.db"`.
+
+**Preuve d'absence de perte** (pas juste "ça devrait marcher") : troisième
+empreinte prise sur le fichier renommé, à l'identique de la première --
+mêmes 2456 séries, mêmes 1 481 807/2 956 576 lignes, même checksum sur
+`readings`. Confirmé aussi via `db.list_series()` (le vrai chemin de
+lecture applicatif, pas juste une requête SQL brute) : 2456 séries
+retournées. `pytest` 59/59 après coup.
+
+`data/test_probe.db` (+ `-journal`, 0 octet, ancien artefact de debug sans
+rapport avec les configs actuelles) repéré au passage mais volontairement
+pas touché -- hors périmètre de cette demande, à traiter séparément si
+besoin.
+
 ## Prochaine étape prévue
+
+Lancer `python3 scripts/create_admin_user.py config.yaml` pour créer un
+premier compte réel : la vraie base de prod n'en a encore aucun (0 ligne
+dans `users`, confirmé pendant le renommage ci-dessus) -- sans ça,
+personne ne peut se connecter une fois `app.py` relancé sur cette config.
+
+Puis démarrer le process de collecte réel (`python3 app.py`, sans argument
+= `config.yaml`) -- aucun process n'est actuellement en cours (vérifié
+pendant ce nettoyage), donc pas de coupure de collecte à gérer, juste à
+lancer quand c'est pratique.
 
 Prochain sujet naturel du projet (voir "Prochaine étape prévue" historique,
 avant le détour migration) : module de génération de factures / décomptes
@@ -2196,15 +2324,17 @@ npm --prefix frontend install
 # Diagnostic connexion Loxone
 python3 scripts/diagnose_auth.py config.yaml
 
-# Diagnostic websocket (lecture live à distance)
-python3 scripts/diagnose_websocket.py config.external.yaml MS-Arlopi 8
+# Diagnostic websocket (lecture live à distance) -- MS-Arlopi/MS-PPE-Horizon/
+# MS-PPE-Sequoia vivent tous dans le config.yaml unique de prod désormais
+# (voir "Nettoyage des configs", 2026-09-24)
+python3 scripts/diagnose_websocket.py config.yaml MS-Arlopi 8
 
 # Diagnostic historique Statistics (SD card Loxone)
-python3 scripts/check_statistics.py config.yaml maison
+python3 scripts/check_statistics.py config.yaml MS-Arlopi
 
 # Backfill de l'historique Statistics (dry-run d'abord, puis sans --dry-run)
-python3 scripts/backfill_statistics.py config.external.yaml MS-Arlopi --dry-run
-python3 scripts/backfill_statistics.py config.external.yaml MS-Arlopi
+python3 scripts/backfill_statistics.py config.yaml MS-Arlopi --dry-run
+python3 scripts/backfill_statistics.py config.yaml MS-Arlopi
 
 # Lancer le backend (API JSON seule, prod ou config alternative)
 python3 app.py                     # config.yaml

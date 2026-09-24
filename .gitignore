@@ -1,6 +1,5 @@
 .env
 config.yaml
-config.external.yaml
 data/*.db
 data/*.db-wal
 data/*.db-shm

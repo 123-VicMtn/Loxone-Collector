@@ -4,15 +4,15 @@
 # ${NOM_VARIABLE} et mets les vraies valeurs dans .env (copie de .env.example).
 
 # Intervalle entre deux cycles de lecture des Miniservers, en secondes.
-# 60s est un bon compromis pour un Pi 4B/2Go : suffisant pour du suivi de
-# charges/énergie, sans surcharger le Miniserver ni écrire trop souvent sur
-# la carte SD.
+# Pas de contrainte matérielle forte (déploiement sur PC dédié, pas un Pi/
+# carte SD -- voir CLAUDE.md) : la valeur reflète surtout la charge que tu
+# veux mettre sur les Miniservers. 60-120s convient pour du suivi de
+# charges/énergie ; monte à 120-180s pour des sites accédés via websocket
+# distant (négociation de connexion à chaque cycle, plus coûteuse qu'en LAN).
 poll_interval_seconds: 60
 
 # Emplacement de la base SQLite (chemin relatif au dossier du projet, ou
-# absolu). Pense à faire pointer ce chemin vers la carte SD (par défaut) ou,
-# si tu ajoutes une clé USB/SSD plus tard, vers ce support pour ménager la
-# carte SD sur le long terme.
+# absolu).
 db_path: "data/loxone.db"
 
 # Rétention des données brutes (résolution native du poll_interval) avant
@@ -62,7 +62,7 @@ exclude_rooms: []       # ex: ["Technique", "Extérieur"]
 #     type: "energie_injectee"
 #   - match: '(?i)(réseau|grid|import)'
 #     type: "energie_reseau"
-#   - match: '(?i)(eau|water)'
+#   - match: '(?i)\beau\b|\bwater\b'
 #     type: "eau_froide"
 #
 # resource_type_labels : libellés affichés dans le dashboard/l'admin.
@@ -75,24 +75,43 @@ exclude_rooms: []       # ex: ["Technique", "Extérieur"]
 #   energie_consommee: "Énergie consommée"
 #   autre: "Autre"
 
-# Interface d'écoute du dashboard web.
+# Interface d'écoute de l'API backend (voir CLAUDE.md, "Backend 100% API" --
+# le frontend Vue tourne comme app séparée, ce port n'est consommé que par
+# elle/le reverse proxy, pas par un navigateur directement en prod).
 host_bind: "0.0.0.0"
-port: 8080
+port: 5000
 
-# Un ou plusieurs Miniservers Loxone à interroger.
+# Un ou plusieurs Miniservers Loxone à interroger. Deux styles de connexion
+# selon où se trouve le Miniserver par rapport à cette machine :
+
 miniservers:
-  - name: "maison"
+  # 1) Miniserver sur le MÊME réseau local (LAN) que le collecteur : API
+  #    HTTP simple, port 80 par défaut.
+  - name: "site-local"
     host: "192.168.1.50"    # IP locale du Miniserver
     port: 80
     scheme: "http"
-    username: "${LOXONE_MAISON_USER}"
-    password: "${LOXONE_MAISON_PASSWORD}"
+    username: "${LOXONE_SITE_LOCAL_USER}"
+    password: "${LOXONE_SITE_LOCAL_PASSWORD}"
     verify_ssl: true
 
-  # Décommente et duplique pour un 2e miniserver :
-  # - name: "chalet"
-  #   host: "192.168.1.51"
-  #   port: 80
-  #   scheme: "http"
-  #   username: "${LOXONE_CHALET_USER}"
-  #   password: "${LOXONE_CHALET_PASSWORD}"
+  # 2) Miniserver accédé via une URL d'accès distant Loxone (Cloud DNS /
+  #    "Remote Connect", ex: https://<id>.dyndns.loxonecloud.com:<port>/) --
+  #    CAS RÉEL le plus courant pour un site client. `protocol: "websocket"`
+  #    est OBLIGATOIRE ici : à travers ce type d'URL, la lecture live par
+  #    point (/jdev/sps/io/<uuid>) échoue systématiquement en 404, Loxone
+  #    n'autorisant la lecture live à distance que via son protocole
+  #    Websocket chiffré (voir CLAUDE.md, "Accès distant Loxone").
+  #    Installation requise : pip install -r requirements-websocket.txt
+  # - name: "site-distant"
+  #   host: "<id-client>.dyndns.loxonecloud.com"
+  #   port: 32297
+  #   scheme: "https"
+  #   verify_ssl: true
+  #   protocol: "websocket"
+  #   username: "${LOXONE_SITE_DISTANT_USER}"
+  #   password: "${LOXONE_SITE_DISTANT_PASSWORD}"
+
+  # Décommente/duplique un des deux blocs ci-dessus pour chaque site
+  # supplémentaire (un compte Loxone dédié en lecture seule par site,
+  # jamais le compte admin).
