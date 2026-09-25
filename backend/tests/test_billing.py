@@ -319,5 +319,23 @@ class TestExportLignes(unittest.TestCase):
             billing.export_lignes({"zones": []}, "2026-01")
 
 
+class TestBatimentPartiel(unittest.TestCase):
+    def test_la_consommation_reste_quand_une_zone_manque(self):
+        zones = [
+            {"periodes": {"2026-08": {
+                "reseau": {"kwh": 10.0}, "solaire": {"kwh": 5.0}, "total": 15.0,
+            }}},
+            {"periodes": {"2026-08": {
+                "reseau": {"kwh": None}, "solaire": {"kwh": 2.0}, "total": None,
+            }}},
+        ]
+        p = {"key": "2026-08", "start": 0, "end": 1}
+        b = billing._batiment_period(None, {"production": None}, zones, p, 0)
+        self.assertEqual(b["consommation_totale"], 15.0)
+        self.assertEqual(b["autoconsommation"], 5.0)
+        self.assertTrue(b["zones_incompletes"])
+        self.assertIsNone(b["injection"])
+
+
 if __name__ == "__main__":
     unittest.main()

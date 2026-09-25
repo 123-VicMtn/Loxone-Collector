@@ -533,29 +533,35 @@ def _batiment_period(conn, src: dict, zones: list[dict], p: dict, now_ts: int) -
     achat = 0.0
     conso_totale = 0.0
     complet = True
+    conso_connue = False
     for z in zones:
         e = z["periodes"][p["key"]]
         if e["solaire"]["kwh"] is None or e["reseau"]["kwh"] is None:
             complet = False
             continue
+        conso_connue = True
         autoconso += e["solaire"]["kwh"]
         achat += e["reseau"]["kwh"]
         conso_totale += e["total"]
 
     prod_kwh = production["kwh"]
-    injection = (prod_kwh - autoconso) if (prod_kwh is not None and complet) else None
+    # Même règle que la consommation : les lots sans relevé sont omis, pas
+    # un motif pour vider le mois. L'injection est alors production moins
+    # cette autoconsommation connue (les lots manquants gonflent la part
+    # injectée ; la page liste déjà ces relevés).
+    injection = (prod_kwh - autoconso) if (prod_kwh is not None and conso_connue) else None
 
     return {
         "en_cours": p["end"] > now_ts,
         "production": production,
-        "autoconsommation": autoconso if complet else None,
-        "achat_reseau": achat if complet else None,
-        "consommation_totale": conso_totale if complet else None,
+        "autoconsommation": autoconso if conso_connue else None,
+        "achat_reseau": achat if conso_connue else None,
+        "consommation_totale": conso_totale if conso_connue else None,
         "injection": injection,
         # Deux taux volontairement distincts -- voir le docstring du module.
-        "taux_autoproduction": taux(autoconso if complet else None,
-                                     conso_totale if complet else None),
-        "taux_autoconsommation": taux(autoconso if complet else None, prod_kwh),
+        "taux_autoproduction": taux(autoconso if conso_connue else None,
+                                     conso_totale if conso_connue else None),
+        "taux_autoconsommation": taux(autoconso if conso_connue else None, prod_kwh),
         "zones_incompletes": not complet,
     }
 
