@@ -374,6 +374,35 @@ def api_series():
     return jsonify(series)
 
 
+@app.route("/api/releves")
+@login_required
+def api_releves():
+    """Dernier index connu de chaque compteur cumulatif (total / totalNeg).
+    Un relevé est l'index du compteur, pas la puissance instantanée."""
+    allowed = set(_allowed_miniservers())
+    with closing(_read_conn()) as conn:
+        series = [
+            s for s in db.list_series(conn)
+            if s["miniserver"] in allowed
+            and s["control_type"] == "Meter"
+            and s["state_name"] in ("total", "totalNeg")
+        ]
+        rows = []
+        for s in series:
+            latest = db.query_latest(conn, s["series_id"])
+            rows.append({
+                "series_id": s["series_id"],
+                "miniserver": s["miniserver"],
+                "label": s["label"],
+                "apartment": s["apartment"],
+                "unit": s["unit"],
+                "state_name": s["state_name"],
+                "ts": latest[0] if latest else None,
+                "value": latest[1] if latest else None,
+            })
+    return jsonify(rows)
+
+
 @app.route("/api/series/<path:series_id>/data")
 @login_required
 def api_series_data(series_id: str):

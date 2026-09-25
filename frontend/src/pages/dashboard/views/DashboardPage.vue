@@ -16,17 +16,15 @@ import { authState } from '@shared/auth'
 import AuthStatus from '@shared/components/AuthStatus.vue'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
-import EnergyTab from '../tabs/EnergyTab.vue'
-import ZoneTab from '../tabs/ZoneTab.vue'
+import RelevesTab from '../tabs/RelevesTab.vue'
 import ApercuTab from '../tabs/ApercuTab.vue'
 import { useExplorerSelection } from '../composables/useExplorerSelection'
 
-type TabKey = 'apercu' | 'explorer' | 'energie' | 'zone'
+type TabKey = 'apercu' | 'explorer' | 'releves'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'apercu', label: 'Aperçu' },
-  { key: 'energie', label: 'Énergie' },
-  { key: 'zone', label: 'Consommations par zone' },
+  { key: 'releves', label: 'Relevés' },
   { key: 'explorer', label: 'Mode avancé' },
 ]
 
@@ -99,11 +97,8 @@ function confirmAdvanced() {
       <section v-show="activeTab === 'explorer'">
         <ExplorerTab :selected="selected" @clear="clearSelection" />
       </section>
-      <section v-show="activeTab === 'energie'">
-        <EnergyTab />
-      </section>
-      <section v-show="activeTab === 'zone'">
-        <ZoneTab />
+      <section v-show="activeTab === 'releves'">
+        <RelevesTab />
       </section>
 
       <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
