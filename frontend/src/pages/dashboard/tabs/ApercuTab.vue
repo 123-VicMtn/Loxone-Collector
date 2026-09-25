@@ -171,14 +171,8 @@ watch(site, () => { void refresh() })
 
     <p v-if="loading" class="text-sm text-neutral-500">Calcul depuis minuit…</p>
 
-    <div v-else-if="balance" class="flex flex-col gap-4 lg:flex-row">
-      <div class="h-80 min-w-0 flex-1 rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
-        <h2 class="mb-2 text-sm font-semibold text-neutral-700">Puissance depuis minuit</h2>
-        <Line v-if="chartData" :data="chartData as never" :options="areaOptions" />
-        <p v-else class="text-sm text-neutral-500">Pas de puissance relevée aujourd’hui.</p>
-      </div>
-
-      <div class="grid w-full grid-cols-2 content-start gap-3 lg:w-80">
+    <div v-else-if="balance" class="flex flex-col gap-4">
+      <div class="grid w-full grid-cols-2 content-start gap-3 sm:grid-cols-4">
         <div class="rounded-lg border border-green-200 bg-green-50 p-4">
           <div class="text-sm text-neutral-500">Production</div>
           <div class="mt-1 text-xl font-semibold">{{ fmtNumber(balance.production, 1) }} <span class="text-sm font-normal">kWh</span></div>
@@ -195,11 +189,19 @@ watch(site, () => { void refresh() })
           <div class="text-sm text-neutral-500">Autonomie</div>
           <div class="mt-1 text-xl font-semibold">{{ fmtNumber(balance.autonomie, 0) }} <span class="text-sm font-normal">%</span></div>
         </div>
-        <p v-if="balance.note" class="col-span-2 text-sm text-neutral-500">{{ balance.note }}</p>
-        <p v-else class="col-span-2 text-sm text-neutral-500">
+        <p v-if="balance.note" class="col-span-2 text-sm text-neutral-500 sm:col-span-4">{{ balance.note }}</p>
+        <p v-else class="text-sm text-neutral-500 sm:col-span-4">
           Autoconsommation = solaire sur place / production.
           Autonomie = solaire sur place / consommation.
         </p>
+      </div>
+
+      <div class="w-full rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
+        <h2 class="mb-2 text-sm font-semibold text-neutral-700">Puissance depuis minuit</h2>
+        <div class="h-[32rem] w-full">
+          <Line v-if="chartData" :data="chartData as never" :options="areaOptions" />
+          <p v-else class="text-sm text-neutral-500">Pas de puissance relevée aujourd’hui.</p>
+        </div>
       </div>
     </div>
   </div>

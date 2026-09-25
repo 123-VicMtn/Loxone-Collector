@@ -50,11 +50,11 @@ function confirmAdvanced() {
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row">
-    <aside class="lg:w-64 lg:shrink-0">
+  <div class="flex w-full flex-col gap-6 px-4 py-6" :class="activeTab === 'explorer' ? 'lg:flex-row' : ''">
+    <aside v-if="activeTab === 'explorer'" class="lg:w-64 lg:shrink-0">
       <h1 class="text-xl font-bold text-neutral-900">Loxone</h1>
-      <p v-if="activeTab === 'explorer'" class="mb-4 text-sm text-neutral-500">Capteurs suivis</p>
-      <div class="mb-4 flex flex-col gap-1 text-sm" :class="activeTab === 'explorer' ? '' : 'mt-4'">
+      <p class="mb-4 text-sm text-neutral-500">Capteurs suivis</p>
+      <div class="mb-4 flex flex-col gap-1 text-sm">
         <router-link
           v-if="authState.role === 'admin'"
           to="/admin"
@@ -64,10 +64,20 @@ function confirmAdvanced() {
         <router-link to="/decompte" class="text-blue-600 hover:underline" title="Décompte de charges mensuel par zone">Décompte de charges</router-link>
       </div>
       <AuthStatus class="mb-4" />
-      <Sidebar v-if="activeTab === 'explorer'" :is-selected="isSelected" :on-toggle="onToggle" />
+      <Sidebar :is-selected="isSelected" :on-toggle="onToggle" />
     </aside>
 
-    <main class="min-w-0 flex-1">
+    <main class="min-w-0 w-full flex-1">
+      <div v-if="activeTab !== 'explorer'" class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h1 class="text-xl font-bold text-neutral-900">Loxone</h1>
+        <router-link
+          v-if="authState.role === 'admin'"
+          to="/admin"
+          class="text-sm text-blue-600 hover:underline"
+        >Classification</router-link>
+        <router-link to="/decompte" class="text-sm text-blue-600 hover:underline">Décompte de charges</router-link>
+        <AuthStatus class="sm:ml-auto" />
+      </div>
       <div class="mb-4 flex gap-1 border-b border-neutral-200" role="tablist">
         <button
           v-for="t in TABS"
