@@ -23,32 +23,46 @@ import { useExplorerSelection } from '../composables/useExplorerSelection'
 type TabKey = 'explorer' | 'energie' | 'zone'
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'explorer', label: 'Explorer' },
   { key: 'energie', label: 'Énergie' },
   { key: 'zone', label: 'Consommations par zone' },
+  { key: 'explorer', label: 'Mode avancé' },
 ]
 
-const activeTab = ref<TabKey>('explorer')
+const activeTab = ref<TabKey>('energie')
+const advancedPrompt = ref(false)
 const { text: healthText } = useHealthFooter()
 const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection()
+
+function selectTab(key: TabKey) {
+  if (key === 'explorer' && activeTab.value !== 'explorer') {
+    advancedPrompt.value = true
+    return
+  }
+  activeTab.value = key
+}
+
+function confirmAdvanced() {
+  advancedPrompt.value = false
+  activeTab.value = 'explorer'
+}
 </script>
 
 <template>
   <div class="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row">
     <aside class="lg:w-64 lg:shrink-0">
       <h1 class="text-xl font-bold text-neutral-900">Loxone</h1>
-      <p class="mb-4 text-sm text-neutral-500">Capteurs suivis</p>
-      <div class="mb-4 flex flex-col gap-1 text-sm">
+      <p v-if="activeTab === 'explorer'" class="mb-4 text-sm text-neutral-500">Capteurs suivis</p>
+      <div class="mb-4 flex flex-col gap-1 text-sm" :class="activeTab === 'explorer' ? '' : 'mt-4'">
         <router-link
           v-if="authState.role === 'admin'"
           to="/admin"
           class="text-blue-600 hover:underline"
           title="Corriger la classification des capteurs"
-        >⚙ Classification</router-link>
-        <router-link to="/decompte" class="text-blue-600 hover:underline" title="Décompte de charges mensuel par zone">🧾 Décompte de charges</router-link>
+        >Classification</router-link>
+        <router-link to="/decompte" class="text-blue-600 hover:underline" title="Décompte de charges mensuel par zone">Décompte de charges</router-link>
       </div>
       <AuthStatus class="mb-4" />
-      <Sidebar :is-selected="isSelected" :on-toggle="onToggle" />
+      <Sidebar v-if="activeTab === 'explorer'" :is-selected="isSelected" :on-toggle="onToggle" />
     </aside>
 
     <main class="min-w-0 flex-1">
@@ -63,7 +77,7 @@ const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection(
             'border-b-2 px-3 py-2 text-sm font-medium',
             activeTab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-neutral-500 hover:text-neutral-800',
           ]"
-          @click="activeTab = t.key"
+          @click="selectTab(t.key)"
         >{{ t.label }}</button>
       </div>
 
@@ -81,5 +95,33 @@ const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection(
         {{ healthText }}
       </footer>
     </main>
+
+    <div
+      v-if="advancedPrompt"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="advanced-mode-title"
+    >
+      <div class="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
+        <h2 id="advanced-mode-title" class="text-lg font-semibold text-neutral-900">Mode avancé</h2>
+        <p class="mt-2 text-sm text-neutral-600">
+          Cet onglet affiche les séries brutes, capteur par capteur. Il ne calcule
+          pas les consommations facturables. Continuer ?
+        </p>
+        <div class="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            class="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50"
+            @click="advancedPrompt = false"
+          >Annuler</button>
+          <button
+            type="button"
+            class="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+            @click="confirmAdvanced"
+          >Accéder</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

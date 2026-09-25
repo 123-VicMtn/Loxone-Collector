@@ -309,7 +309,7 @@ onMounted(async () => {
         <p class="text-sm text-neutral-500">
           <template v-if="authState.role === 'admin'">
             Une correspondance fausse se corrige dans
-            <router-link to="/admin" class="text-blue-600 hover:underline">⚙ Classification</router-link>
+            <router-link to="/admin" class="text-blue-600 hover:underline">Classification</router-link>
             (le type de ressource d'un capteur), pas ici.
           </template>
           <template v-else>
