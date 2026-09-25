@@ -17,10 +17,8 @@ const info = computed(() => {
 
 <template>
   <div v-if="info.incomplets.length" class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-    <strong>{{ info.termines.length - info.incomplets.length }} mois facturables sur {{ info.termines.length }} mois terminés.</strong>
-    Données insuffisantes sur : {{ info.incomplets.map((p) => p.label).join(', ') }}.
-    Le détail par zone est dans la colonne « État » du tableau — il s'agit de mois
-    antérieurs à la pose des compteurs, ou de trous de collecte, pas d'une anomalie
-    de comptage.
+    Des relevés manquent sur {{ info.incomplets.map((p) => p.label).join(', ') }}.
+    Le décompte de ces mois peut quand même être établi : les totaux utilisent les
+    relevés disponibles, et le détail des manques s'affiche pour le mois choisi.
   </div>
 </template>

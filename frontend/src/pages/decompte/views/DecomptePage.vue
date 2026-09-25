@@ -33,6 +33,13 @@ const periodeKey = ref('')
 
 const downloading = ref(false)
 const downloadError = ref('')
+const confirmFormat = ref<'xlsx' | 'csv' | null>(null)
+
+interface ReleveManquant {
+  zone: string
+  cote: string
+  detail: string
+}
 
 const loading = ref(true)
 const loadingMessage = ref('Chargement du décompte…')
@@ -76,6 +83,19 @@ const periodeCouverture = computed(() => {
     return `${fmtDay(selectedPeriod.value.start)} → ${fmtDay(dernierReleveTs.value)} (dernier relevé)`
   }
   return fmtPeriodBounds(selectedPeriod.value)
+})
+
+const relevesManquants = computed<ReleveManquant[]>(() => {
+  if (!payload.value || !periodeKey.value) return []
+  const out: ReleveManquant[] = []
+  for (const z of payload.value.zones) {
+    const e = z.periodes[periodeKey.value]
+    if (!e) continue
+    for (const [cote, block] of [['Réseau', e.reseau], ['Solaire', e.solaire]] as const) {
+      for (const detail of block.alertes) out.push({ zone: z.label, cote, detail })
+    }
+  }
+  return out
 })
 
 function hasZoneData(p: DecomptePayload, periodKey: string): boolean {
@@ -123,6 +143,21 @@ async function loadSite(site: string) {
 }
 
 async function download(format: 'xlsx' | 'csv') {
+  if (!currentSite.value || !periodeKey.value) return
+  if (relevesManquants.value.length) {
+    confirmFormat.value = format
+    return
+  }
+  await runDownload(format)
+}
+
+async function confirmDownload() {
+  const format = confirmFormat.value
+  confirmFormat.value = null
+  if (format) await runDownload(format)
+}
+
+async function runDownload(format: 'xlsx' | 'csv') {
   if (!currentSite.value || !periodeKey.value) return
   downloading.value = true
   downloadError.value = ''
@@ -237,11 +272,25 @@ onMounted(async () => {
           <span v-if="downloadError" class="text-sm text-red-600">{{ downloadError }}</span>
         </div>
         <ZoneTable :payload="payload" :period-key="periodeKey" />
+        <div
+          v-if="relevesManquants.length"
+          class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <p class="font-semibold">Relevés incomplets sur ce mois</p>
+          <ul class="mt-2 list-disc space-y-1 pl-5">
+            <li v-for="(r, i) in relevesManquants" :key="i">
+              {{ r.zone }} — {{ r.cote }} : {{ r.detail }}
+            </li>
+          </ul>
+          <p class="mt-2">
+            Le décompte est calculé avec les relevés disponibles. Le téléchargement
+            demande de confirmer qu'il est établi en l'état.
+          </p>
+        </div>
         <p class="mt-4 text-sm text-neutral-500">
           La consommation de chaque zone est scindée en deux : les kWh
           <strong>achetés au réseau</strong> et les kWh
-          <strong>solaires autoconsommés</strong>. L'autoproduction est la part
-          de cette consommation couverte par le solaire.
+          <strong>solaires autoconsommés</strong>.
         </p>
       </Card>
 
@@ -265,6 +314,41 @@ onMounted(async () => {
     </template>
 
     <p v-else-if="errored" class="text-sm text-red-600">{{ loadingMessage }}</p>
+
+    <div
+      v-if="confirmFormat"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="decompte-confirm-title"
+    >
+      <div class="w-full max-w-lg rounded-lg bg-white p-6 shadow-lg">
+        <h2 id="decompte-confirm-title" class="text-lg font-semibold text-neutral-900">
+          Établir le décompte en l'état
+        </h2>
+        <p class="mt-2 text-sm text-neutral-600">
+          Des relevés manquent pour {{ selectedPeriod?.label }}. Le fichier sera
+          produit avec les données disponibles, sans ces relevés.
+        </p>
+        <ul class="mt-3 max-h-48 list-disc space-y-1 overflow-y-auto pl-5 text-sm text-amber-900">
+          <li v-for="(r, i) in relevesManquants" :key="i">
+            {{ r.zone }} — {{ r.cote }} : {{ r.detail }}
+          </li>
+        </ul>
+        <div class="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            class="rounded border border-neutral-300 px-3 py-1.5 text-sm"
+            @click="confirmFormat = null"
+          >Annuler</button>
+          <button
+            type="button"
+            class="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white"
+            @click="confirmDownload"
+          >Établir le décompte</button>
+        </div>
+      </div>
+    </div>
 
     <footer class="whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
       {{ healthText }}

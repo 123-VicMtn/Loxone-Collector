@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { DecomptePayload } from '../types/decompte'
-import { fmtKwh, fmtPct } from '../utils/format'
+import { fmtKwh } from '../utils/format'
 import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{ payload: DecomptePayload; periodKey: string }>()
@@ -16,24 +16,24 @@ type TotKey = 'reseau' | 'solaire' | 'total'
 
 const totals = computed(() => {
   const totals: Record<TotKey, number> = { reseau: 0, solaire: 0, total: 0 }
-  const ok: Record<TotKey, boolean> = { reseau: true, solaire: true, total: true }
+  const seen: Record<TotKey, boolean> = { reseau: false, solaire: false, total: false }
 
   for (const { entry: e } of rows.value) {
     const values: [TotKey, number | null][] = [
       ['reseau', e.reseau.kwh], ['solaire', e.solaire.kwh], ['total', e.total],
     ]
     for (const [k, v] of values) {
-      if (v === null) ok[k] = false
-      else totals[k] += v
+      if (v === null) continue
+      totals[k] += v
+      seen[k] = true
     }
   }
 
-  const autoprod = ok.total && totals.total ? (totals.solaire / totals.total) * 100 : null
-  return { totals, ok, autoprod }
+  return { totals, seen }
 })
 
 function t(k: TotKey, f: (v: number) => string): string {
-  return totals.value.ok[k] ? f(totals.value.totals[k]) : '—'
+  return totals.value.seen[k] ? f(totals.value.totals[k]) : '—'
 }
 const kwh1 = (v: number) => fmtKwh(v, 1)
 </script>
@@ -47,7 +47,6 @@ const kwh1 = (v: number) => fmtKwh(v, 1)
           <th class="py-2 px-3 text-right font-medium">Réseau (kWh)</th>
           <th class="py-2 px-3 text-right font-medium">Solaire (kWh)</th>
           <th class="py-2 px-3 text-right font-medium">Consommation (kWh)</th>
-          <th class="py-2 px-3 text-right font-medium">Autoproduction</th>
           <th class="py-2 pl-3 font-medium">État</th>
         </tr>
       </thead>
@@ -61,7 +60,6 @@ const kwh1 = (v: number) => fmtKwh(v, 1)
           <td class="py-2 px-3 text-right">{{ fmtKwh(entry.reseau.kwh, 1) }}</td>
           <td class="py-2 px-3 text-right">{{ fmtKwh(entry.solaire.kwh, 1) }}</td>
           <td class="py-2 px-3 text-right font-semibold">{{ fmtKwh(entry.total, 1) }}</td>
-          <td class="py-2 px-3 text-right">{{ fmtPct(entry.taux_autoproduction, 0, false) }}</td>
           <td class="py-2 pl-3"><StatusBadge :entry="entry" /></td>
         </tr>
       </tbody>
@@ -71,7 +69,6 @@ const kwh1 = (v: number) => fmtKwh(v, 1)
           <td class="py-2 px-3 text-right">{{ t('reseau', kwh1) }}</td>
           <td class="py-2 px-3 text-right">{{ t('solaire', kwh1) }}</td>
           <td class="py-2 px-3 text-right">{{ t('total', kwh1) }}</td>
-          <td class="py-2 px-3 text-right">{{ fmtPct(totals.autoprod, 0, false) }}</td>
           <td class="py-2 pl-3"></td>
         </tr>
       </tfoot>

@@ -569,8 +569,7 @@ def _absent() -> dict:
 
 
 EXPORT_HEADERS = [
-    "Zone", "Réseau (kWh)", "Solaire (kWh)", "Consommation (kWh)",
-    "Autoproduction (%)", "État",
+    "Zone", "Réseau (kWh)", "Solaire (kWh)", "Consommation (kWh)", "État",
 ]
 
 
@@ -586,11 +585,11 @@ def etat_zone(entry: dict) -> str:
 
 def export_lignes(payload: dict, period_key: str) -> list[list]:
     """Tableau du mois choisi, tel qu'affiché : une ligne par zone puis le
-    total. Les kWh et le taux sont des nombres (ou None), pas des textes
-    formatés. Lève KeyError si le mois n'est pas dans le décompte."""
+    total. Les kWh sont des nombres (ou None), pas des textes formatés.
+    Lève KeyError si le mois n'est pas dans le décompte."""
     rows: list[list] = []
-    sum_r = sum_s = sum_t = 0.0
-    ok = {"reseau": True, "solaire": True, "total": True}
+    sums = {"reseau": 0.0, "solaire": 0.0, "total": 0.0}
+    seen = {"reseau": False, "solaire": False, "total": False}
     found = False
     for z in payload.get("zones", []):
         e = z.get("periodes", {}).get(period_key)
@@ -598,28 +597,19 @@ def export_lignes(payload: dict, period_key: str) -> list[list]:
             continue
         found = True
         r, s, t = e["reseau"]["kwh"], e["solaire"]["kwh"], e["total"]
-        if r is None:
-            ok["reseau"] = False
-        else:
-            sum_r += r
-        if s is None:
-            ok["solaire"] = False
-        else:
-            sum_s += s
-        if t is None:
-            ok["total"] = False
-        else:
-            sum_t += t
-        rows.append([z.get("label") or z.get("zone"), r, s, t, e.get("taux_autoproduction"), etat_zone(e)])
+        for key, val in (("reseau", r), ("solaire", s), ("total", t)):
+            if val is None:
+                continue
+            sums[key] += val
+            seen[key] = True
+        rows.append([z.get("label") or z.get("zone"), r, s, t, etat_zone(e)])
     if not found:
         raise KeyError(period_key)
-    autoprod = (sum_s / sum_t * 100.0) if ok["total"] and sum_t else None
     rows.append([
         "Total immeuble",
-        sum_r if ok["reseau"] else None,
-        sum_s if ok["solaire"] else None,
-        sum_t if ok["total"] else None,
-        autoprod,
+        sums["reseau"] if seen["reseau"] else None,
+        sums["solaire"] if seen["solaire"] else None,
+        sums["total"] if seen["total"] else None,
         "",
     ])
     return [EXPORT_HEADERS, *rows]
