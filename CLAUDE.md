@@ -47,11 +47,11 @@ datées ci-dessous, écrites avant ce déplacement) désigne le fichier sous
   TypeScript + Tailwind autonome** (`frontend/`, un seul build, `vue-router`
   en mode history pour les 3 routes `/`, `/admin`, `/decompte`), qui tourne
   sur sa propre origine/hébergement et ne parle au backend que via HTTP.
-  Dashboard (`/`) : sidebar appartement/pièce (toggle client-side), 3
-  onglets (Explorer, Énergie, Consommations par zone), Chart.js en
-  dépendance npm. Détail complet de la migration Vue (2026-09-23) et de la
-  séparation backend/frontend (2026-09-24) dans les sections dédiées plus
-  bas.
+  Dashboard (`/`) : 3 onglets — **Aperçu** (bilan du jour + courbe),
+  **Relevés** (dernier index de chaque compteur), **Mode avancé**
+  (l'ancien Explorer, confirmation avant d'entrer ; seule vue qui affiche
+  la sidebar capteurs). Les onglets Énergie et Consommations par zone ont
+  été retirés le 2026-09-25. Détail dans la section datée de ce jour.
 - **Authentification + rôles** (Flask-Login) : app complètement fermée,
   accès donné au cas par cas. Deux rôles : `admin` (tous les sites,
   lecture/écriture) et `user` (lecture seule, uniquement les sites
@@ -2403,7 +2403,7 @@ redémarré et confirmé fonctionnel (`/health` 200, poll réel réussi).
 Empreinte de données identique avant/après sur toutes les tables
 (aucune perte, pas une supposition).
 
-## Tâches à faire (backlog consolidé) — mis à jour 2026-09-24
+## Tâches à faire (backlog consolidé) — mis à jour 2026-09-25
 
 Liste vivante, tenue à jour comme "Prochaine étape prévue"/"Commandes
 utiles" (contrairement aux sections datées ci-dessus, qui ne sont jamais
@@ -2414,8 +2414,12 @@ plusieurs endroits du fichier se contredire sur ce qui reste à faire.
 
 ### Prochaine fonctionnalité
 
-- **Génération de factures / décomptes PDF** par zone et par mois --
-  détail dans "Prochaine étape prévue" ci-dessous (section suivante).
+- **Décompte RCP simplifié** (`/decompte`) -- travail du 2026-09-25,
+  demandé et consigné, pas encore commencé. Détail dans "Décompte RCP
+  simplifié — demande du 2026-09-25" et dans "Prochaine étape prévue".
+  Remplace la génération de factures PDF comme prochaine étape : la page
+  ne chiffre plus (plus de HT/TVA/TTC ni de tarifs) ; l'export demandé
+  est un Excel et un CSV des kWh, pas un PDF.
 - Compteurs `Chauffage App 2` (4167) et `Chauffage App 3` (2896) figés
   depuis des mois (voir "Page de décompte de charges", 2026-08-28) -- hors
   périmètre du décompte électrique actuel, à signaler seulement si le
@@ -2452,7 +2456,7 @@ Décidé explicitement avec l'utilisateur (2026-09-24) : se concentrer sur le
 fonctionnement d'abord, revenir sur la structure ensuite.
 
 - **Découper `backend/app.py` en Blueprints Flask par feature**
-  (`routes/auth.py`, `routes/series.py` -- dashboard/Explorer/Énergie/zone
+  (`routes/auth.py`, `routes/series.py` -- aperçu/relevés/mode avancé
   --, `routes/decompte.py`, `routes/admin.py` -- classification). Pattern
   Flask standard, risque faible.
 - `backend/db.py` (~650 lignes, tous les accesseurs SQLite -- séries,
@@ -2615,19 +2619,149 @@ recherche au conteneur `:visible`.
 Compte/base de démo inchangés après coup (aucune écriture faite par ce
 test, uniquement des lectures).
 
+## Dashboard aperçu, relevés, port Cloud DNS — 2026-09-25
+
+Journée passée sur le tableau de bord et sur la connexion Sequoia. Les
+onglets Énergie et Consommations par zone n'existent plus.
+
+### Onglets
+
+- **Aperçu** (onglet par défaut). De minuit Europe/Zurich à maintenant :
+  production, consommation totale, autoconsommation
+  (solaire sur place / production) et autonomie (solaire sur place /
+  consommation). Même distinction de taux que `/decompte`.
+- Courbe : **Solaire** = puissance `actual` du compteur de production ;
+  **Consommation totale** = somme des `actual` de tous les consommateurs
+  électriques du bâtiment (Arlopi : Grid + Solaire de chaque zone ;
+  Horizon et Sequoia : compteurs de lot). L'axe part de **00:00** même
+  s'il n'y a pas encore de point ; le survol affiche l'heure, pas le
+  timestamp. Les deux aires se superposent (pas empilées en addition)
+  pour que le solaire puisse passer au-dessus de la consommation.
+- **Relevés** remplace Énergie. `GET /api/releves` : dernier index de
+  chaque compteur `Meter` en `total` / `totalNeg` (pas la puissance).
+  Tableau par site puis par zone.
+- **Mode avancé** = l'ancien Explorer, avec confirmation avant d'entrer.
+  La sidebar des capteurs n'est affichée que là. Sur Aperçu et Relevés
+  la page prend toute la largeur (plus de `max-w-7xl`, navigation dans
+  l'en-tête).
+
+### Compteur solaire Sequoia
+
+`pickProduction` prenait **Production Solaire**, figé (0 kWh le
+25.09.2026, dernier point ancien). Le compteur qui avance s'appelle
+**Solaire** (`Solaire (total)`, +11,5 kWh ce jour-là, cohérent avec les
+11,4 kWh lus sur place). Règle : s'il existe un total de bâtiment dont
+le libellé est exactement `Solaire (total)`, c'est lui ; sinon
+`Production` / `PV Production` (Arlopi, Horizon). `Solaire & Batterie`
+d'Arlopi n'est pas concerné.
+
+### Moniteur de flux d'énergie
+
+Le moniteur **du bâtiment** (plusieurs nœuds Load/Group ; pas les
+moniteurs d'une seule zone) est de nouveau collecté : `include_types`
+vaut `["Meter", "EFM"]`, et seuls les `actualN` reliés à un nœud
+Production / Grid / Load / Group sont gardés. La courbe de l'aperçu
+**ne s'en sert pas** : ces sorties n'ont pas d'historique Statistics,
+seulement les points depuis le démarrage du poll. La courbe reste sur
+les `actual` des compteurs.
+
+### Trou de collecte comblé par Statistics
+
+Les `actual` du poller ne couvrent que les heures où le collecteur
+tournait. `scripts/backfill_statistics.py --since 2026-09-24` a importé
+l'historique horaire du Miniserver dans `readings_hourly` (sans écraser
+une heure déjà écrite) pour les trois sites : Arlopi 78 séries, Horizon
+51, Sequoia 429. `/api/series/<id>/data` mélange déjà brut et horaire,
+donc l'aperçu montre ces heures.
+
+### Port distant qui change (Sequoia, et les autres)
+
+Le port écrit dans `config.yaml` n'est pas stable. Sequoia était en
+**55061** (connexion refusée) ; le port annoncé à la main (**52581**)
+était fermé aussi. L'annuaire Loxone
+(`https://dns.loxonecloud.com/?getip&snr=<série>&json=true`, champ
+`IPHTTPS`) publiait **53581**, seul port ouvert. Après redémarrage :
+poll Sequoia OK, 437 points.
+
+`loxone_client.resolve_cloud_endpoint` relit hôte et port HTTPS à
+chaque construction de client pour un hôte `*.dyndns.loxonecloud.com`.
+Le port du yaml n'est qu'un repli si l'annuaire ne répond pas. Le
+websocket du poller utilise le hôte et le port résolus, pas ceux figés.
+Arlopi et Horizon avaient aussi changé de port ; le même mécanisme les
+a rejoints.
+
+## Décompte RCP simplifié — demande du 2026-09-25
+
+**Travail du jour, demandé par l'utilisateur, pas encore commencé.**
+Revoir `/decompte` pour en faire un décompte RCP (regroupement pour
+consommation propre) juste, sur les données actuelles, et simplifier la
+page. Le chiffrage sort du périmètre : plus de prix, plus de HT/TVA/TTC,
+plus de panneau tarifs. Ce qui reste, ce sont les kWh (réseau, solaire
+autoconsommé, consommation, taux d'autoproduction) et deux graphiques.
+
+La page actuelle (`DecomptePage.vue`) sert de référence pour « comme
+actuellement » : sélecteur de site, `GlobalBanner`, tuiles `PeriodeKpis`,
+tableau `ZoneTable` (ligne de total incluse). Le mois se choisit aujourd'hui
+dans une liste déroulante (« Mois à facturer »), indépendante d'un second
+sélecteur « Historique affiché » qui borne les graphiques.
+
+### Page cible
+
+- **Choisir le site** — sélecteur conservé (un site à la fois, comme
+  aujourd'hui).
+- **Messages** — garder le bandeau d'erreur ou d'information actuel
+  (`GlobalBanner`, et le message de chargement / d'absence de données).
+- **Choisir le mois avec un calendrier** (plus la liste déroulante). Si
+  le mois choisi est le mois en cours, le décompte s'arrête au **dernier
+  point de mesure**, pas à la fin du mois calendaire.
+- **Bandeau KPI actuel** (`PeriodeKpis` : consommation totale, acheté au
+  réseau, solaire autoconsommé, taux d'autoproduction) — le garder, et
+  vérifier qu'il se recalcule bien sur le mois choisi dans le calendrier.
+  La tuile « Montant TTC » part avec le chiffrage.
+- **Décompte par zone, pour ce mois** — colonnes conservées : zone,
+  réseau, solaire, consommation, autoproduction (calculée), état. Ligne
+  de **total** sous le tableau, comme aujourd'hui. Colonnes HT / TVA /
+  TTC retirées.
+- **Consommation mensuelle de l'immeuble** — graphique conservé
+  (`EvolutionChart`). Vérifier que les données affichées sont les bonnes.
+  On doit y voir la **production solaire comparée à la consommation de
+  l'immeuble**.
+- **Devenir de la production solaire** — graphique conservé
+  (`SolaireChart`). Vérifier aussi les données qu'il affiche.
+- **Tous les autres graphiques retirés** : « Répartition par zone »
+  (`ZonesChart`) et « Les deux taux d'autonomie » (`TauxChart`).
+- **Panneau Tarifs retiré** (`TarifsPanel`).
+- **Téléchargement** — pouvoir produire un Excel et un CSV de ces
+  chiffres (le décompte du mois choisi : par zone + total) et les
+  télécharger.
+
+Hors de la liste demandée, donc à retirer dans la simplification (la
+page doit être plus simple) : le sélecteur « Historique affiché », le
+tableau bâtiment sous le graphique solaire (`BatimentTable`), et le
+dépliant « Compteurs de contrôle et correspondance des séries ».
+
+### RCP sur les données actuelles
+
+Le but n'est pas seulement de retirer des blocs. Le décompte doit être
+une RCP correcte avec les données déjà en base. Rappel utile pour
+l'implémentation (sections 2026-08-28 et 2026-09-09) : consommation
+facturable d'une zone = part réseau + part solaire autoconsommée ;
+`/decompte` n'est pas encore branché sur `repartition.py` (Sequoia
+affiche encore les séries du Miniserver, dont la répartition historique
+est fausse). La vérification des deux graphiques conservés et du tableau
+fait partie du travail, pas un à-côté.
+
+Export : la décision déjà prise (« Choix de stack figé », 2026-09-23)
+tient — Excel côté serveur avec `openpyxl`, déclenché par une route
+Flask, pas régénéré dans le navigateur. Le CSV suit le même principe.
+
 ## Prochaine étape prévue
 
-Le refactor d'extraction/lecture des données dashboard (section ci-dessus)
-est terminé, backend et frontend. Reprendre la génération de factures /
-décomptes de charges par appartement -- **la visualisation existe déjà**
-(`/decompte`, tuiles + tableaux + graphs, voir section dédiée du
-2026-08-28), ce qui manque est la génération du document facturable
-lui-même (PDF/impression, par zone et par mois) -- déjà noté comme "Reste
-à faire" dans cette même section, jamais repris depuis. Point d'entrée
-naturel : les données et montants HT/TVA/TTC calculés par
-`billing.py`/`repartition.py` existent déjà par zone et par mois
-(`/api/decompte`), il s'agit de les mettre en forme dans un document
-plutôt que de recalculer quoi que ce soit.
+L'aperçu, les relevés et la résolution du port Cloud DNS (section
+2026-09-25) sont en place. Prochaine étape : le décompte RCP simplifié
+décrit juste au-dessus. L'utilisateur consigne d'abord cette demande
+(ce fichier), committe, puis le travail de code commence. Pas de PDF :
+l'export du jour est Excel + CSV des kWh du mois choisi.
 
 ## Commandes utiles
 
@@ -2661,15 +2795,18 @@ npm --prefix ../frontend install    # si on est dans backend/
 python3 scripts/diagnose_auth.py config.yaml
 
 # Diagnostic websocket (lecture live à distance) -- MS-Arlopi/MS-PPE-Horizon/
-# MS-PPE-Sequoia vivent tous dans le config.yaml unique de prod
+# MS-PPE-Sequoia vivent tous dans le config.yaml unique de prod.
+# Le collecteur (LoxoneClient) relit le port HTTPS via dns.loxonecloud.com
+# pour tout hôte *.dyndns.loxonecloud.com ; le port du yaml n'est qu'un repli.
 python3 scripts/diagnose_websocket.py config.yaml MS-Arlopi 8
 
 # Diagnostic historique Statistics (SD card Loxone)
 python3 scripts/check_statistics.py config.yaml MS-Arlopi
 
-# Backfill de l'historique Statistics (dry-run d'abord, puis sans --dry-run)
+# Backfill de l'historique Statistics (dry-run d'abord, puis sans --dry-run).
+# --since comble un trou de collecte (horaire, n'écrase pas le poller).
 python3 scripts/backfill_statistics.py config.yaml MS-Arlopi --dry-run
-python3 scripts/backfill_statistics.py config.yaml MS-Arlopi
+python3 scripts/backfill_statistics.py config.yaml MS-Arlopi --since 2026-09-24
 
 # Lancer le backend (API JSON seule, prod ou config alternative)
 python3 app.py                     # config.yaml
