@@ -7,7 +7,7 @@
  */
 
 import { computed, onMounted, ref } from 'vue'
-import { fetchDecompte, fetchMiniservers } from '../api/decompte'
+import { downloadDecompte, fetchDecompte, fetchMiniservers } from '../api/decompte'
 import type { DecomptePayload, Period } from '../types/decompte'
 import { fmtDay, fmtPeriodBounds } from '../utils/format'
 import { useHealthFooter } from '@shared/composables/useHealthFooter'
@@ -30,6 +30,9 @@ const currentSite = ref('')
 const payload = ref<DecomptePayload | null>(null)
 
 const periodeKey = ref('')
+
+const downloading = ref(false)
+const downloadError = ref('')
 
 const loading = ref(true)
 const loadingMessage = ref('Chargement du décompte…')
@@ -119,6 +122,19 @@ async function loadSite(site: string) {
   }
 }
 
+async function download(format: 'xlsx' | 'csv') {
+  if (!currentSite.value || !periodeKey.value) return
+  downloading.value = true
+  downloadError.value = ''
+  try {
+    await downloadDecompte(format, currentSite.value, periodeKey.value)
+  } catch (err) {
+    downloadError.value = `Téléchargement impossible : ${(err as Error).message}`
+  } finally {
+    downloading.value = false
+  }
+}
+
 function onMonthInput(value: string) {
   if (!payload.value) return
   if (payload.value.periodes.some((p) => p.key === value)) periodeKey.value = value
@@ -205,6 +221,21 @@ onMounted(async () => {
       </Card>
 
       <Card title="Décompte par zone" :hint="selectedPeriod?.label">
+        <div class="mb-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="rounded border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+            :disabled="downloading"
+            @click="download('xlsx')"
+          >Télécharger Excel</button>
+          <button
+            type="button"
+            class="rounded border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+            :disabled="downloading"
+            @click="download('csv')"
+          >Télécharger CSV</button>
+          <span v-if="downloadError" class="text-sm text-red-600">{{ downloadError }}</span>
+        </div>
         <ZoneTable :payload="payload" :period-key="periodeKey" />
         <p class="mt-4 text-sm text-neutral-500">
           La consommation de chaque zone est scindée en deux : les kWh

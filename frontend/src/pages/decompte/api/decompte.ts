@@ -1,4 +1,4 @@
-import { fetchJSON, postJSON, deleteJSON } from '@shared/api/http'
+import { fetchJSON, postJSON, deleteJSON, downloadFile } from '@shared/api/http'
 import type { DecomptePayload, Tarif } from '../types/decompte'
 
 /** Sites configurés (config.yaml) -- alimente le sélecteur de site qui
@@ -41,6 +41,15 @@ export interface TarifInput {
  * après écriture. */
 export async function saveTarif(tarif: TarifInput): Promise<Tarif[]> {
   return postJSON<Tarif[]>('/api/tarifs', tarif)
+}
+
+export function downloadDecompte(format: 'xlsx' | 'csv', miniserver: string, mois: string): Promise<void> {
+  const params = new URLSearchParams({ miniserver, mois })
+  const safe = miniserver.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_|_$/g, '') || 'site'
+  return downloadFile(
+    `/api/decompte/export.${format}?${params}`,
+    `decompte-${safe}-${mois}.${format}`,
+  )
 }
 
 export async function deleteTarif(id: number, miniserver: string): Promise<Tarif[]> {

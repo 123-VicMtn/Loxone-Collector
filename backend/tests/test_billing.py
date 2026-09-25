@@ -288,5 +288,33 @@ class TestTarifsEtMontants(unittest.TestCase):
         self.assertIsNone(billing.montants(100.0, 50.0, None)["ttc"])
 
 
+class TestExportLignes(unittest.TestCase):
+    def test_lignes_et_total(self):
+        payload = {
+            "zones": [
+                {"label": "App 1", "periodes": {"2026-05": {
+                    "reseau": {"kwh": 10.0}, "solaire": {"kwh": 5.0}, "total": 15.0,
+                    "taux_autoproduction": 33.333, "facturable": True, "en_cours": False,
+                }}},
+                {"label": "App 2", "periodes": {"2026-05": {
+                    "reseau": {"kwh": None}, "solaire": {"kwh": 2.0}, "total": None,
+                    "taux_autoproduction": None, "facturable": False, "en_cours": False,
+                }}},
+            ],
+        }
+        rows = billing.export_lignes(payload, "2026-05")
+        self.assertEqual(rows[0], billing.EXPORT_HEADERS)
+        self.assertEqual(rows[1][0], "App 1")
+        self.assertEqual(rows[1][5], "facturable")
+        self.assertEqual(rows[2][5], "données incomplètes")
+        self.assertIsNone(rows[3][1])
+        self.assertIsNone(rows[3][3])
+        self.assertEqual(rows[3][0], "Total immeuble")
+
+    def test_mois_absent(self):
+        with self.assertRaises(KeyError):
+            billing.export_lignes({"zones": []}, "2026-01")
+
+
 if __name__ == "__main__":
     unittest.main()

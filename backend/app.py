@@ -18,6 +18,8 @@ mono-process, suffit largement pour cette API sur quelques utilisateurs, et
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
 import re
@@ -28,7 +30,8 @@ from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, jsonify, request, abort
+from flask import Flask, jsonify, request, abort, send_file
+from openpyxl import Workbook
 from flask_login import current_user, login_required, login_user, logout_user
 
 import auth
@@ -552,21 +555,9 @@ def _resolve_miniserver(name: str | None) -> str:
     return name
 
 
-@app.route("/api/decompte")
-@login_required
-def api_decompte():
-    """Décompte mensuel complet, POUR UN SITE : par zone et par mois, la
-    part réseau et la part solaire autoconsommée, le taux d'autoproduction,
-    les montants et les alertes de fiabilité. Voir billing.py pour la
-    méthode de calcul.
-
-    Paramètre `miniserver` : le site à facturer (défaut : le premier
-    configuré). Paramètres optionnels `from` / `to` : clés de mois
-    (ex: 2026-05). Sans eux, tous les mois couverts par les données
-    disponibles de ce site.
-    """
-    ms_name = _resolve_miniserver(request.args.get("miniserver"))
-    now = int(time.time())
+def _decompte_payload(ms_name: str, now: int) -> dict:
+    """Décompte complet d'un site. `from` / `to` (clés YYYY-MM) bornent
+    les mois ; sans eux, tous les mois couverts par les données."""
     with closing(_read_conn()) as conn:
         series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
         tarifs = db.list_tarifs(conn, ms_name)
@@ -577,7 +568,7 @@ def api_decompte():
         if rng is None:
             payload = billing.compute_decompte(conn, series, [], tarifs, now)
             payload["miniserver"] = ms_name
-            return jsonify(payload)
+            return payload
         first_ts, last_ts = rng
 
         try:
@@ -597,7 +588,89 @@ def api_decompte():
         payload = billing.compute_decompte(conn, series, periods, tarifs, now)
         payload["miniserver"] = ms_name
 
-    return jsonify(payload)
+    return payload
+
+
+@app.route("/api/decompte")
+@login_required
+def api_decompte():
+    """Décompte mensuel complet, POUR UN SITE : par zone et par mois, la
+    part réseau et la part solaire autoconsommée, le taux d'autoproduction,
+    les montants et les alertes de fiabilité. Voir billing.py pour la
+    méthode de calcul.
+
+    Paramètre `miniserver` : le site à facturer (défaut : le premier
+    configuré). Paramètres optionnels `from` / `to` : clés de mois
+    (ex: 2026-05). Sans eux, tous les mois couverts par les données
+    disponibles de ce site.
+    """
+    ms_name = _resolve_miniserver(request.args.get("miniserver"))
+    return jsonify(_decompte_payload(ms_name, int(time.time())))
+
+
+def _export_table():
+    """Lignes du mois demandé (`mois=YYYY-MM`) pour le site, mêmes chiffres
+    que le tableau de la page."""
+    ms_name = _resolve_miniserver(request.args.get("miniserver"))
+    mois = (request.args.get("mois") or "").strip()
+    try:
+        billing.parse_period_key(mois)
+    except ValueError as exc:
+        abort(400, str(exc))
+    payload = _decompte_payload(ms_name, int(time.time()))
+    try:
+        rows = billing.export_lignes(payload, mois)
+    except KeyError:
+        abort(400, f"aucune donnée de décompte pour {mois}")
+    safe_site = re.sub(r"[^A-Za-z0-9._-]+", "_", ms_name).strip("_") or "site"
+    return rows, f"decompte-{safe_site}-{mois}"
+
+
+def _csv_cell(value) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, float):
+        return f"{value:.2f}".replace(".", ",")
+    return str(value)
+
+
+@app.route("/api/decompte/export.csv")
+@login_required
+def api_decompte_csv():
+    rows, stem = _export_table()
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";")
+    for row in rows:
+        writer.writerow([_csv_cell(c) if not isinstance(c, str) else c for c in row])
+    data = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    return send_file(
+        data, mimetype="text/csv; charset=utf-8", as_attachment=True,
+        download_name=f"{stem}.csv",
+    )
+
+
+@app.route("/api/decompte/export.xlsx")
+@login_required
+def api_decompte_xlsx():
+    rows, stem = _export_table()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Décompte"
+    for row in rows:
+        ws.append(row)
+    for col in ("B", "C", "D", "E"):
+        for cell in ws[col][1:]:
+            if isinstance(cell.value, float):
+                cell.number_format = "0.00"
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"{stem}.xlsx",
+    )
 
 
 @app.route("/api/tarifs", methods=["GET", "POST"])

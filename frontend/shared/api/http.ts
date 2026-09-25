@@ -50,6 +50,22 @@ export async function postJSON<T>(url: string, body: unknown, opts: FetchOpts = 
   return res.json() as Promise<T>
 }
 
+/** Télécharge un fichier (Excel, CSV) en gardant le cookie de session et
+ * la redirection vers /login si la session a expiré. */
+export async function downloadFile(url: string, fallbackName: string): Promise<void> {
+  const res = await fetch(url)
+  handleUnauthorized(res, {})
+  if (!res.ok) throw new Error(`Erreur API ${url}: ${res.status}`)
+  const blob = await res.blob()
+  const quoted = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)
+  const name = quoted?.[1] || fallbackName
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = name
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
 export async function deleteJSON<T>(url: string, opts: FetchOpts = {}): Promise<T> {
   const res = await fetch(url, { method: 'DELETE' })
   handleUnauthorized(res, opts)
