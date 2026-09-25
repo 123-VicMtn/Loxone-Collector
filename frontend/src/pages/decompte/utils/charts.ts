@@ -1,8 +1,6 @@
 /**
- * Options Chart.js propres aux 4 graphs du décompte (empilement kWh,
- * double taux %). La palette elle-même vient de @shared/charts (commune à
- * toutes les pages -- mêmes couleurs que l'onglet Énergie du dashboard).
- * Port direct de static/js/decompte/charts.js.
+ * Options Chart.js des graphs du décompte (barres kWh). La palette vient
+ * de @shared/charts.
  */
 
 import type { ChartOptions, TooltipItem } from 'chart.js'
@@ -30,18 +28,21 @@ export function stackedKwhOptions(): ChartOptions<'bar'> {
   }
 }
 
-export function tauxChartOptions(): ChartOptions<'line'> {
+/** Barres côte à côte : comparer deux grandeurs (production vs consommation)
+ * sans les additionner. */
+export function groupedKwhOptions(): ChartOptions<'bar'> {
   return {
     responsive: true,
     maintainAspectRatio: false,
     animation: false,
-    interaction: { mode: 'nearest', axis: 'x', intersect: false },
-    scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: '%' } } },
+    scales: {
+      y: { beginAtZero: true, title: { display: true, text: 'kWh' } },
+    },
     plugins: {
-      legend: { position: 'bottom' },
+      legend: { display: true, position: 'bottom' },
       tooltip: {
         callbacks: {
-          label: (ctx: TooltipItem<'line'>) => `${ctx.dataset.label} : ${fmtNumber(ctx.parsed.y as number, 1)} %`,
+          label: (ctx: TooltipItem<'bar'>) => `${ctx.dataset.label} : ${fmtNumber(ctx.parsed.y, 0)} kWh`,
         },
       },
     },

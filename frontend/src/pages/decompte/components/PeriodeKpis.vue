@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { DecomptePayload } from '../types/decompte'
-import { fmtKwh, fmtCHF, fmtPct } from '../utils/format'
+import { fmtKwh, fmtPct } from '../utils/format'
 import KpiTile from './KpiTile.vue'
 
 const props = defineProps<{ payload: DecomptePayload; periodKey: string }>()
@@ -22,7 +22,6 @@ function sumZones(pick: (e: DecomptePayload['zones'][number]['periodes'][string]
 
 const reseau = computed(() => sumZones((e) => e.reseau.kwh))
 const solaire = computed(() => sumZones((e) => e.solaire.kwh))
-const ttc = computed(() => sumZones((e) => e.montants.ttc))
 const total = computed(() => (reseau.value === null || solaire.value === null ? null : reseau.value + solaire.value))
 const autoprod = computed(() => (total.value ? (solaire.value! / total.value) * 100 : null))
 
@@ -37,12 +36,11 @@ const problemes = computed(() => {
 </script>
 
 <template>
-  <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+  <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
     <KpiTile label="Consommation totale" :value="fmtKwh(total)" unit="kWh" />
     <KpiTile label="Acheté au réseau" :value="fmtKwh(reseau)" unit="kWh" accent="grid" />
     <KpiTile label="Solaire autoconsommé" :value="fmtKwh(solaire)" unit="kWh" accent="solar" />
     <KpiTile label="Taux d'autoproduction" :value="autoprod === null ? '—' : fmtPct(autoprod, 0, false)" accent="auto" />
-    <KpiTile label="Montant TTC" :value="ttc === null ? '—' : fmtCHF(ttc)" />
   </div>
 
   <div v-if="problemes.length" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { DecomptePayload } from '../types/decompte'
-import { fmtKwh, fmtCHF, fmtPct } from '../utils/format'
+import { fmtKwh, fmtPct } from '../utils/format'
 import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{ payload: DecomptePayload; periodKey: string }>()
@@ -12,20 +12,15 @@ const rows = computed(() =>
     .filter((r) => r.entry),
 )
 
-type TotKey = 'reseau' | 'solaire' | 'total' | 'ht' | 'tva' | 'ttc'
+type TotKey = 'reseau' | 'solaire' | 'total'
 
 const totals = computed(() => {
-  const totals: Record<TotKey, number> = { reseau: 0, solaire: 0, total: 0, ht: 0, tva: 0, ttc: 0 }
-  // Fiabilité suivie COLONNE PAR COLONNE : sans tarif enregistré, les
-  // montants sont indisponibles alors que les kWh, eux, sont parfaitement
-  // calculables -- un seul drapeau global effacerait aussi les totaux kWh.
-  const ok: Record<TotKey, boolean> = { reseau: true, solaire: true, total: true, ht: true, tva: true, ttc: true }
+  const totals: Record<TotKey, number> = { reseau: 0, solaire: 0, total: 0 }
+  const ok: Record<TotKey, boolean> = { reseau: true, solaire: true, total: true }
 
   for (const { entry: e } of rows.value) {
-    const m = e.montants
     const values: [TotKey, number | null][] = [
       ['reseau', e.reseau.kwh], ['solaire', e.solaire.kwh], ['total', e.total],
-      ['ht', m.ht], ['tva', m.tva], ['ttc', m.ttc],
     ]
     for (const [k, v] of values) {
       if (v === null) ok[k] = false
@@ -53,9 +48,6 @@ const kwh1 = (v: number) => fmtKwh(v, 1)
           <th class="py-2 px-3 text-right font-medium">Solaire (kWh)</th>
           <th class="py-2 px-3 text-right font-medium">Consommation (kWh)</th>
           <th class="py-2 px-3 text-right font-medium">Autoproduction</th>
-          <th class="py-2 px-3 text-right font-medium">HT</th>
-          <th class="py-2 px-3 text-right font-medium">TVA</th>
-          <th class="py-2 px-3 text-right font-medium">TTC</th>
           <th class="py-2 pl-3 font-medium">État</th>
         </tr>
       </thead>
@@ -70,9 +62,6 @@ const kwh1 = (v: number) => fmtKwh(v, 1)
           <td class="py-2 px-3 text-right">{{ fmtKwh(entry.solaire.kwh, 1) }}</td>
           <td class="py-2 px-3 text-right font-semibold">{{ fmtKwh(entry.total, 1) }}</td>
           <td class="py-2 px-3 text-right">{{ fmtPct(entry.taux_autoproduction, 0, false) }}</td>
-          <td class="py-2 px-3 text-right">{{ fmtCHF(entry.montants.ht) }}</td>
-          <td class="py-2 px-3 text-right">{{ fmtCHF(entry.montants.tva) }}</td>
-          <td class="py-2 px-3 text-right font-semibold">{{ fmtCHF(entry.montants.ttc) }}</td>
           <td class="py-2 pl-3"><StatusBadge :entry="entry" /></td>
         </tr>
       </tbody>
@@ -83,9 +72,6 @@ const kwh1 = (v: number) => fmtKwh(v, 1)
           <td class="py-2 px-3 text-right">{{ t('solaire', kwh1) }}</td>
           <td class="py-2 px-3 text-right">{{ t('total', kwh1) }}</td>
           <td class="py-2 px-3 text-right">{{ fmtPct(totals.autoprod, 0, false) }}</td>
-          <td class="py-2 px-3 text-right">{{ t('ht', fmtCHF) }}</td>
-          <td class="py-2 px-3 text-right">{{ t('tva', fmtCHF) }}</td>
-          <td class="py-2 px-3 text-right">{{ t('ttc', fmtCHF) }}</td>
           <td class="py-2 pl-3"></td>
         </tr>
       </tfoot>
