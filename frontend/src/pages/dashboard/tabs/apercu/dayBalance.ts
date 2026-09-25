@@ -27,7 +27,13 @@ const SOLAR_ZONE = /solaire|\bsol\b/i
 const GRID_ZONE = /\bgrid\b/i
 const PRODUCTION = /^(production\b|.*pv production)/i
 export function pickProduction(series: Series[]): Series | null {
-  return series.find((s) => !s.apartment && s.state_name === 'total' && PRODUCTION.test(s.label)) || null
+  const totals = series.filter((s) => !s.apartment && s.state_name === 'total')
+  // À Sequoia, « Production Solaire » est figé. Le compteur qui avance
+  // s'appelle « Solaire » (11,5 kWh le 25.09.2026). « Solaire & Batterie »
+  // (Arlopi) ne doit pas prendre sa place.
+  const solaire = totals.find((s) => /^solaire \(total\)$/i.test(s.label))
+  if (solaire) return solaire
+  return totals.find((s) => PRODUCTION.test(s.label)) || null
 }
 
 export function pickExport(series: Series[]): Series | null {

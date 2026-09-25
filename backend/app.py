@@ -125,8 +125,8 @@ def poll_once(cfg: AppConfig, conn) -> None:
                 # ça fonctionne à distance).
                 token_dir = Path(cfg.db_path).parent / "ws_tokens" / ms_cfg.name
                 values = fetch_live_values(
-                    host=ms_cfg.host,
-                    port=ms_cfg.port,
+                    host=client.host,
+                    port=client.port,
                     username=ms_cfg.username,
                     password=ms_cfg.password,
                     use_tls=(ms_cfg.scheme == "https"),

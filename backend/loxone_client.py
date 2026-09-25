@@ -30,6 +30,54 @@ from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger("loxone_client")
 
+# Le port externe d'un Miniserver derrière le Cloud DNS Loxone change
+# quand le routeur le réassigne. Le numéro figé dans config.yaml finit
+# alors en "connection refused" alors que l'interface, elle, est joignable
+# sur le port publié à cet instant. Le numéro de série est le segment
+# hexadécimal du nom d'hôte (….<snr>.dyndns.loxonecloud.com).
+_CLOUD_DNS_HOST = re.compile(r"\.([0-9a-fA-F]{8,})\.dyndns\.loxonecloud\.com$", re.IGNORECASE)
+
+
+def endpoint_from_cloud_dns(payload: dict, serial: str) -> tuple[str, int] | None:
+    """Décode la réponse JSON de dns.loxonecloud.com (champ IPHTTPS)."""
+    raw = payload.get("IPHTTPS")
+    if not isinstance(raw, str) or ":" not in raw:
+        return None
+    ip, port_s = raw.rsplit(":", 1)
+    try:
+        port = int(port_s)
+    except ValueError:
+        return None
+    host = ip.replace(".", "-") + f".{serial}.dyndns.loxonecloud.com"
+    return host, port
+
+
+def resolve_cloud_endpoint(host: str, port: int) -> tuple[str, int]:
+    """Pour un hôte Cloud DNS, remplace hôte et port par ceux publiés
+    maintenant. Sinon, ou si l'annuaire ne répond pas, garde la config."""
+    match = _CLOUD_DNS_HOST.search(host)
+    if not match:
+        return host, port
+    serial = match.group(1)
+    url = f"https://dns.loxonecloud.com/?getip&snr={serial}&json=true"
+    try:
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        found = endpoint_from_cloud_dns(resp.json(), serial)
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning(
+            "Cloud DNS %s indisponible, port de config %s conservé : %s",
+            serial, port, exc,
+        )
+        return host, port
+    if found is None:
+        logger.warning("Cloud DNS %s sans IPHTTPS, port de config %s conservé", serial, port)
+        return host, port
+    new_host, new_port = found
+    if new_port != port or new_host.lower() != host.lower():
+        logger.info("Cloud DNS %s : %s:%s (config %s:%s)", serial, new_host, new_port, host, port)
+    return new_host, new_port
+
 
 class LoxoneError(Exception):
     """Erreur générique de communication avec le Miniserver."""
@@ -309,8 +357,7 @@ class LoxoneClient:
         read_delay_seconds: float = 0.0,
     ):
         self.name = name
-        self.host = host
-        self.port = port
+        self.host, self.port = resolve_cloud_endpoint(host, port)
         self.scheme = scheme
         self.timeout = timeout
         self.verify_ssl = verify_ssl

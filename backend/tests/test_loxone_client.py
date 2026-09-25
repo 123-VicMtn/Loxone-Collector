@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from loxone_client import extract_measurable_points
+from loxone_client import endpoint_from_cloud_dns, extract_measurable_points
 
 
 def _meter():
@@ -104,6 +104,14 @@ class TestBillableStates(unittest.TestCase):
         )
         self.assertEqual(sorted(p.flow_role for p in points), ["conso", "conso", "reseau", "solaire"])
         self.assertEqual({p.control_name for p in points}, {"Production", "Réseau", "Commun", "Appartements"})
+
+    def test_cloud_dns_https_endpoint(self):
+        host, port = endpoint_from_cloud_dns(
+            {"IPHTTPS": "168.119.185.175:53581"}, "504f94d0e6da"
+        )
+        self.assertEqual(host, "168-119-185-175.504f94d0e6da.dyndns.loxonecloud.com")
+        self.assertEqual(port, 53581)
+        self.assertIsNone(endpoint_from_cloud_dns({}, "504f94d0e6da"))
 
 
 if __name__ == "__main__":

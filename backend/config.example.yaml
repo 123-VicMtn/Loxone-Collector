@@ -96,7 +96,11 @@ miniservers:
 
   # 2) Miniserver accédé via une URL d'accès distant Loxone (Cloud DNS /
   #    "Remote Connect", ex: https://<id>.dyndns.loxonecloud.com:<port>/) --
-  #    CAS RÉEL le plus courant pour un site client. `protocol: "websocket"`
+  #    CAS RÉEL le plus courant pour un site client. Le port externe change
+  #    tout seul : s'il est dans le nom d'hôte *.dyndns.loxonecloud.com, le
+  #    collecteur relit le port HTTPS publié par dns.loxonecloud.com à
+  #    chaque connexion. Le `port` ci-dessous n'est qu'un repli.
+  #    `protocol: "websocket"`
   #    est OBLIGATOIRE ici : à travers ce type d'URL, la lecture live par
   #    point (/jdev/sps/io/<uuid>) échoue systématiquement en 404, Loxone
   #    n'autorisant la lecture live à distance que via son protocole
