@@ -31,7 +31,7 @@ maintenance_hour_utc: 3
 # À l'intérieur d'un compteur, le poller ne garde que actual / total /
 # totalNeg (voir loxone_client.BILLABLE_STATES) : le découpage par dates
 # se fait sur l'index total, pas sur totalDay/totalWeek/totalMonth.
-include_types: ["Meter"]
+include_types: ["Meter", "EFM"]
 exclude_types: []       # ex: ["Jalousie", "LightControllerV2"]
 exclude_rooms: []       # ex: ["Technique", "Extérieur"]
 

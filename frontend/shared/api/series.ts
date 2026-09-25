@@ -47,6 +47,15 @@ export async function fetchSeriesData(seriesId: string, range: string): Promise<
   return fetchJSON<SeriesDataResponse>(`/api/series/${encodeURIComponent(seriesId)}/data?range=${encodeURIComponent(range)}`)
 }
 
+/** Points bruts entre deux timestamps Unix (secondes), pour une courbe
+ * du jour (minuit → maintenant) plutôt qu'un preset 1h/24h. */
+export async function fetchSeriesWindow(seriesId: string, start: number, end: number): Promise<SeriesDataPoint[]> {
+  const data = await fetchJSON<SeriesDataResponse>(
+    `/api/series/${encodeURIComponent(seriesId)}/data?start=${start}&end=${end}`,
+  )
+  return data.points
+}
+
 /** Consommation d'une série cumulative sur [from, to[ (relevé de fin -
  * relevé de début) -- voir billing.py::reading_delta / app.py::api_series_range.
  * C'est la méthode utilisée par /decompte, désormais réutilisée pour les

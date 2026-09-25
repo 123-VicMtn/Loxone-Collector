@@ -18,17 +18,19 @@ import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
 import EnergyTab from '../tabs/EnergyTab.vue'
 import ZoneTab from '../tabs/ZoneTab.vue'
+import ApercuTab from '../tabs/ApercuTab.vue'
 import { useExplorerSelection } from '../composables/useExplorerSelection'
 
-type TabKey = 'explorer' | 'energie' | 'zone'
+type TabKey = 'apercu' | 'explorer' | 'energie' | 'zone'
 
 const TABS: { key: TabKey; label: string }[] = [
+  { key: 'apercu', label: 'Aperçu' },
   { key: 'energie', label: 'Énergie' },
   { key: 'zone', label: 'Consommations par zone' },
   { key: 'explorer', label: 'Mode avancé' },
 ]
 
-const activeTab = ref<TabKey>('energie')
+const activeTab = ref<TabKey>('apercu')
 const advancedPrompt = ref(false)
 const { text: healthText } = useHealthFooter()
 const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection()
@@ -81,6 +83,9 @@ function confirmAdvanced() {
         >{{ t.label }}</button>
       </div>
 
+      <section v-show="activeTab === 'apercu'">
+        <ApercuTab />
+      </section>
       <section v-show="activeTab === 'explorer'">
         <ExplorerTab :selected="selected" @clear="clearSelection" />
       </section>

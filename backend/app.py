@@ -94,6 +94,12 @@ def poll_once(cfg: AppConfig, conn) -> None:
                 resource_type = classification.guess_resource_type(
                     p.label, p.control_type, cfg.resource_type_rules
                 )
+                if p.flow_role == "solaire":
+                    resource_type = "energie_solaire"
+                elif p.flow_role == "conso":
+                    resource_type = "energie_consommee"
+                elif p.flow_role == "reseau":
+                    resource_type = "energie_reseau"
                 db.upsert_series_meta(
                     conn,
                     series_id=f"{ms_cfg.name}:{p.series_id}",

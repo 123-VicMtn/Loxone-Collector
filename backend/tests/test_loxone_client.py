@@ -72,6 +72,39 @@ class TestBillableStates(unittest.TestCase):
         self.assertTrue(all(p.control_type == "Meter" for p in points))
         self.assertEqual(len(points), 3)
 
+    def test_building_flow_monitor_keeps_grouped_nodes(self):
+        nodes = [
+            {"nodeType": "Production", "title": "Production", "actualEfmState": "215545d5-03cb-a32a-fffffe9cefa2f75d"},
+            {"nodeType": "Grid", "title": "Réseau", "actualEfmState": "215545d5-03cb-a32b-fffffe9cefa2f75d"},
+            {"nodeType": "Load", "title": "Commun", "actualEfmState": "215545d5-03cb-a32c-fffffe9cefa2f75d"},
+            {"nodeType": "Group", "title": "Appartements", "actualEfmState": "215545d5-03cb-a32d-fffffe9cefa2f75d"},
+        ]
+        states = {f"actual{i}": n["actualEfmState"] for i, n in enumerate(nodes)}
+        states["jLocked"] = "215545d5-03cb-a330-fffffe9cefa2f75d"
+        controls = {
+            "bat": {
+                "name": "Moniteur de flux d'énergie",
+                "type": "EFM",
+                "room": "r1",
+                "cat": "c1",
+                "details": {"nodes": nodes},
+                "states": states,
+            },
+            "zone": {
+                "name": "App 1",
+                "type": "EFM",
+                "room": "r1",
+                "cat": "c1",
+                "details": {"nodes": nodes[:1]},
+                "states": {"actual0": nodes[0]["actualEfmState"]},
+            },
+        }
+        points = extract_measurable_points(
+            self._structure(controls), include_types=["Meter", "EFM"]
+        )
+        self.assertEqual(sorted(p.flow_role for p in points), ["conso", "conso", "reseau", "solaire"])
+        self.assertEqual({p.control_name for p in points}, {"Production", "Réseau", "Commun", "Appartements"})
+
 
 if __name__ == "__main__":
     unittest.main()

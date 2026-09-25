@@ -69,6 +69,9 @@ class MeasurablePoint:
     room: str = ""
     category: str = ""
     unit: str = ""
+    # Rôle d'un nœud du moniteur de flux (bâtiment) : solaire, conso, reseau.
+    # Vide pour un compteur.
+    flow_role: str = ""
 
     @property
     def series_id(self) -> str:
@@ -161,6 +164,46 @@ EFM_STATE_UNITS: dict[str, str] = {
 }
 
 
+# Le moniteur de flux du bâtiment regroupe déjà production, réseau et
+# consommateurs. On ne suit que celui-là (plusieurs nœuds Load/Group) :
+# les moniteurs de zone n'ont qu'un seul consommateur et doublonnent
+# les compteurs.
+_EFM_FLOW_ROLES = {
+    "Production": "solaire",
+    "Load": "conso",
+    "Group": "conso",
+    "Grid": "reseau",
+}
+
+
+def _efm_building_points(control_uuid, control, room_name, cat_name, states) -> list[MeasurablePoint]:
+    nodes = ((control.get("details") or {}).get("nodes")) or []
+    consumers = [n for n in nodes if n.get("nodeType") in ("Load", "Group")]
+    if len(consumers) < 2:
+        return []
+    by_uuid = {n.get("actualEfmState"): n for n in nodes if n.get("actualEfmState")}
+    points: list[MeasurablePoint] = []
+    for state_name, state_uuid in states.items():
+        node = by_uuid.get(state_uuid) if isinstance(state_uuid, str) else None
+        role = _EFM_FLOW_ROLES.get((node or {}).get("nodeType"))
+        if not node or not role:
+            continue
+        points.append(
+            MeasurablePoint(
+                uuid=state_uuid,
+                control_uuid=control_uuid,
+                control_name=node.get("title") or control.get("name", control_uuid),
+                state_name=state_name,
+                control_type="EFM",
+                room=room_name,
+                category=cat_name,
+                unit="kW",
+                flow_role=role,
+            )
+        )
+    return points
+
+
 def extract_measurable_points(
     structure: dict,
     include_types: Iterable[str] | None = None,
@@ -210,6 +253,9 @@ def extract_measurable_points(
         # sinon (accept_all_types) : on ne filtre pas par type
 
         states = control.get("states") or {}
+        if ctype == "EFM":
+            points.extend(_efm_building_points(control_uuid, control, room_name, cat_name, states))
+            continue
         default_unit = _extract_unit(control)
         # Unité par state quand disponible (ex: "actual" en kW, "total" en
         # kWh pour un même compteur) -- plus précis que default_unit, qui ne
