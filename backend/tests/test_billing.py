@@ -304,13 +304,15 @@ class TestExportLignes(unittest.TestCase):
         }
         rows = billing.export_lignes(payload, "2026-05")
         self.assertEqual(rows[0], billing.EXPORT_HEADERS)
-        self.assertEqual(rows[1][0], "App 1")
-        self.assertEqual(rows[1][4], "facturable")
-        self.assertEqual(rows[2][4], "données incomplètes")
-        self.assertEqual(rows[3][1], 10.0)
-        self.assertEqual(rows[3][2], 7.0)
-        self.assertEqual(rows[3][3], 15.0)
-        self.assertEqual(rows[3][0], "Total immeuble")
+        self.assertEqual(rows[1][0], "Mai 2026")
+        self.assertEqual(rows[1][1], "App 1")
+        self.assertEqual(rows[1][5], "facturable")
+        self.assertEqual(rows[2][5], "données incomplètes")
+        self.assertEqual(rows[3][0], "Mai 2026")
+        self.assertEqual(rows[3][2], 10.0)
+        self.assertEqual(rows[3][3], 7.0)
+        self.assertEqual(rows[3][4], 15.0)
+        self.assertEqual(rows[3][1], "Total immeuble")
 
     def test_mois_absent(self):
         with self.assertRaises(KeyError):

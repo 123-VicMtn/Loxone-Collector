@@ -658,7 +658,7 @@ def api_decompte_xlsx():
     ws.title = "Décompte"
     for row in rows:
         ws.append(row)
-    for col in ("B", "C", "D"):
+    for col in ("C", "D", "E"):
         for cell in ws[col][1:]:
             if isinstance(cell.value, float):
                 cell.number_format = "0.00"

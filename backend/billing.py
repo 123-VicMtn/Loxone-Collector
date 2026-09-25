@@ -569,7 +569,7 @@ def _absent() -> dict:
 
 
 EXPORT_HEADERS = [
-    "Zone", "Réseau (kWh)", "Solaire (kWh)", "Consommation (kWh)", "État",
+    "Mois", "Zone", "Réseau (kWh)", "Solaire (kWh)", "Consommation (kWh)", "État",
 ]
 
 
@@ -587,6 +587,13 @@ def export_lignes(payload: dict, period_key: str) -> list[list]:
     """Tableau du mois choisi, tel qu'affiché : une ligne par zone puis le
     total. Les kWh sont des nombres (ou None), pas des textes formatés.
     Lève KeyError si le mois n'est pas dans le décompte."""
+    year, month = parse_period_key(period_key)
+    mois_label = period_label(year, month)
+    for p in payload.get("periodes") or []:
+        if p.get("key") == period_key and p.get("label"):
+            mois_label = p["label"]
+            break
+
     rows: list[list] = []
     sums = {"reseau": 0.0, "solaire": 0.0, "total": 0.0}
     seen = {"reseau": False, "solaire": False, "total": False}
@@ -602,10 +609,11 @@ def export_lignes(payload: dict, period_key: str) -> list[list]:
                 continue
             sums[key] += val
             seen[key] = True
-        rows.append([z.get("label") or z.get("zone"), r, s, t, etat_zone(e)])
+        rows.append([mois_label, z.get("label") or z.get("zone"), r, s, t, etat_zone(e)])
     if not found:
         raise KeyError(period_key)
     rows.append([
+        mois_label,
         "Total immeuble",
         sums["reseau"] if seen["reseau"] else None,
         sums["solaire"] if seen["solaire"] else None,
