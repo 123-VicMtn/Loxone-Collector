@@ -47,7 +47,7 @@ datées ci-dessous, écrites avant ce déplacement) désigne le fichier sous
   TypeScript + Tailwind autonome** (`frontend/`, un seul build, `vue-router`
   en mode history pour les 3 routes `/`, `/admin`, `/decompte`), qui tourne
   sur sa propre origine/hébergement et ne parle au backend que via HTTP.
-  Dashboard (`/`) : 3 onglets — **Aperçu** (bilan du jour + courbe),
+  Dashboard (`/`) : 3 onglets — **Aperçu** (bilan depuis minuit + courbe),
   **Relevés** (dernier index de chaque compteur), **Mode avancé**
   (l'ancien Explorer, confirmation avant d'entrer ; seule vue qui affiche
   la sidebar capteurs). Les onglets Énergie et Consommations par zone ont
@@ -2414,12 +2414,11 @@ plusieurs endroits du fichier se contredire sur ce qui reste à faire.
 
 ### Prochaine fonctionnalité
 
-- **Décompte RCP simplifié** (`/decompte`) -- travail du 2026-09-25,
-  demandé et consigné, pas encore commencé. Détail dans "Décompte RCP
-  simplifié — demande du 2026-09-25" et dans "Prochaine étape prévue".
-  Remplace la génération de factures PDF comme prochaine étape : la page
-  ne chiffre plus (plus de HT/TVA/TTC ni de tarifs) ; l'export demandé
-  est un Excel et un CSV des kWh, pas un PDF.
+- **Décompte RCP simplifié** (`/decompte`) -- page, exports et graphiques
+  livrés le 2026-09-25 (voir "Décompte RCP simplifié — état en fin de
+  session"). Il reste à brancher `repartition.py` : Sequoia affiche
+  encore les séries du Miniserver. Pas de PDF : l'export est Excel + CSV
+  des kWh.
 - Compteurs `Chauffage App 2` (4167) et `Chauffage App 3` (2896) figés
   depuis des mois (voir "Page de décompte de charges", 2026-08-28) -- hors
   périmètre du décompte électrique actuel, à signaler seulement si le
@@ -2626,10 +2625,14 @@ onglets Énergie et Consommations par zone n'existent plus.
 
 ### Onglets
 
-- **Aperçu** (onglet par défaut). De minuit Europe/Zurich à maintenant :
-  production, consommation totale, autoconsommation
-  (solaire sur place / production) et autonomie (solaire sur place /
-  consommation). Même distinction de taux que `/decompte`.
+- **Aperçu** (onglet par défaut). Tuiles **depuis minuit** (Europe/Zurich,
+  index de fin − index de début, comme `/decompte`) : production,
+  consommation totale, autoconsommation (solaire sur place / production)
+  et autonomie (solaire sur place / consommation). Le relevé de début doit
+  être à moins de 3 h de la borne : sinon le dernier index connu est celui
+  d'avant un trou de collecte, et le delta compterait ces jours-là
+  (constaté le 2026-09-28, collecte arrêtée du 25 au 28). Même distinction
+  de taux que `/decompte`.
 - Courbe : **Solaire** = puissance `actual` du compteur de production ;
   **Consommation totale** = somme des `actual` de tous les consommateurs
   électriques du bâtiment (Arlopi : Grid + Solaire de chaque zone ;
@@ -2692,7 +2695,10 @@ a rejoints.
 
 ## Décompte RCP simplifié — demande du 2026-09-25
 
-**Travail du jour, demandé par l'utilisateur, pas encore commencé.**
+**Travail du jour, demandé le matin.** La spécification est ci-dessous ;
+le réalisé et ce qui reste sont dans la section suivante (« état en fin
+de session »). Ne pas reprendre cette liste comme si rien n'avait été
+fait.
 Revoir `/decompte` pour en faire un décompte RCP (regroupement pour
 consommation propre) juste, sur les données actuelles, et simplifier la
 page. Le chiffrage sort du périmètre : plus de prix, plus de HT/TVA/TTC,
@@ -2755,13 +2761,73 @@ Export : la décision déjà prise (« Choix de stack figé », 2026-09-23)
 tient — Excel côté serveur avec `openpyxl`, déclenché par une route
 Flask, pas régénéré dans le navigateur. Le CSV suit le même principe.
 
+## Décompte RCP simplifié — état en fin de session, 2026-09-25
+
+La page demandée le matin est en place et commitée (`51720b5` à
+`3dcadc0`). Le collecteur Flask a été **arrêté** à la demande de
+l'utilisateur en fin de session (plus rien sur le port 5050). Pour
+reprendre : depuis `backend/`, `../.venv/bin/python3 app.py config.yaml`.
+`app.py` ne recharge pas le code tout seul (`use_reloader=False`) : un
+serveur lancé avant un changement répond 404 sur les routes nouvelles.
+C'est ce qui a bloqué le premier téléchargement Excel.
+
+### Page
+
+- Sélecteur de site conservé. Mois choisi avec un calendrier
+  (`input type="month"`). Mois en cours : la période affichée va jusqu'au
+  dernier relevé (`reading_delta` s'arrête déjà au dernier point connu).
+- Bandeau KPI : consommation, réseau, solaire autoconsommé, taux
+  d'autoproduction. Plus de tuile TTC. Les totaux additionnent les
+  relevés présents.
+- Tableau par zone : zone, réseau, solaire, consommation, état, plus la
+  ligne Total. **Pas** de colonne autoproduction (retirée ensuite, sur
+  demande) ni de HT/TVA/TTC.
+- Graphique « Consommation mensuelle de l'immeuble » : barres côte à
+  côte, consommation des zones et production solaire. Elles ne
+  s'additionnent pas.
+- Graphique « Devenir de la production solaire » : autoconsommé (vert) et
+  injecté (bleu), empilés.
+- Retirés : répartition par zone, les deux taux, panneau tarifs,
+  sélecteur « Historique affiché », tableau bâtiment, dépliant des
+  compteurs de contrôle.
+
+### Données incomplètes
+
+Un lot sans relevé n'empêche plus le décompte. Le total et les deux
+graphiques utilisent les lots qui ont une paire réseau + solaire. Sous
+le tableau, la liste des relevés manquants. Excel et CSV ne partent
+qu'après un modal « Établir le décompte en l'état » si cette liste n'est
+pas vide.
+
+Chiffre vérifié sur MS-PPE-Sequoia, août 2026 : 22 lots, **6 880,7 kWh**
+de consommation et **6 016,0 kWh** de production. Autoconsommation
+connue **921,1 kWh**, injection **5 094,9 kWh**. L'injection est haute :
+le solaire des lots sans relevé est compté comme injecté
+(`production - autoconsommation connue`).
+
+### Export
+
+`GET /api/decompte/export.xlsx` et `GET /api/decompte/export.csv`
+(`mois=YYYY-MM`, `miniserver=`). Colonnes : Mois (libellé, ex.
+« Août 2026 »), Zone, Réseau, Solaire, Consommation, État, plus le
+total. CSV en point-virgule et virgule décimale. `openpyxl==3.1.5`
+dans `backend/requirements.txt`.
+
+### Pas fait — à reprendre
+
+`/decompte` n'est toujours pas branché sur `repartition.py`. Sequoia
+utilise les séries Grid/Solaire du Miniserver. La répartition
+historique de ces séries est fausse (section 2026-09-09) ; le correctif
+installateur du 2026-09-10 ne réécrit pas le passé. Brancher
+`evaluer_site` reste la suite pour une RCP juste sur les données déjà
+en base.
+
 ## Prochaine étape prévue
 
-L'aperçu, les relevés et la résolution du port Cloud DNS (section
-2026-09-25) sont en place. Prochaine étape : le décompte RCP simplifié
-décrit juste au-dessus. L'utilisateur consigne d'abord cette demande
-(ce fichier), committe, puis le travail de code commence. Pas de PDF :
-l'export du jour est Excel + CSV des kWh du mois choisi.
+Reprendre le décompte en branchant `repartition.py` dans le calcul de
+`/api/decompte` (voir la section juste au-dessus). La page, les deux
+graphiques et l'export Excel/CSV sont déjà là. Relancer d'abord
+`app.py` : il a été arrêté le 2026-09-25 en fin de session.
 
 ## Commandes utiles
 

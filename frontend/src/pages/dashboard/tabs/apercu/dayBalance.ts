@@ -1,7 +1,25 @@
 import type { SeriesDataPoint } from '@shared/api/series'
-import type { Series } from '@shared/types/series'
+import type { ReadingDelta, Series } from '@shared/types/series'
 
-/** Bilan d'un immeuble depuis minuit, lu sur les index cumulatifs.
+/**
+ * Au-delà, le relevé n'est plus celui de la borne. `reading_delta` prend
+ * le dernier index <= from : si la collecte s'est arrêtée, cet index peut
+ * dater de plusieurs jours et fin − début compte alors tout le trou, pas
+ * la journée demandée. 3 h couvrent un créneau Statistics manqué (résolution
+ * horaire) sans avaler une panne.
+ */
+export const MAX_READING_LAG_S = 3 * 3600
+
+export function kwhCovering(delta: ReadingDelta | null, from: number, to: number): number | null {
+  if (!delta || delta.kwh === null || delta.releve_debut_ts === null || delta.releve_fin_ts === null) {
+    return null
+  }
+  if (from - delta.releve_debut_ts > MAX_READING_LAG_S) return null
+  if (to - delta.releve_fin_ts > MAX_READING_LAG_S) return null
+  return delta.kwh
+}
+
+/** Bilan d'un immeuble depuis minuit (heure de Zurich), lu sur les index cumulatifs.
  *
  * Deux taux, à ne pas confondre (mêmes définitions que /decompte) :
  * - autoconsommation = solaire consommé sur place / production solaire
@@ -80,7 +98,10 @@ export function balanceFromKwh(
   consumption: number | null,
 ): DayBalance {
   if (production === null || solarOnSite === null || consumption === null) {
-    return { production, consumption, solarOnSite, autoconsommation: null, autonomie: null, note: 'Relevés incomplets depuis minuit.' }
+    return {
+      production, consumption, solarOnSite, autoconsommation: null, autonomie: null,
+      note: 'Relevés incomplets depuis minuit.',
+    }
   }
   if (solarOnSite < 0) {
     return {
@@ -89,7 +110,10 @@ export function balanceFromKwh(
     }
   }
   if (production < 0 || consumption < 0) {
-    return { production, consumption, solarOnSite, autoconsommation: null, autonomie: null, note: 'Un index a baissé : le delta du jour n’est pas exploitable.' }
+    return {
+      production, consumption, solarOnSite, autoconsommation: null, autonomie: null,
+      note: 'Un index a baissé : le delta depuis minuit n’est pas exploitable.',
+    }
   }
   if (solarOnSite > production * 1.02 || (consumption > 0 && solarOnSite > consumption * 1.02)) {
     return {

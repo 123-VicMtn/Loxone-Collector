@@ -1,14 +1,14 @@
 <script setup lang="ts">
 /**
- * Aperçu du jour (minuit Europe/Zurich → maintenant) pour un immeuble :
- * production, consommation, autoconsommation, autonomie.
+ * Aperçu d'un immeuble depuis minuit, heure de Zurich : tuiles (index
+ * cumulatif, même méthode que /decompte) et courbe de puissance.
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import type { ChartOptions } from 'chart.js'
 import { fetchRange, fetchSeriesWindow, loadAllSeries } from '@shared/api/series'
-import type { Series } from '@shared/types/series'
+import type { ReadingDelta, Series } from '@shared/types/series'
 import { PALETTE_GRID, PALETTE_SOLAR } from '@shared/charts'
 import { fmtNumber } from '@shared/format'
 import { todayBounds } from '@shared/periods'
@@ -16,6 +16,7 @@ import {
   actualsOf,
   balanceFromKwh,
   buildingConsumerSeries,
+  kwhCovering,
   lotConsumptionSeries,
   pickExport,
   pickProduction,
@@ -110,11 +111,18 @@ const chartData = computed(() => {
   }
 })
 
-async function sumDeltas(list: Series[], from: number, to: number): Promise<number | null> {
+async function coveredKwh(delta: Promise<ReadingDelta | null>, from: number, to: number): Promise<number | null> {
+  return kwhCovering(await delta, from, to)
+}
+
+/** Somme des index, ou null si un seul compteur ne couvre pas la fenêtre.
+ * Un relevé manquant ne se remplace pas par zéro : le total serait trop bas. */
+async function sumCovered(list: Series[], from: number, to: number): Promise<number | null> {
   if (!list.length) return null
-  const deltas = await Promise.all(list.map((s) => fetchRange(s.series_id, from, to)))
-  if (deltas.some((d) => !d || d.kwh === null)) return null
-  return deltas.reduce((acc, d) => acc + (d?.kwh ?? 0), 0)
+  const values = await Promise.all(list.map((s) => coveredKwh(fetchRange(s.series_id, from, to), from, to)))
+  const numbers = values.filter((v): v is number => v !== null)
+  if (numbers.length !== values.length) return null
+  return numbers.reduce((acc, v) => acc + v, 0)
 }
 
 async function refresh() {
@@ -125,19 +133,23 @@ async function refresh() {
   axisFrom.value = from
   axisTo.value = to
   const productionSeries = pickProduction(series)
-  const production = productionSeries ? (await fetchRange(productionSeries.series_id, from, to))?.kwh ?? null : null
+  const production = productionSeries
+    ? await coveredKwh(fetchRange(productionSeries.series_id, from, to), from, to)
+    : null
 
   let solarOnSite: number | null
   let consumption: number | null
   if (usesZoneSplit(series)) {
-    solarOnSite = await sumDeltas(zoneSolarSeries(series), from, to)
-    const grid = await sumDeltas(zoneGridSeries(series), from, to)
+    solarOnSite = await sumCovered(zoneSolarSeries(series), from, to)
+    const grid = await sumCovered(zoneGridSeries(series), from, to)
     consumption = solarOnSite !== null && grid !== null ? solarOnSite + grid : null
   } else {
     const exp = pickExport(series)
-    const exported = exp ? (await fetchRange(exp.series_id, from, to))?.kwh ?? null : null
+    const exported = exp
+      ? await coveredKwh(fetchRange(exp.series_id, from, to), from, to)
+      : null
     solarOnSite = production !== null && exported !== null ? production - exported : null
-    consumption = await sumDeltas(lotConsumptionSeries(series), from, to)
+    consumption = await sumCovered(lotConsumptionSeries(series), from, to)
   }
 
   balance.value = balanceFromKwh(production, solarOnSite, consumption)
@@ -173,6 +185,7 @@ watch(site, () => { void refresh() })
 
     <div v-else-if="balance" class="flex flex-col gap-4">
       <div class="grid w-full grid-cols-2 content-start gap-3 sm:grid-cols-4">
+        <p class="col-span-2 text-sm font-medium text-neutral-700 sm:col-span-4">Depuis minuit</p>
         <div class="rounded-lg border border-green-200 bg-green-50 p-4">
           <div class="text-sm text-neutral-500">Production</div>
           <div class="mt-1 text-xl font-semibold">{{ fmtNumber(balance.production, 1) }} <span class="text-sm font-normal">kWh</span></div>
