@@ -2414,10 +2414,9 @@ plusieurs endroits du fichier se contredire sur ce qui reste à faire.
 
 ### Prochaine fonctionnalité
 
-- **Décompte RCP simplifié** (`/decompte`) -- page, exports et graphiques
-  livrés le 2026-09-25 (voir "Décompte RCP simplifié — état en fin de
-  session"). Il reste à brancher `repartition.py` : Sequoia affiche
-  encore les séries du Miniserver. Pas de PDF : l'export est Excel + CSV
+- **Décompte RCP simplifié** (`/decompte`) -- le calcul passe par
+  `evaluer_site` (2026-09-28). Il reste à l'indiquer sur la page et à
+  vérifier un mois réel de Sequoia. Pas de PDF : l'export est Excel + CSV
   des kWh.
 - Compteurs `Chauffage App 2` (4167) et `Chauffage App 3` (2896) figés
   depuis des mois (voir "Page de décompte de charges", 2026-08-28) -- hors
@@ -2815,19 +2814,17 @@ dans `backend/requirements.txt`.
 
 ### Pas fait — à reprendre
 
-`/decompte` n'est toujours pas branché sur `repartition.py`. Sequoia
-utilise les séries Grid/Solaire du Miniserver. La répartition
-historique de ces séries est fausse (section 2026-09-09) ; le correctif
-installateur du 2026-09-10 ne réécrit pas le passé. Brancher
-`evaluer_site` reste la suite pour une RCP juste sur les données déjà
-en base.
+Le calcul de `/api/decompte` passe par `evaluer_site` (2026-09-28) :
+Sequoia est en répartition recalculée sur le compteur du lot, Arlopi
+garde les séries du Miniserver. La page n'affiche pas encore que les
+chiffres sont recalculés. Le compteur de production de Sequoia dans
+`resolve_batiment` est « Solaire (total) », pas « Production Solaire ».
 
 ## Prochaine étape prévue
 
-Reprendre le décompte en branchant `repartition.py` dans le calcul de
-`/api/decompte` (voir la section juste au-dessus). La page, les deux
-graphiques et l'export Excel/CSV sont déjà là. Relancer d'abord
-`app.py` : il a été arrêté le 2026-09-25 en fin de session.
+Montrer sur `/decompte` que la répartition vient du calcul (pas des
+séries Grid/Solaire du Miniserver), et vérifier un mois réel de Sequoia
+contre `scripts/export_appartement.py`.
 
 ## Commandes utiles
 

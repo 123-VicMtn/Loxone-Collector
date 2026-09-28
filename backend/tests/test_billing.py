@@ -160,6 +160,24 @@ class TestResolutionDesSeries(unittest.TestCase):
         self.assertEqual(b["reseau_import"]["series_id"], "i")
         self.assertEqual(b["reseau_export"]["series_id"], "e")
 
+    def test_solaire_total_prime_sur_production_figee(self):
+        # Sequoia : « Production Solaire » ne bouge plus, « Solaire (total) » si.
+        series = [
+            s("fige", "Production Solaire (total)", "energie_solaire", ""),
+            s("vif", "Solaire (total)", "energie_solaire", ""),
+            s("i", "Réseau (total)", "energie_reseau", ""),
+            s("e", "Réseau (totalNeg)", "energie_reseau", "", state_name="totalNeg"),
+        ]
+        self.assertEqual(billing.resolve_batiment(series)["production"]["series_id"], "vif")
+
+    def test_solaire_et_batterie_ne_remplace_pas_la_production(self):
+        # Arlopi : « Solaire & Batterie » n'est pas le compteur de production.
+        series = [
+            s("bat", "Solaire & Batterie (total)", "energie_batterie", ""),
+            s("p", "Production (total)", "energie_consommee", ""),
+        ]
+        self.assertEqual(billing.resolve_batiment(series)["production"]["series_id"], "p")
+
 
 class TestTaux(unittest.TestCase):
     """Les deux taux évoluent en sens INVERSE au fil des saisons. Les avoir
@@ -317,6 +335,84 @@ class TestExportLignes(unittest.TestCase):
     def test_mois_absent(self):
         with self.assertRaises(KeyError):
             billing.export_lignes({"zones": []}, "2026-01")
+
+
+class TestRepartitionDansLeDecompte(unittest.TestCase):
+    """Quand evaluer_site condamne les séries du Miniserver, le décompte
+    facture le compteur du lot, scindé. Sinon il garde Grid + Solaire."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.executescript(db.SCHEMA)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def index(self, series_id, points):
+        self.conn.executemany(
+            "INSERT INTO readings_hourly (series_id, ts, avg_value, max_value) VALUES (?, ?, ?, ?)",
+            [(series_id, t, v, v) for t, v in points],
+        )
+        self.conn.commit()
+
+    def test_series_incoherentes_sont_remplacees_par_le_compteur_du_lot(self):
+        # Heure 1 : le bâtiment n'importe rien, le Grid du lot augmente quand
+        # même. Heure 2 : mix normal. Le compteur du lot suit le bâtiment.
+        t0 = ts(2026, 1, 1)
+        self.index("prod", [(t0, 0.0), (t0 + 3600, 10.0), (t0 + 7200, 16.0)])
+        self.index("imp", [(t0, 0.0), (t0 + 3600, 0.0), (t0 + 7200, 4.0)])
+        self.index("exp", [(t0, 0.0), (t0 + 3600, 2.0), (t0 + 7200, 3.0)])
+        self.index("lot", [(t0, 0.0), (t0 + 3600, 8.0), (t0 + 7200, 17.0)])
+        self.index("grid", [(t0, 0.0), (t0 + 3600, 5.0), (t0 + 7200, 6.0)])
+        self.index("sol", [(t0, 0.0), (t0 + 3600, 0.0), (t0 + 7200, 4.0)])
+        series = [
+            s("prod", "Solaire (total)", "energie_solaire", ""),
+            s("fige", "Production Solaire (total)", "energie_solaire", ""),
+            s("imp", "Réseau (total)", "energie_reseau", ""),
+            s("exp", "Réseau (totalNeg)", "energie_reseau", "", state_name="totalNeg"),
+            s("lot", "Appartement 1 (total)", "energie_consommee", "APP1"),
+            s("grid", "App 1 Grid (total)", "energie_reseau", "APP1"),
+            s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
+        ]
+        payload = billing.compute_decompte(
+            self.conn, series, billing.periods_covering(t0, t0 + 7200), [], ts(2026, 6, 1),
+        )
+        self.assertEqual(payload["repartition"]["source"], "calculee")
+        self.assertEqual(payload["batiment"]["sources"]["production"]["series_id"], "prod")
+        e = payload["zones"][0]["periodes"]["2026-01"]
+        self.assertEqual(e["reseau"]["kwh"], 4.0)
+        self.assertEqual(e["solaire"]["kwh"], 13.0)
+        self.assertEqual(e["total"], 17.0)
+        self.assertEqual(e["reseau"]["kwh"] + e["solaire"]["kwh"], e["total"])
+        self.assertTrue(e["facturable"])
+        self.assertEqual(e["reseau"]["alertes"], [])
+
+    def test_bilan_non_exploitable_garde_les_series_du_miniserver(self):
+        # Le compteur réseau du bâtiment ne mesure pas la même chose que
+        # les zones : on ne recalcule pas, on garde Grid + Solaire.
+        t0 = ts(2026, 1, 1)
+        self.index("prod", [(t0, 0.0), (t0 + 3600, 1.0)])
+        self.index("imp", [(t0, 0.0), (t0 + 3600, 1.0)])
+        self.index("exp", [(t0, 0.0), (t0 + 3600, 0.0)])
+        self.index("lot", [(t0, 0.0), (t0 + 3600, 100.0)])
+        self.index("grid", [(t0, 0.0), (t0 + 3600, 40.0)])
+        self.index("sol", [(t0, 0.0), (t0 + 3600, 60.0)])
+        series = [
+            s("prod", "Production (total)", "energie_consommee", ""),
+            s("imp", "Réseau (total)", "energie_reseau", ""),
+            s("exp", "Réseau (totalNeg)", "energie_reseau", "", state_name="totalNeg"),
+            s("lot", "Appartement 1 (total)", "energie_consommee", "APP1"),
+            s("grid", "App 1 Grid (total)", "energie_reseau", "APP1"),
+            s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
+        ]
+        payload = billing.compute_decompte(
+            self.conn, series, billing.periods_covering(t0, t0 + 3600), [], ts(2026, 6, 1),
+        )
+        self.assertEqual(payload["repartition"]["source"], "loxone")
+        e = payload["zones"][0]["periodes"]["2026-01"]
+        self.assertAlmostEqual(e["reseau"]["kwh"], 40.0)
+        self.assertAlmostEqual(e["solaire"]["kwh"], 60.0)
+        self.assertAlmostEqual(e["total"], 100.0)
 
 
 class TestBatimentPartiel(unittest.TestCase):

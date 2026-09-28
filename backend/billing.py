@@ -117,6 +117,14 @@ SOLAR_LABEL_RE = re.compile(r"(?i)(\bsol\b|solaire|solar|\bpv\b)")
 
 BATIMENT_PRODUCTION_RE = re.compile(r"(?i)^production\b")
 BATIMENT_RESEAU_RE = re.compile(r"(?i)^r[ée]seau\b")
+# À Sequoia, « Production Solaire » est figé. Le compteur qui avance
+# s'appelle exactement « Solaire (total) ». « Solaire & Batterie » (Arlopi)
+# ne doit pas prendre sa place. Même règle que l'aperçu.
+SOLAIRE_BATIMENT_RE = re.compile(r"(?i)^solaire \(total\)$")
+# Précision des parts réseau/solaire recalculées : la même que
+# scripts/export_appartement.py, pour que réseau + solaire = consommation
+# à l'affichage près.
+KWH_DECIMALES = 2
 
 
 # --------------------------------------------------------------------------
@@ -268,7 +276,10 @@ def resolve_batiment(series: list[dict]) -> dict:
     comparables, et l'injection réelle se déduit de
     `production - autoconsommation`."""
     globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
-    prod = _pick([s for s in _totals(globals_) if BATIMENT_PRODUCTION_RE.search(s.get("label", ""))])
+    totals = _totals(globals_)
+    prod = _pick([s for s in totals if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))])
+    if not prod:
+        prod = _pick([s for s in totals if BATIMENT_PRODUCTION_RE.search(s.get("label", ""))])
     imp = _pick([s for s in _totals(globals_) if BATIMENT_RESEAU_RE.search(s.get("label", ""))])
     exp = _pick([
         s for s in globals_
@@ -455,14 +466,33 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
                       tz_name: str = TIMEZONE) -> dict:
     """Décompte complet : pour chaque zone et chaque mois, la part réseau et
     la part solaire autoconsommée, le taux d'autoproduction, les montants,
-    et les alertes de fiabilité. Puis la synthèse d'immeuble."""
+    et les alertes de fiabilité. Puis la synthèse d'immeuble.
+
+    La source des parts réseau/solaire vient de repartition.evaluer_site :
+    séries du Miniserver quand elles sont les seules utilisables (Arlopi),
+    répartition recalculée sur le compteur du lot quand elles sont
+    incohérentes (Sequoia). Le total facturé reste le relevé de compteur.
+    """
+    # Import local : repartition importe déjà billing (résolution des séries).
+    import repartition
+
     zones = resolve_zones(series)
     batiment_src = resolve_batiment(series)
+    evaluation = None
+    if periods:
+        evaluation = repartition.evaluer_site(
+            conn, zones, batiment_src, periods[0]["start"], periods[-1]["end"],
+        )
 
     for z in zones:
         z["periodes"] = {}
         for p in periods:
-            z["periodes"][p["key"]] = _zone_period(conn, z, p, tarifs, now_ts, tz_name)
+            if evaluation and evaluation["source_recommandee"] == "calculee":
+                z["periodes"][p["key"]] = _zone_period_calculee(
+                    conn, z, p, tarifs, now_ts, tz_name, evaluation,
+                )
+            else:
+                z["periodes"][p["key"]] = _zone_period(conn, z, p, tarifs, now_ts, tz_name)
 
     batiment = {"sources": batiment_src, "periodes": {}}
     for p in periods:
@@ -475,6 +505,7 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
         "batiment": batiment,
         "tarifs": tarifs,
         "generated_at": now_ts,
+        "repartition": _repartition_payload(evaluation),
     }
 
 
@@ -563,6 +594,87 @@ def _batiment_period(conn, src: dict, zones: list[dict], p: dict, now_ts: int) -
                                      conso_totale if conso_connue else None),
         "taux_autoconsommation": taux(autoconso if conso_connue else None, prod_kwh),
         "zones_incompletes": not complet,
+    }
+
+
+def _repartition_payload(evaluation: dict | None) -> dict:
+    """Ce que la page peut afficher sans relire l'audit : d'où viennent les
+    parts réseau/solaire, et pourquoi."""
+    if not evaluation:
+        return {"source": "loxone", "confiance_verifiee": False, "raisons": []}
+    return {
+        "source": evaluation["source_recommandee"],
+        "confiance_verifiee": evaluation["confiance_verifiee"],
+        "raisons": list(evaluation["audit"].get("raisons") or []),
+    }
+
+
+def _lecture_calculee(kwh: float | None) -> dict:
+    """Part réseau ou solaire issue de la répartition, pas d'un relevé.
+    Pas d'alerte ici : une alerte sur ces blocs ferait croire, sur la page,
+    qu'un compteur n'a pas de relevé."""
+    return {
+        "kwh": kwh, "releve_debut": None, "releve_fin": None,
+        "releve_debut_ts": None, "releve_fin_ts": None, "alertes": [],
+    }
+
+
+def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
+                          now_ts: int, tz_name: str, evaluation: dict) -> dict:
+    """Même forme que `_zone_period`, mais réseau et solaire sont la part
+    du relevé du lot. Leur somme est ce relevé, arrondi à KWH_DECIMALES.
+    """
+    import repartition
+
+    src = zone["sources"]
+    controle = (
+        reading_delta(conn, src["controle"]["series_id"], p["start"], p["end"], now_ts)
+        if src.get("controle") else _absent()
+    )
+    total = controle["kwh"]
+    en_cours = p["end"] > now_ts
+    alertes = []
+    if en_cours:
+        alertes.append("mois en cours, chiffres non définitifs")
+    if not src.get("controle"):
+        alertes.append("compteur du lot introuvable : répartition impossible")
+        reseau = solaire = _lecture_calculee(None)
+    else:
+        for a in controle["alertes"]:
+            alertes.append(f"compteur : {a}")
+        split = repartition.split_zone(
+            conn, src["controle"]["series_id"],
+            evaluation["fraction"]["fraction"], p["start"], p["end"],
+        )
+        base = split["total"] - split["non_reparti"]
+        part = (split["solaire"] / base) if base > 0 else None
+        if total is not None and part is not None:
+            solaire_kwh = round(total * part, KWH_DECIMALES)
+            total = round(total, KWH_DECIMALES)
+            reseau_kwh = total - solaire_kwh
+        elif total is not None and base <= 0 and total <= 0:
+            solaire_kwh, reseau_kwh = 0.0, 0.0
+        else:
+            solaire_kwh = reseau_kwh = None
+            if total is not None and total > 0:
+                alertes.append("part solaire incalculable sur cette période")
+        reseau = _lecture_calculee(reseau_kwh)
+        solaire = _lecture_calculee(solaire_kwh)
+
+    r, s = reseau["kwh"], solaire["kwh"]
+    parts_ok = r is not None and s is not None
+    tarif = tarif_for(tarifs, p["start"], tz_name)
+    return {
+        "reseau": reseau,
+        "solaire": solaire,
+        "controle": controle,
+        "total": total,
+        "taux_autoproduction": taux(s, total) if parts_ok else None,
+        "en_cours": en_cours,
+        "facturable": bool(parts_ok and not en_cours),
+        "tarif": tarif,
+        "montants": montants(r, s, tarif),
+        "alertes": alertes,
     }
 
 
