@@ -16,12 +16,15 @@ Quatre choses valent d'être verrouillées par un test ici :
 
 Utilise unittest (stdlib), comme test_classification.py.
 """
+import io
 import sqlite3
 import sys
 import unittest
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from openpyxl import load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -376,6 +379,235 @@ class TestExportLignes(unittest.TestCase):
     def test_mois_absent(self):
         with self.assertRaises(KeyError):
             billing.export_lignes({"zones": []}, "2026-01")
+
+
+class TestDecompteWorkbook(unittest.TestCase):
+    """Le classeur doit s'ouvrir déjà lisible : titre, colonnes assez larges,
+    nombres en kWh, prix préremplis, montants en formules, relevés dans
+    un second onglet, mois en cours borné au dernier relevé."""
+
+    TARIF = {
+        "prix_reseau": 0.25, "prix_solaire": 0.12, "taux_tva": 8.1,
+        "valid_from": "2026-01-01",
+    }
+
+    def setUp(self):
+        self.payload = {
+            "timezone": "Europe/Zurich",
+            "generated_at": int(datetime(2026, 6, 2, 10, 0, tzinfo=ZoneInfo("Europe/Zurich")).timestamp()),
+            "periodes": [{
+                "key": "2026-05",
+                "label": "Mai 2026",
+                "start": billing.period_bounds(2026, 5)[0],
+                "end": billing.period_bounds(2026, 5)[1],
+            }],
+            "repartition": {
+                "source": "calculee",
+                "confiance_verifiee": True,
+                "raisons": ["heures d'achat au réseau impossibles"],
+            },
+            "zones": [
+                {"label": "App 1", "sources": {
+                    "controle": {"label": "Appartement 1 (total)", "series_id": "lot", "unit": "kWh"},
+                }, "periodes": {"2026-05": {
+                    "reseau": {"kwh": 10.0, "alertes": []},
+                    "solaire": {"kwh": 5.004, "alertes": []},
+                    "controle": {
+                        "kwh": 15.004, "releve_debut": 100.0, "releve_fin": 115.004,
+                        "releve_debut_ts": int(datetime(2026, 5, 1, 0, 10, tzinfo=ZoneInfo("Europe/Zurich")).timestamp()),
+                        "releve_fin_ts": int(datetime(2026, 5, 31, 23, 50, tzinfo=ZoneInfo("Europe/Zurich")).timestamp()),
+                        "alertes": [],
+                    },
+                    "total": 15.004,
+                    "facturable": True, "en_cours": False,
+                    "tarif": self.TARIF,
+                }}},
+                {"label": "App 2", "periodes": {"2026-05": {
+                    "reseau": {"kwh": None, "alertes": ["pas de relevé dans la période"]},
+                    "solaire": {"kwh": 2.0, "alertes": []},
+                    "total": None,
+                    "facturable": False, "en_cours": False,
+                    "tarif": self.TARIF,
+                }}},
+            ],
+        }
+
+    def classeur(self, payload=None, mois="2026-05", site="MS-Démo", conn=None):
+        buf = io.BytesIO()
+        wb = billing.build_decompte_workbook(payload or self.payload, mois, site, conn)
+        wb.save(buf)
+        buf.seek(0)
+        return load_workbook(buf)
+
+    def workbook(self, payload=None, mois="2026-05", site="MS-Démo", conn=None):
+        return self.classeur(payload, mois, site, conn)["Décompte"]
+
+    def _ligne(self, ws, valeur, col=1):
+        for r in range(1, ws.max_row + 1):
+            if ws.cell(r, col).value == valeur:
+                return r
+        self.fail(f"{valeur!r} introuvable")
+
+    def test_titre_largeurs_et_nombres(self):
+        ws = self.workbook()
+        self.assertEqual(ws.title, "Décompte")
+        self.assertIn("MS-Démo", ws["A1"].value)
+        self.assertIn("Mai 2026", ws["A2"].value)
+        self.assertIn("01.05.2026", ws["A2"].value)
+        self.assertIn("31.05.2026", ws["A2"].value)
+        header = self._ligne(ws, "Zone")
+        self.assertEqual(
+            [ws.cell(header, c).value for c in range(1, 11)],
+            ["Zone", "Réseau (kWh)", "Solaire (kWh)", "Consommation (kWh)",
+             "Montant réseau (CHF)", "Montant solaire (CHF)", "HT (CHF)", "TVA (CHF)", "TTC (CHF)",
+             "État"],
+        )
+        self.assertGreaterEqual(ws.column_dimensions["A"].width, 22)
+        self.assertGreaterEqual(ws.column_dimensions["D"].width, 18)
+        app1 = self._ligne(ws, "App 1")
+        app2 = self._ligne(ws, "App 2")
+        total = self._ligne(ws, "Total immeuble")
+        self.assertEqual(ws.cell(app1, 2).value, 10.0)
+        self.assertEqual(ws.cell(app1, 3).value, 5.0)
+        self.assertEqual(ws.cell(app1, 4).value, 15.0)
+        self.assertEqual(ws.cell(app1, 2).number_format, "#,##0.00")
+        self.assertIsNone(ws.cell(app2, 2).value)
+        self.assertEqual(ws.cell(app2, 10).value, "données incomplètes")
+        self.assertEqual(ws.cell(total, 2).value, 10.0)
+        self.assertEqual(ws.cell(total, 3).value, 7.0)
+        self.assertEqual(ws.cell(total, 4).value, 15.0)
+        self.assertEqual(ws.freeze_panes, f"A{header + 1}")
+        self.assertEqual(ws.page_setup.orientation, "landscape")
+        self.assertEqual(ws.page_setup.fitToWidth, 1)
+        self.assertEqual(int(ws.page_setup.paperSize), 9)
+        self.assertIn(ws.page_setup.fitToHeight, (0, None))
+        self.assertFalse(ws.sheet_view.showGridLines)
+        self.assertTrue(any(str(r).startswith("A1:J") for r in ws.merged_cells.ranges))
+
+    def test_le_total_egal_la_somme_des_lignes_affichees(self):
+        ws = self.workbook()
+        app1 = self._ligne(ws, "App 1")
+        app2 = self._ligne(ws, "App 2")
+        total = self._ligne(ws, "Total immeuble")
+        self.assertEqual(ws.cell(total, 3).value, ws.cell(app1, 3).value + ws.cell(app2, 3).value)
+        self.assertEqual(ws.cell(total, 4).value, ws.cell(app1, 4).value)
+        textes = [ws.cell(r, 1).value for r in range(1, ws.max_row + 1)]
+        self.assertTrue(any(isinstance(t, str) and "47 %" in t for t in textes))
+
+    def test_prix_pre_remplis_et_formules_de_montant(self):
+        ws = self.workbook()
+        self.assertEqual(ws["B4"].value, 0.25)
+        self.assertEqual(ws["B5"].value, 0.12)
+        self.assertEqual(ws["B6"].value, 8.1)
+        self.assertTrue(str(ws["B4"].fill.fgColor.rgb).endswith("FFF9C4"))
+        self.assertIn("01.01.2026", ws["C4"].value)
+        app1 = self._ligne(ws, "App 1")
+        app2 = self._ligne(ws, "App 2")
+        self.assertEqual(ws.cell(app1, 5).value, f'=IF(OR(B{app1}="",$B$4=""),"",B{app1}*$B$4)')
+        self.assertEqual(ws.cell(app1, 6).value, f'=IF(OR(C{app1}="",$B$5=""),"",C{app1}*$B$5)')
+        self.assertIn(f"E{app1}", ws.cell(app1, 7).value)
+        self.assertIn("$B$6/100", ws.cell(app1, 8).value)
+        self.assertIn(f"G{app1}", ws.cell(app1, 9).value)
+        self.assertIn('B{0}=""'.format(app2), ws.cell(app2, 5).value)
+        total = self._ligne(ws, "Total immeuble")
+        self.assertEqual(ws.cell(total, 9).value, f'=IF(COUNT(I{app1}:I{app2})=0,"",SUM(I{app1}:I{app2}))')
+
+    def test_sans_tarif_les_prix_restent_vides(self):
+        for z in self.payload["zones"]:
+            z["periodes"]["2026-05"]["tarif"] = None
+        ws = self.workbook()
+        self.assertIsNone(ws["B4"].value)
+        self.assertIsNone(ws["B5"].value)
+        self.assertIsNone(ws["B6"].value)
+        self.assertIn("Aucun tarif", ws["C4"].value)
+
+    def test_onglet_releves(self):
+        start, end = billing.period_bounds(2026, 5)
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(db.SCHEMA)
+        # Trois points dans le mois, un avant : seul le mois figure.
+        for ts, value in (
+            (start - 3600, 99.0),
+            (start, 100.0),
+            (start + 3600, 100.5),
+            (end - 3600, 115.004),
+        ):
+            conn.execute(
+                "INSERT INTO statistic_samples (series_id, ts, value) VALUES ('lot', ?, ?)",
+                (ts, value),
+            )
+        conn.commit()
+        wb = self.classeur(conn=conn)
+        self.assertEqual(wb.sheetnames, ["Décompte", "Relevés"])
+        ws = wb["Relevés"]
+        self.assertIn("Relevés de compteurs", ws["A1"].value)
+        self.assertIn("Mai 2026", ws["A2"].value)
+        self.assertEqual([ws.cell(4, c).value for c in range(1, 5)], ["Zone", "Compteur", "Date", "Index"])
+        self.assertIsNone(ws.cell(4, 5).value)
+        self.assertEqual(ws["A5"].value, "App 1")
+        self.assertEqual(ws["B5"].value, "Appartement 1 (total)")
+        self.assertIn("01.05.2026", ws["C5"].value)
+        self.assertEqual(ws["D5"].value, 100.0)
+        self.assertEqual(ws["D6"].value, 100.5)
+        self.assertEqual(ws["D7"].value, 115.004)
+        self.assertIsNone(ws["A8"].value)
+        self.assertNotIn("99", [str(ws.cell(r, 4).value) for r in range(5, 8)])
+        self.assertGreaterEqual(ws.column_dimensions["B"].width, 30)
+        self.assertFalse(ws.sheet_view.showGridLines)
+        conn.close()
+
+    def test_notes_de_lecture_et_releves_manquants(self):
+        ws = self.workbook()
+        textes = []
+        for r in range(1, ws.max_row + 1):
+            for c in range(1, 4):
+                v = ws.cell(r, c).value
+                if isinstance(v, str):
+                    textes.append(v)
+        bloc = "\n".join(textes)
+        self.assertIn("Ces parts sont calculées", bloc)
+        self.assertNotIn("heures d'achat au réseau impossibles", bloc)
+        self.assertIn("App 2 — Réseau : pas de relevé dans la période", bloc)
+        self.assertIn("Une case vide n'est pas un zéro", bloc)
+
+    def test_alerte_de_zone_quand_les_colonnes_n_en_ont_pas(self):
+        self.payload["zones"].append({"label": "App 100", "periodes": {"2026-05": {
+            "reseau": {"kwh": None, "alertes": []},
+            "solaire": {"kwh": None, "alertes": []},
+            "total": None,
+            "facturable": False, "en_cours": False,
+            "alertes": ["compteur du lot introuvable : répartition impossible"],
+        }}})
+        ws = self.workbook()
+        textes = [ws.cell(r, 1).value for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value]
+        self.assertIn(
+            "App 100 : compteur du lot introuvable : répartition impossible",
+            "\n".join(textes),
+        )
+
+    def test_mois_en_cours_s_arrete_au_dernier_releve(self):
+        start, end = billing.period_bounds(2026, 10)
+        dernier = int(datetime(2026, 10, 1, 15, 30, tzinfo=ZoneInfo("Europe/Zurich")).timestamp())
+        payload = {
+            "timezone": "Europe/Zurich",
+            "generated_at": dernier + 60,
+            "periodes": [{"key": "2026-10", "label": "Octobre 2026", "start": start, "end": end}],
+            "batiment": {"periodes": {"2026-10": {"en_cours": True, "production": {}}}},
+            "zones": [{"label": "App 1", "periodes": {"2026-10": {
+                "reseau": {"kwh": 1.0, "alertes": [], "releve_fin_ts": dernier},
+                "solaire": {"kwh": 1.0, "alertes": []},
+                "total": 2.0,
+                "facturable": False, "en_cours": True,
+            }}}],
+        }
+        ws = self.workbook(payload, "2026-10", "MS-PPE-Sequoia")
+        self.assertIn("01.10.2026", ws["A2"].value)
+        self.assertIn("dernier relevé", ws["A2"].value)
+        self.assertNotIn("31.10.2026", ws["A2"].value)
+
+    def test_mois_absent(self):
+        with self.assertRaises(KeyError):
+            billing.build_decompte_workbook({"zones": []}, "2026-01", "site")
 
 
 class TestRepartitionDansLeDecompte(unittest.TestCase):

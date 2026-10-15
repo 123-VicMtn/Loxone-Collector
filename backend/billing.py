@@ -72,6 +72,11 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
+
 import db
 
 TIMEZONE = "Europe/Zurich"
@@ -938,6 +943,597 @@ def export_lignes(payload: dict, period_key: str) -> list[list]:
         "",
     ])
     return [EXPORT_HEADERS, *rows]
+
+
+# Mise en page du classeur téléchargé. Même famille visuelle que
+# scripts/export_appartement.py : le fichier doit s'ouvrir déjà lisible,
+# sans élargir les colonnes ni deviner le site et le mois.
+_XLSX_HEADERS = [
+    "Zone", "Réseau (kWh)", "Solaire (kWh)", "Consommation (kWh)",
+    "Montant réseau (CHF)", "Montant solaire (CHF)", "HT (CHF)", "TVA (CHF)", "TTC (CHF)",
+    "État",
+]
+_XLSX_NCOL = len(_XLSX_HEADERS)
+_PRIX_RESEAU_ROW = 4
+_PRIX_SOLAIRE_ROW = 5
+_TVA_ROW = 6
+_XLSX_HEADER_ROW = 8
+_COL_KWH_RESEAU, _COL_KWH_SOLAIRE = 2, 3
+_COL_CHF_RESEAU, _COL_CHF_SOLAIRE = 5, 6
+_COL_HT, _COL_TVA, _COL_TTC, _COL_ETAT = 7, 8, 9, 10
+_KWH_FMT = "#,##0.00"
+_CHF_FMT = "#,##0.00"
+_PRIX_FMT = "0.0000"
+_TVA_FMT = "0.00"
+_INDEX_FMT = "#,##0.000"
+_NAVY = "1F4E78"
+_THIN = Border(
+    left=Side(style="thin", color="D4D4D4"),
+    right=Side(style="thin", color="D4D4D4"),
+    top=Side(style="thin", color="D4D4D4"),
+    bottom=Side(style="thin", color="D4D4D4"),
+)
+_TOTAL_BORDER = Border(
+    left=Side(style="thin", color="D4D4D4"),
+    right=Side(style="thin", color="D4D4D4"),
+    top=Side(style="medium", color=_NAVY),
+    bottom=Side(style="thin", color="D4D4D4"),
+)
+_FILL_HEADER = PatternFill("solid", fgColor=_NAVY)
+_FILL_TOTAL = PatternFill("solid", fgColor="FFF2CC")
+_FILL_AMBER = PatternFill("solid", fgColor="FFF8E1")
+_FILL_STRIPE = PatternFill("solid", fgColor="F4F7FB")
+_FILL_EDIT = PatternFill("solid", fgColor="FFF9C4")
+_FONT_TITLE = Font(bold=True, size=16, color=_NAVY)
+_FONT_HEADER = Font(bold=True, color="FFFFFF", size=11)
+_FONT_SUB = Font(italic=True, size=11, color="525252")
+_FONT_NOTE = Font(size=10, color="525252")
+_FONT_NOTE_HEAD = Font(bold=True, size=11, color=_NAVY)
+_FONT_TOTAL = Font(bold=True, size=11)
+_FONT_ETAT = {
+    "facturable": Font(color="166534"),
+    "mois en cours": Font(color="92400E"),
+    "données incomplètes": Font(color="991B1B"),
+}
+_ALIGN_LEFT = Alignment(horizontal="left", vertical="center")
+_ALIGN_RIGHT = Alignment(horizontal="right", vertical="center")
+_ALIGN_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
+_ALIGN_WRAP = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+
+def _kwh_affiche(value) -> float | None:
+    """Deux décimales, comme l'affichage d'un relevé. Une case vide reste
+    vide : un zéro affiché serait un relevé à zéro, pas un relevé absent."""
+    if value is None:
+        return None
+    return float(f"{float(value):.2f}")
+
+
+def _index_affiche(value) -> float | None:
+    """Trois décimales : assez pour vérifier index de fin − index de début,
+    sans traînée binaire (594.2790000000001)."""
+    if value is None:
+        return None
+    return float(f"{float(value):.3f}")
+
+
+def _somme_affichee(values: list) -> float | None:
+    nums = [v for v in values if v is not None]
+    if not nums:
+        return None
+    return float(f"{sum(nums):.2f}")
+
+
+def _jour(ts: int, tz_name: str) -> str:
+    return datetime.fromtimestamp(ts, ZoneInfo(tz_name)).strftime("%d.%m.%Y")
+
+
+def _horodatage(ts: int, tz_name: str) -> str:
+    return datetime.fromtimestamp(ts, ZoneInfo(tz_name)).strftime("%d.%m.%Y à %H:%M")
+
+
+def _zones_du_mois(payload: dict, period_key: str) -> list[tuple]:
+    out = []
+    for z in payload.get("zones") or []:
+        e = (z.get("periodes") or {}).get(period_key)
+        if e is None:
+            continue
+        out.append((z, e))
+    return out
+
+
+def _couverture_mois(payload: dict, period_key: str, entries: list) -> tuple[str, str]:
+    """Libellé du mois et phrase de période, en heure suisse. Un mois en
+    cours s'arrête au dernier relevé, comme sur la page."""
+    tz = payload.get("timezone") or TIMEZONE
+    year, month = parse_period_key(period_key)
+    label = period_label(year, month)
+    start, end = period_bounds(year, month, tz)
+    for p in payload.get("periodes") or []:
+        if p.get("key") != period_key:
+            continue
+        label = p.get("label") or label
+        start = p.get("start", start)
+        end = p.get("end", end)
+        break
+
+    bat = ((payload.get("batiment") or {}).get("periodes") or {}).get(period_key) or {}
+    generated = payload.get("generated_at")
+    en_cours = bool(bat.get("en_cours")) or any(e.get("en_cours") for _, e in entries)
+    if generated and end > generated:
+        en_cours = True
+
+    if not en_cours:
+        return label, f"{_jour(start, tz)} → {_jour(end - 1, tz)} (heure de Suisse)"
+
+    stamps = []
+    for _, e in entries:
+        for side in ("reseau", "solaire", "controle"):
+            ts = (e.get(side) or {}).get("releve_fin_ts")
+            if ts:
+                stamps.append(ts)
+    prod_ts = (bat.get("production") or {}).get("releve_fin_ts")
+    if prod_ts:
+        stamps.append(prod_ts)
+    if stamps:
+        return label, (
+            f"{_jour(start, tz)} → {_jour(max(stamps), tz)} (dernier relevé, mois en cours)"
+        )
+    return label, f"{_jour(start, tz)} → {_jour(end - 1, tz)} (mois en cours)"
+
+
+def _releves_manquants(entries: list) -> list[str]:
+    """Pourquoi une ligne n'est pas facturable. Les alertes des colonnes
+    d'abord ; à défaut, celles de la zone (répartition impossible, compteur
+    muet). Le mois en cours est déjà dit dans le sous-titre."""
+    lignes = []
+    for z, e in entries:
+        if etat_zone(e) == "mois en cours":
+            continue
+        nom = z.get("label") or z.get("zone") or ""
+        cote_lignes = []
+        for cote, key in (("Réseau", "reseau"), ("Solaire", "solaire")):
+            for detail in (e.get(key) or {}).get("alertes") or []:
+                cote_lignes.append(f"{nom} — {cote} : {detail}")
+        if cote_lignes:
+            lignes.extend(cote_lignes)
+            continue
+        if etat_zone(e) == "facturable":
+            continue
+        for detail in e.get("alertes") or []:
+            lignes.append(f"{nom} : {detail}")
+    return lignes
+
+
+def _notes_classeur(payload: dict, manquants: list[str]) -> list[tuple[str, str]]:
+    notes: list[tuple[str, str]] = [(
+        "Chaque zone est scindée en kWh achetés au réseau et kWh solaires "
+        "autoconsommés. La consommation est leur somme.",
+        "note",
+    )]
+    rep = payload.get("repartition") or {}
+    if rep.get("source") == "calculee":
+        notes.append((
+            "Ces parts sont calculées. La consommation vient du compteur du lot, "
+            "répartie selon le mix du bâtiment (production moins réinjection). "
+            "Les séries Grid et Solaire du Miniserver ne sont pas utilisées.",
+            "note",
+        ))
+    elif rep.get("source") == "loxone" and not rep.get("confiance_verifiee"):
+        notes.append((
+            "Ces parts sont les mesures du Miniserver. Le bilan du bâtiment "
+            "ne permet pas de les revérifier.",
+            "note",
+        ))
+    elif rep.get("source") == "loxone":
+        notes.append(("Ces parts sont les mesures du Miniserver.", "note"))
+    notes.append((
+        "Une case vide n'est pas un zéro : le relevé manque, et le total "
+        "ne compte que les relevés présents.",
+        "note",
+    ))
+    notes.append((
+        "Le total porte sur toutes les zones. Filtrer le tableau ne change pas ce total.",
+        "note",
+    ))
+    if manquants:
+        notes.append(("Relevés incomplets", "head"))
+        notes.extend((ligne, "note") for ligne in manquants)
+    return notes
+
+
+def _style_kwh(cell, value) -> None:
+    if isinstance(value, float):
+        cell.number_format = _KWH_FMT
+        cell.alignment = _ALIGN_RIGHT
+    else:
+        cell.alignment = _ALIGN_RIGHT
+
+
+def _tarif_du_mois(entries: list) -> dict | None:
+    """Un mois n'a qu'un tarif pour le site. On prend celui déjà résolu
+    sur les zones (tarif_for au début de la période)."""
+    for _, e in entries:
+        tarif = e.get("tarif") or None
+        if tarif and tarif.get("prix_reseau") is not None and tarif.get("prix_solaire") is not None:
+            return tarif
+    return None
+
+
+def _formule_produit(qte: str, prix: str) -> str:
+    """Montant vide si la quantité ou le prix manque : un 0 CHF ne doit
+    pas se confondre avec une ligne sans relevé."""
+    return f'=IF(OR({qte}="",{prix}=""),"",{qte}*{prix})'
+
+
+def _formule_somme(col: str, first: int, last: int) -> str:
+    return f'=IF(COUNT({col}{first}:{col}{last})=0,"",SUM({col}{first}:{col}{last}))'
+
+
+def _mise_en_page(ws, ncol: int, last_row: int, header_row: int,
+                  site: str, label: str, footer: str) -> None:
+    last_col = get_column_letter(ncol)
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.horizontalCentered = True
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_margins = PageMargins(left=0.5, right=0.5, top=0.75, bottom=0.6, header=0.28, footer=0.28)
+    ws.print_title_rows = f"1:{header_row}"
+    ws.print_area = f"A1:{last_col}{last_row}"
+    ws.freeze_panes = f"A{header_row + 1}"
+    ws.sheet_view.showGridLines = False
+    ws.sheet_view.zoomScale = 110
+    ws.sheet_properties.tabColor = _NAVY
+    ws.oddHeader.left.text = site or "Décompte"
+    ws.oddHeader.right.text = label
+    ws.oddFooter.left.text = footer
+    ws.oddFooter.right.text = "Page &P / &N"
+    ws.page_setup.oddEven = False
+
+
+def _ecrire_titre(ws, titre: str, sous: str, ncol: int) -> None:
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncol)
+    cell = ws.cell(1, 1, titre)
+    cell.font = _FONT_TITLE
+    cell.alignment = _ALIGN_LEFT
+    ws.row_dimensions[1].height = 26
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ncol)
+    cell = ws.cell(2, 1, sous)
+    cell.font = _FONT_SUB
+    cell.alignment = _ALIGN_WRAP
+    ws.row_dimensions[2].height = 32
+
+
+def _prix_jaune(cell, value, fmt: str) -> None:
+    cell.value = value
+    cell.fill = _FILL_EDIT
+    cell.border = _THIN
+    cell.font = Font(bold=True)
+    cell.number_format = fmt
+    cell.alignment = _ALIGN_RIGHT
+
+
+def _compteurs_statistiques(zone: dict, calculee: bool) -> list[tuple[str, str]]:
+    """Compteur physique de l'appartement, celui dont les statistiques
+    du Miniserver sont un index. En répartition recalculée c'est le
+    compteur du lot. Sinon les compteurs mesurés (réseau et solaire),
+    ou le compteur unique du lot quand il n'y a pas de split."""
+    sources = zone.get("sources") or {}
+
+    def add(key, out, seen):
+        src = sources.get(key) or {}
+        sid = src.get("series_id")
+        if not sid or sid in seen:
+            return
+        seen.add(sid)
+        out.append((src.get("label") or key, sid))
+
+    out, seen = [], set()
+    if calculee or not (sources.get("reseau") or sources.get("solaire")):
+        add("controle", out, seen)
+    else:
+        add("reseau", out, seen)
+        add("solaire", out, seen)
+    return out
+
+
+def _points_horaires(conn, series_ids: list[str], start: int, end: int) -> dict[str, list[tuple]]:
+    """Points Statistics du Miniserver, un par échantillon."""
+    if conn is None or not series_ids:
+        return {}
+    marks = ",".join("?" * len(series_ids))
+    rows = conn.execute(
+        f"""
+        SELECT series_id, ts, value FROM statistic_samples
+        WHERE series_id IN ({marks}) AND ts >= ? AND ts < ?
+        ORDER BY series_id, ts
+        """,
+        (*series_ids, start, end),
+    ).fetchall()
+    out: dict[str, list[tuple]] = {}
+    for sid, ts, value in rows:
+        out.setdefault(sid, []).append((ts, value))
+    return out
+
+
+def _bornes_mois(payload: dict, period_key: str) -> tuple[int, int]:
+    tz = payload.get("timezone") or TIMEZONE
+    year, month = parse_period_key(period_key)
+    start, end = period_bounds(year, month, tz)
+    for p in payload.get("periodes") or []:
+        if p.get("key") == period_key:
+            start = p.get("start", start)
+            end = p.get("end", end)
+            break
+    return start, end
+
+
+def _ecrire_onglet_releves(wb: Workbook, entries: list, payload: dict, period_key: str,
+                           site: str, label: str, couverture: str, tz: str, conn) -> None:
+    """Une ligne par point horaire des statistiques du Miniserver, pour
+    le compteur de chaque appartement."""
+    calculee = (payload.get("repartition") or {}).get("source") == "calculee"
+    start, end = _bornes_mois(payload, period_key)
+    compteurs = []
+    for z, _e in entries:
+        zone = z.get("label") or z.get("zone") or ""
+        for nom, sid in _compteurs_statistiques(z, calculee):
+            compteurs.append((zone, nom, sid))
+    points = _points_horaires(conn, [sid for _, _, sid in compteurs], start, end)
+
+    ws = wb.create_sheet("Relevés")
+    ncol = 4
+    sous = (
+        f"{label}  ·  {couverture}. Une ligne par point horaire enregistré "
+        "dans les statistiques du Miniserver, pour le compteur de chaque appartement."
+    )
+    _ecrire_titre(ws, f"Relevés de compteurs — {site}" if site else "Relevés de compteurs", sous, ncol)
+    ws.row_dimensions[2].height = 36
+    headers = ["Zone", "Compteur", "Date", "Index"]
+    header_row = 4
+    for col, nom in enumerate(headers, start=1):
+        cell = ws.cell(header_row, col, nom)
+        cell.font = _FONT_HEADER
+        cell.fill = _FILL_HEADER
+        cell.alignment = _ALIGN_CENTER
+        cell.border = _THIN
+    ws.row_dimensions[header_row].height = 22
+
+    row = header_row
+    for zone, nom, sid in compteurs:
+        for ts, value in points.get(sid, []):
+            row += 1
+            ws.cell(row, 1, zone).alignment = _ALIGN_LEFT
+            ws.cell(row, 2, nom).alignment = _ALIGN_LEFT
+            date = ws.cell(row, 3, _horodatage(int(ts), tz))
+            date.alignment = _ALIGN_CENTER
+            index = ws.cell(row, 4, _index_affiche(value))
+            index.number_format = _INDEX_FMT
+            index.alignment = _ALIGN_RIGHT
+
+    n_points = row - header_row
+    if n_points:
+        ws.auto_filter.ref = f"A{header_row}:D{row}"
+    for col, width in {"A": 22, "B": 36, "C": 22, "D": 16}.items():
+        ws.column_dimensions[col].width = width
+    _mise_en_page(
+        ws, ncol, max(row, header_row), header_row, site, label, "Relevés de compteurs",
+    )
+
+
+def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None) -> Workbook:
+    """Classeur du mois choisi, ouvrable tel quel.
+
+    Les chiffres sont ceux de `export_lignes` (donc de la page), arrondis
+    au centième de kWh pour que la somme des lignes égale le total affiché.
+    Lève KeyError si le mois n'a aucune zone.
+    """
+    entries = _zones_du_mois(payload, period_key)
+    if not entries:
+        raise KeyError(period_key)
+
+    tz = payload.get("timezone") or TIMEZONE
+    label, couverture = _couverture_mois(payload, period_key, entries)
+    generated = payload.get("generated_at")
+    manquants = _releves_manquants(entries)
+
+    lignes = []
+    for z, e in entries:
+        lignes.append({
+            "zone": z.get("label") or z.get("zone") or "",
+            "reseau": _kwh_affiche((e.get("reseau") or {}).get("kwh")),
+            "solaire": _kwh_affiche((e.get("solaire") or {}).get("kwh")),
+            "total": _kwh_affiche(e.get("total")),
+            "etat": etat_zone(e),
+        })
+    totaux = {
+        "reseau": _somme_affichee([ln["reseau"] for ln in lignes]),
+        "solaire": _somme_affichee([ln["solaire"] for ln in lignes]),
+        "total": _somme_affichee([ln["total"] for ln in lignes]),
+    }
+    taux = None
+    if totaux["total"]:
+        taux = (totaux["solaire"] or 0.0) / totaux["total"]
+
+    wb = Workbook()
+    wb.calculation.calcMode = "auto"
+    wb.calculation.fullCalcOnLoad = True
+    ws = wb.active
+    ws.title = "Décompte"
+
+    sous = label + "  ·  " + couverture
+    if generated:
+        sous += f"  ·  généré le {_horodatage(int(generated), tz)}"
+    _ecrire_titre(
+        ws,
+        f"Décompte de charges — {site}" if site else "Décompte de charges",
+        sous, _XLSX_NCOL,
+    )
+    ws.row_dimensions[2].height = 22
+    ws.row_dimensions[3].height = 8
+
+    tarif = _tarif_du_mois(entries)
+    prix_reseau = tarif.get("prix_reseau") if tarif else None
+    prix_solaire = tarif.get("prix_solaire") if tarif else None
+    taux_tva = tarif.get("taux_tva") if tarif else None
+    ws.cell(_PRIX_RESEAU_ROW, 1, "Prix réseau (CHF/kWh)").font = Font(bold=True, color=_NAVY)
+    ws.cell(_PRIX_SOLAIRE_ROW, 1, "Prix solaire (CHF/kWh)").font = Font(bold=True, color=_NAVY)
+    ws.cell(_TVA_ROW, 1, "TVA (%)").font = Font(bold=True, color=_NAVY)
+    _prix_jaune(ws.cell(_PRIX_RESEAU_ROW, 2), prix_reseau, _PRIX_FMT)
+    _prix_jaune(ws.cell(_PRIX_SOLAIRE_ROW, 2), prix_solaire, _PRIX_FMT)
+    _prix_jaune(ws.cell(_TVA_ROW, 2), taux_tva, _TVA_FMT)
+    for r in (_PRIX_RESEAU_ROW, _PRIX_SOLAIRE_ROW, _TVA_ROW):
+        ws.row_dimensions[r].height = 20
+    vf = str((tarif or {}).get("valid_from") or "")
+    if len(vf) >= 10 and vf[4] == "-" and vf[7] == "-":
+        origine = f"Tarif en vigueur depuis le {vf[8:10]}.{vf[5:7]}.{vf[:4]}."
+    elif tarif:
+        origine = "Tarif enregistré pour ce site."
+    else:
+        origine = "Aucun tarif enregistré pour ce mois."
+    ws.merge_cells(start_row=_PRIX_RESEAU_ROW, start_column=3, end_row=_TVA_ROW, end_column=_XLSX_NCOL)
+    note_prix = ws.cell(
+        _PRIX_RESEAU_ROW, 3,
+        f"{origine} Les cases jaunes sont modifiables : les montants se recalculent. "
+        "Une quantité vide ne donne pas de montant.",
+    )
+    note_prix.font = _FONT_SUB
+    note_prix.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    ref_prix_reseau = f"$B${_PRIX_RESEAU_ROW}"
+    ref_prix_solaire = f"$B${_PRIX_SOLAIRE_ROW}"
+    ref_tva = f"$B${_TVA_ROW}"
+
+    for col, nom in enumerate(_XLSX_HEADERS, start=1):
+        cell = ws.cell(_XLSX_HEADER_ROW, col, nom)
+        cell.font = _FONT_HEADER
+        cell.fill = _FILL_HEADER
+        cell.alignment = _ALIGN_CENTER
+        cell.border = _THIN
+    ws.row_dimensions[_XLSX_HEADER_ROW].height = 32
+
+    first_data = _XLSX_HEADER_ROW + 1
+    for i, ln in enumerate(lignes):
+        row = first_data + i
+        incomplet = ln["etat"] != "facturable"
+        fill = _FILL_AMBER if incomplet else (_FILL_STRIPE if i % 2 else None)
+        kwh_reseau = f"{get_column_letter(_COL_KWH_RESEAU)}{row}"
+        kwh_solaire = f"{get_column_letter(_COL_KWH_SOLAIRE)}{row}"
+        chf_reseau = f"{get_column_letter(_COL_CHF_RESEAU)}{row}"
+        chf_solaire = f"{get_column_letter(_COL_CHF_SOLAIRE)}{row}"
+        ht = f"{get_column_letter(_COL_HT)}{row}"
+        tva = f"{get_column_letter(_COL_TVA)}{row}"
+        valeurs = {
+            1: ln["zone"],
+            _COL_KWH_RESEAU: ln["reseau"],
+            _COL_KWH_SOLAIRE: ln["solaire"],
+            4: ln["total"],
+            _COL_CHF_RESEAU: _formule_produit(kwh_reseau, ref_prix_reseau),
+            _COL_CHF_SOLAIRE: _formule_produit(kwh_solaire, ref_prix_solaire),
+            _COL_HT: f'=IF(OR({chf_reseau}="",{chf_solaire}=""),"",{chf_reseau}+{chf_solaire})',
+            _COL_TVA: f'=IF(OR({ht}="",{ref_tva}=""),"",{ht}*{ref_tva}/100)',
+            _COL_TTC: f'=IF({ht}="","",{ht}+{tva})',
+            _COL_ETAT: ln["etat"],
+        }
+        for col in range(1, _XLSX_NCOL + 1):
+            cell = ws.cell(row, col, valeurs[col])
+            cell.border = _THIN
+            if fill is not None:
+                cell.fill = fill
+            if col in (_COL_KWH_RESEAU, _COL_KWH_SOLAIRE, 4):
+                _style_kwh(cell, valeurs[col])
+                if col == 4 and valeurs[col] is not None:
+                    cell.font = Font(bold=True)
+            elif col in (_COL_CHF_RESEAU, _COL_CHF_SOLAIRE, _COL_HT, _COL_TVA, _COL_TTC):
+                cell.number_format = _CHF_FMT
+                cell.alignment = _ALIGN_RIGHT
+                if col == _COL_TTC:
+                    cell.font = Font(bold=True)
+            elif col == _COL_ETAT:
+                cell.font = _FONT_ETAT.get(ln["etat"], Font())
+                cell.alignment = _ALIGN_CENTER
+            else:
+                cell.alignment = _ALIGN_LEFT
+        ws.row_dimensions[row].height = 18
+
+    last_data = first_data + len(lignes) - 1
+    total_row = last_data + 1
+    for col in range(1, _XLSX_NCOL + 1):
+        cell = ws.cell(total_row, col, None)
+        cell.font = _FONT_TOTAL
+        cell.fill = _FILL_TOTAL
+        cell.border = _TOTAL_BORDER
+        if col == 1:
+            cell.value = "Total immeuble"
+            cell.alignment = _ALIGN_LEFT
+        elif col == _COL_KWH_RESEAU:
+            cell.value = totaux["reseau"]
+            _style_kwh(cell, totaux["reseau"])
+        elif col == _COL_KWH_SOLAIRE:
+            cell.value = totaux["solaire"]
+            _style_kwh(cell, totaux["solaire"])
+        elif col == 4:
+            cell.value = totaux["total"]
+            _style_kwh(cell, totaux["total"])
+        elif col in (_COL_CHF_RESEAU, _COL_CHF_SOLAIRE, _COL_HT, _COL_TVA, _COL_TTC):
+            letter = get_column_letter(col)
+            cell.value = _formule_somme(letter, first_data, last_data)
+            cell.number_format = _CHF_FMT
+            cell.alignment = _ALIGN_RIGHT
+        else:
+            cell.alignment = _ALIGN_CENTER
+    ws.row_dimensions[total_row].height = 22
+
+    ws.auto_filter.ref = f"A{_XLSX_HEADER_ROW}:{get_column_letter(_XLSX_NCOL)}{last_data}"
+
+    rate_row = total_row + 2
+    if taux is not None:
+        phrase_taux = (
+            f"Taux d'autoproduction : {taux * 100:.0f} % — part de la "
+            "consommation couverte par le solaire autoconsommé."
+        )
+    else:
+        phrase_taux = (
+            "Taux d'autoproduction : pas calculé, la consommation du mois "
+            "n'est pas connue."
+        )
+    ws.merge_cells(start_row=rate_row, start_column=1, end_row=rate_row, end_column=_XLSX_NCOL)
+    expl = ws.cell(rate_row, 1, phrase_taux)
+    expl.font = Font(bold=True, size=12, color=_NAVY)
+    expl.alignment = _ALIGN_WRAP
+    ws.row_dimensions[rate_row].height = 22
+
+    note_row = rate_row + 2
+    for text, kind in _notes_classeur(payload, manquants):
+        ws.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=_XLSX_NCOL)
+        cell = ws.cell(note_row, 1, text)
+        cell.font = _FONT_NOTE_HEAD if kind == "head" else _FONT_NOTE
+        cell.alignment = _ALIGN_WRAP
+        lignes_texte = max(1, (len(text) + 139) // 140)
+        ws.row_dimensions[note_row].height = 16 * lignes_texte + 4
+        note_row += 1
+    last_row = note_row - 1
+
+    largeur_zone = max((len(ln["zone"]) for ln in lignes), default=12)
+    ws.column_dimensions["A"].width = min(42, max(28, largeur_zone + 3))
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 20
+    for col in ("E", "F", "G", "I"):
+        ws.column_dimensions[col].width = 18
+    ws.column_dimensions["H"].width = 14
+    ws.column_dimensions["J"].width = 24
+
+    _mise_en_page(ws, _XLSX_NCOL, last_row, _XLSX_HEADER_ROW, site, label, "Décompte RCP · kWh et CHF")
+    _ecrire_onglet_releves(
+        wb, entries, payload, period_key, site, label, couverture, tz, conn,
+    )
+
+    wb.properties.title = f"Décompte {site} {label}".strip()
+    wb.properties.creator = "Loxone Collector"
+    return wb
 
 
 def available_range(conn, zones: list[dict], batiment: dict) -> tuple[int, int] | None:
