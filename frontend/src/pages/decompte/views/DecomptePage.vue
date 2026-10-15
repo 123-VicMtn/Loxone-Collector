@@ -69,6 +69,7 @@ const dernierReleveTs = computed<number | null>(() => {
   for (const z of payload.value.zones) {
     const e = z.periodes[periodeKey.value]
     if (!e) continue
+    if (e.controle.releve_fin_ts) stamps.push(e.controle.releve_fin_ts)
     if (e.reseau.releve_fin_ts) stamps.push(e.reseau.releve_fin_ts)
     if (e.solaire.releve_fin_ts) stamps.push(e.solaire.releve_fin_ts)
   }
@@ -292,6 +293,24 @@ onMounted(async () => {
           <strong>achetés au réseau</strong> et les kWh
           <strong>solaires autoconsommés</strong>.
         </p>
+        <p v-if="payload.repartition.source === 'calculee'" class="mt-2 text-sm text-neutral-600">
+          Ces parts sont calculées. La consommation vient du compteur du lot,
+          répartie selon le mix du bâtiment (production moins réinjection).
+          Les séries Grid et Solaire du Miniserver ne servent pas à ce décompte.
+        </p>
+        <p
+          v-else-if="!payload.repartition.confiance_verifiee"
+          class="mt-2 text-sm text-neutral-600"
+        >
+          Ces parts sont les mesures du Miniserver. Le bilan du bâtiment ne
+          permet pas de les revérifier.
+        </p>
+        <ul
+          v-if="payload.repartition.source === 'calculee' && payload.repartition.raisons.length"
+          class="mt-2 list-disc space-y-1 pl-5 text-sm text-neutral-500"
+        >
+          <li v-for="(raison, i) in payload.repartition.raisons" :key="i">{{ raison }}</li>
+        </ul>
       </Card>
 
       <Card title="Consommation mensuelle de l'immeuble" hint="comparée à la production solaire">

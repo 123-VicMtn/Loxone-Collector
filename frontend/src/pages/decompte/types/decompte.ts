@@ -93,6 +93,13 @@ export interface Batiment {
   periodes: Record<string, BatimentPeriod>
 }
 
+/** Décision de repartition.evaluer_site, déjà appliquée aux kWh du payload. */
+export interface RepartitionInfo {
+  source: 'calculee' | 'loxone'
+  confiance_verifiee: boolean
+  raisons: string[]
+}
+
 export interface DecomptePayload {
   timezone: string
   periodes: Period[]
@@ -101,4 +108,5 @@ export interface DecomptePayload {
   tarifs: Tarif[]
   generated_at: number
   miniserver: string
+  repartition: RepartitionInfo
 }
