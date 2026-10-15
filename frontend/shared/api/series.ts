@@ -4,7 +4,7 @@
  * seule fois par chargement de page -- port direct de core/api.js.
  */
 
-import { fetchJSON } from './http'
+import { fetchJSON, postJSON } from './http'
 import type { ReadingDelta, Series } from '../types/series'
 
 let allSeries: Series[] = []
@@ -48,12 +48,35 @@ export async function fetchSeriesData(seriesId: string, range: string): Promise<
 }
 
 /** Points bruts entre deux timestamps Unix (secondes), pour une courbe
- * du jour (minuit → maintenant) plutôt qu'un preset 1h/24h. */
+ * du jour (minuit → maintenant) plutôt qu'un preset 1h/24h.
+ * Ces points viennent du collecteur. Le graphique de l'aperçu n'utilise
+ * pas cette fonction : il lit Statistics sur le Miniserver. */
 export async function fetchSeriesWindow(seriesId: string, start: number, end: number): Promise<SeriesDataPoint[]> {
   const data = await fetchJSON<SeriesDataResponse>(
     `/api/series/${encodeURIComponent(seriesId)}/data?start=${start}&end=${end}`,
   )
   return data.points
+}
+
+export interface MiniserverPower {
+  points: Record<string, SeriesDataPoint[]>
+  missing: string[]
+}
+
+/** Puissance `actual` lue sur le Miniserver (Statistics), pour la courbe
+ * de l'aperçu. Indépendant des mesures stockées par le collecteur. */
+export async function fetchMiniserverPower(
+  miniserver: string,
+  seriesIds: string[],
+  from: number,
+  to: number,
+): Promise<MiniserverPower> {
+  return postJSON<MiniserverPower>('/api/apercu/puissance', {
+    miniserver,
+    series_ids: seriesIds,
+    from,
+    to,
+  })
 }
 
 /** Consommation d'une série cumulative sur [from, to[ (relevé de fin -

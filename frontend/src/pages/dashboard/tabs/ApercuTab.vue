@@ -2,12 +2,14 @@
 /**
  * Aperçu d'un immeuble depuis minuit, heure de Zurich : tuiles (index
  * cumulatif, même méthode que /decompte) et courbe de puissance.
+ * La courbe est lue sur le Miniserver (Statistics), pas dans les mesures
+ * du collecteur : elle s'affiche même si le poller est arrêté.
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import type { ChartOptions } from 'chart.js'
-import { fetchRange, fetchSeriesWindow, loadAllSeries } from '@shared/api/series'
+import { fetchMiniserverPower, fetchRange, loadAllSeries, type MiniserverPower } from '@shared/api/series'
 import type { ReadingDelta, Series } from '@shared/types/series'
 import { PALETTE_GRID, PALETTE_SOLAR } from '@shared/charts'
 import { fmtNumber } from '@shared/format'
@@ -31,11 +33,15 @@ const allSeries = ref<Series[]>([])
 const site = ref('')
 const balance = ref<DayBalance | null>(null)
 const loading = ref(true)
+const powerLoading = ref(false)
+const powerError = ref('')
+const powerMissing = ref(0)
 
 const sites = computed(() => Array.from(new Set(allSeries.value.map((s) => s.miniserver))).sort())
 const power = ref<{ ts: number; solar: number; consumption: number }[]>([])
 const axisFrom = ref(0)
 const axisTo = ref(0)
+let refreshToken = 0
 
 function hourLabel(epoch: number): string {
   return new Date(epoch * 1000).toLocaleTimeString('fr-CH', {
@@ -127,12 +133,25 @@ async function sumCovered(list: Series[], from: number, to: number): Promise<num
 
 async function refresh() {
   if (!site.value) return
+  const token = ++refreshToken
   loading.value = true
   const series = allSeries.value.filter((s) => s.miniserver === site.value)
   const [from, to] = todayBounds()
   axisFrom.value = from
   axisTo.value = to
   const productionSeries = pickProduction(series)
+  const solarActual = actualsOf(series, productionSeries ? [productionSeries] : [])
+  const consumerActual = actualsOf(series, buildingConsumerSeries(series))
+  const seriesIds = [...solarActual, ...consumerActual].map((s) => s.series_id)
+  powerLoading.value = true
+  powerError.value = ''
+  powerMissing.value = 0
+  power.value = []
+  const emptyPower: MiniserverPower = { points: {}, missing: [] }
+  const powerPromise: Promise<MiniserverPower> = seriesIds.length
+    ? fetchMiniserverPower(site.value, seriesIds, from, to)
+    : Promise.resolve(emptyPower)
+
   const production = productionSeries
     ? await coveredKwh(fetchRange(productionSeries.series_id, from, to), from, to)
     : null
@@ -152,16 +171,25 @@ async function refresh() {
     consumption = await sumCovered(lotConsumptionSeries(series), from, to)
   }
 
+  if (token !== refreshToken) return
   balance.value = balanceFromKwh(production, solarOnSite, consumption)
-
-  const solarTotals = productionSeries ? [productionSeries] : []
-  const consumers = buildingConsumerSeries(series)
-  const [solarPoints, consumptionPoints] = await Promise.all([
-    Promise.all(actualsOf(series, solarTotals).map((s) => fetchSeriesWindow(s.series_id, from, to))),
-    Promise.all(actualsOf(series, consumers).map((s) => fetchSeriesWindow(s.series_id, from, to))),
-  ])
-  power.value = stackPower(solarPoints, consumptionPoints)
   loading.value = false
+
+  try {
+    const live = await powerPromise
+    if (token !== refreshToken) return
+    powerMissing.value = live.missing.length
+    power.value = stackPower(
+      solarActual.map((s) => live.points[s.series_id] || []),
+      consumerActual.map((s) => live.points[s.series_id] || []),
+    )
+  } catch (err) {
+    console.error(err)
+    powerError.value = 'Le Miniserver n’a pas renvoyé la puissance.'
+    power.value = []
+  } finally {
+    if (token === refreshToken) powerLoading.value = false
+  }
 }
 
 onMounted(async () => {
@@ -210,11 +238,17 @@ watch(site, () => { void refresh() })
       </div>
 
       <div class="w-full rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
-        <h2 class="mb-2 text-sm font-semibold text-neutral-700">Puissance depuis minuit</h2>
-        <div class="h-[32rem] w-full">
-          <Line v-if="chartData" :data="chartData as never" :options="areaOptions" />
-          <p v-else class="text-sm text-neutral-500">Pas de puissance relevée aujourd’hui.</p>
+        <h2 class="mb-1 text-sm font-semibold text-neutral-700">Puissance depuis minuit</h2>
+        <p class="mb-2 text-sm text-neutral-500">Enregistrée par le Miniserver.</p>
+        <p v-if="powerLoading" class="text-sm text-neutral-500">Lecture de la puissance sur le Miniserver…</p>
+        <p v-else-if="powerError" class="text-sm text-red-700">{{ powerError }}</p>
+        <div v-else class="h-[32rem] w-full">
+          <Line v-if="chartData && power.length" :data="chartData as never" :options="areaOptions" />
+          <p v-else class="text-sm text-neutral-500">Pas de puissance enregistrée sur le Miniserver depuis minuit.</p>
         </div>
+        <p v-if="powerMissing" class="mt-2 text-sm text-neutral-500">
+          {{ powerMissing }} compteur(s) sans historique Statistics sur le Miniserver.
+        </p>
       </div>
     </div>
   </div>
