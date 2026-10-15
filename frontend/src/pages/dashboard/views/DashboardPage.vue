@@ -1,19 +1,16 @@
 <script setup lang="ts">
 /**
- * Page / -- port Vue de templates/index.html + static/js/main.js.
- * La sidebar reste visible en permanence (colonne de gauche), seul le
- * contenu de droite change avec l'onglet actif -- voir
- * composables/useExplorerSelection pour pourquoi la sélection Explorer vit
- * ici plutôt que dans l'onglet ou dans la sidebar.
+ * Page / : onglets Aperçu et Relevés. La navigation entre pages est dans
+ * la barre du haut (shared/components/AppNavbar.vue).
  *
- * Migration en plusieurs commits (voir CLAUDE.md, "pages/dashboard/") --
- * les 3 onglets sont désormais fonctionnels.
+ * Mode avancé (Explorer) reste dans le code mais masqué : voir
+ * SHOW_ADVANCED_TAB et la note du 2026-10-02 dans CLAUDE.md. La sélection
+ * Explorer vit ici (useExplorerSelection) parce que la sidebar et l'onglet
+ * sont frères.
  */
 
 import { ref } from 'vue'
 import { useHealthFooter } from '@shared/composables/useHealthFooter'
-import { authState } from '@shared/auth'
-import AuthStatus from '@shared/components/AuthStatus.vue'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
 import RelevesTab from '../tabs/RelevesTab.vue'
@@ -22,10 +19,15 @@ import { useExplorerSelection } from '../composables/useExplorerSelection'
 
 type TabKey = 'apercu' | 'explorer' | 'releves'
 
+/** Provisoire (2026-10-02). `true` réaffiche l'onglet et sa confirmation. */
+const SHOW_ADVANCED_TAB = false
+
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'apercu', label: 'Aperçu' },
   { key: 'releves', label: 'Relevés' },
-  { key: 'explorer', label: 'Mode avancé' },
+  ...(SHOW_ADVANCED_TAB
+    ? [{ key: 'explorer' as const, label: 'Mode avancé' }]
+    : []),
 ]
 
 const activeTab = ref<TabKey>('apercu')
@@ -50,32 +52,12 @@ function confirmAdvanced() {
 <template>
   <div class="flex w-full flex-col gap-6 px-4 py-6" :class="activeTab === 'explorer' ? 'lg:flex-row' : ''">
     <aside v-if="activeTab === 'explorer'" class="lg:w-64 lg:shrink-0">
-      <h1 class="text-xl font-bold text-neutral-900">Loxone</h1>
       <p class="mb-4 text-sm text-neutral-500">Capteurs suivis</p>
-      <div class="mb-4 flex flex-col gap-1 text-sm">
-        <router-link
-          v-if="authState.role === 'admin'"
-          to="/admin"
-          class="text-blue-600 hover:underline"
-          title="Corriger la classification des capteurs"
-        >Classification</router-link>
-        <router-link to="/decompte" class="text-blue-600 hover:underline" title="Décompte de charges mensuel par zone">Décompte de charges</router-link>
-      </div>
-      <AuthStatus class="mb-4" />
       <Sidebar :is-selected="isSelected" :on-toggle="onToggle" />
     </aside>
 
     <main class="min-w-0 w-full flex-1">
-      <div v-if="activeTab !== 'explorer'" class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <h1 class="text-xl font-bold text-neutral-900">Loxone</h1>
-        <router-link
-          v-if="authState.role === 'admin'"
-          to="/admin"
-          class="text-sm text-blue-600 hover:underline"
-        >Classification</router-link>
-        <router-link to="/decompte" class="text-sm text-blue-600 hover:underline">Décompte de charges</router-link>
-        <AuthStatus class="sm:ml-auto" />
-      </div>
+      <h1 class="mb-4 text-xl font-bold text-neutral-900">Dashboard</h1>
       <div class="mb-4 flex gap-1 border-b border-neutral-200" role="tablist">
         <button
           v-for="t in TABS"

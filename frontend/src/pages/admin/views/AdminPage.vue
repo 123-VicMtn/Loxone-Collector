@@ -11,7 +11,6 @@ import { computed, onMounted, ref } from 'vue'
 import { fetchResourceTypeLabels, fetchSeries } from '../api/admin'
 import type { EditableRow } from '../types/series'
 import { compareApartments } from '@shared/format'
-import AuthStatus from '@shared/components/AuthStatus.vue'
 import ClassificationTable from '../components/ClassificationTable.vue'
 
 const rows = ref<EditableRow[]>([])
@@ -48,11 +47,7 @@ onMounted(async () => {
 <template>
   <div class="mx-auto max-w-6xl space-y-6 px-4 py-8">
     <header class="border-b border-neutral-200 pb-6">
-      <div class="flex items-start justify-between gap-4">
-        <p class="text-sm"><router-link to="/" class="text-blue-600 hover:underline">&larr; Retour au dashboard</router-link></p>
-        <AuthStatus />
-      </div>
-      <h1 class="mt-2 text-2xl font-bold text-neutral-900">Classification des capteurs</h1>
+      <h1 class="text-2xl font-bold text-neutral-900">Classification des capteurs</h1>
       <p class="mt-1 text-sm text-neutral-500">
         Appartement et type de ressource sont devinés automatiquement (préfixe
         APPxx dans le nom, mots-clés pour le type). Corrige les lignes qui ne

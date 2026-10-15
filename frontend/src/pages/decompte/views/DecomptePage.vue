@@ -11,8 +11,6 @@ import { downloadDecompte, fetchDecompte, fetchMiniservers } from '../api/decomp
 import type { DecomptePayload, Period } from '../types/decompte'
 import { fmtDay, fmtPeriodBounds } from '../utils/format'
 import { useHealthFooter } from '@shared/composables/useHealthFooter'
-import { authState } from '@shared/auth'
-import AuthStatus from '@shared/components/AuthStatus.vue'
 
 import Card from '../components/Card.vue'
 import GlobalBanner from '../components/GlobalBanner.vue'
@@ -199,21 +197,12 @@ onMounted(async () => {
 
 <template>
   <div class="mx-auto max-w-6xl space-y-6 px-4 py-8">
-    <header class="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 pb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-neutral-900">Décompte de charges</h1>
-        <p class="mt-1 text-sm text-neutral-500">
-          Consommation de chaque zone répartie en part réseau et part solaire
-          autoconsommée — heure locale Europe/Zurich.
-        </p>
-      </div>
-      <div class="flex flex-col items-end gap-2">
-        <AuthStatus />
-        <nav class="flex gap-4 text-sm text-blue-600">
-          <router-link to="/" class="hover:underline">← Dashboard</router-link>
-          <router-link v-if="authState.role === 'admin'" to="/admin" class="hover:underline">Classification</router-link>
-        </nav>
-      </div>
+    <header class="border-b border-neutral-200 pb-6">
+      <h1 class="text-2xl font-bold text-neutral-900">Décompte de charges</h1>
+      <p class="mt-1 text-sm text-neutral-500">
+        Consommation de chaque zone répartie en part réseau et part solaire
+        autoconsommée — heure locale Europe/Zurich.
+      </p>
     </header>
 
     <label v-if="sites.length > 1" class="flex w-fit flex-col text-sm text-neutral-600">
@@ -227,7 +216,7 @@ onMounted(async () => {
       </select>
     </label>
 
-    <GlobalBanner v-if="payload && !loading && !empty" :payload="payload" />
+    <GlobalBanner v-if="payload && !loading && !empty" :payload="payload" :period-key="periodeKey" />
 
     <p v-if="loading || empty" class="text-sm text-neutral-500">{{ loadingMessage }}</p>
 

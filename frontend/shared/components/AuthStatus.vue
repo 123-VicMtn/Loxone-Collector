@@ -1,10 +1,5 @@
 <script setup lang="ts">
-/**
- * "Connecté en tant que X · Déconnexion", identique sur les 3 pages --
- * un seul composant plutôt que dupliquer ce petit bout de markup/logique
- * trois fois (voir CLAUDE.md, "chaque page garde son propre <header>" --
- * ce composant s'insère DANS ces en-têtes, il ne les remplace pas).
- */
+/** "Nom d'utilisateur · Déconnexion", affiché dans la barre de navigation. */
 
 import { useRouter } from 'vue-router'
 import { authState, logout } from '../auth'
