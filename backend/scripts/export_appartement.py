@@ -12,9 +12,9 @@ d'un décompte de charges complet.
 
 Les consommations sont calculées comme un relevé de compteur classique :
 valeur de l'index à la fin du mois moins valeur au début du mois (jamais une
-somme de deltas horaires), en heure locale Europe/Zurich, via
-billing._reading_delta -- la même primitive que /decompte, donc les chiffres
-de ce classeur et ceux de la page web ne peuvent pas divergerr.
+somme de deltas horaires), en heure locale Europe/Zurich. L'index est celui
+des Statistics du Miniserver (pas du collecteur), la même source que
+/decompte.
 
 Usage :
     python3 scripts/export_appartement.py <config.yaml> --appartement APP35 \\
@@ -49,6 +49,7 @@ from openpyxl.utils import get_column_letter
 
 import billing
 import db
+import miniserver_statistics
 import repartition
 from config import load_config
 
@@ -245,8 +246,8 @@ def compute(conn, compteurs: list[dict], periods: list[dict], now_ts: int) -> di
                 if start < WALLBOX_VALID_FROM:
                     start = WALLBOX_VALID_FROM
                     notes.append("historique Wallbox à partir du 04.03.2026")
-            d = billing._reading_delta(conn, c["series_id"], start, end,
-                                       now_ts, min_drop=c["min_drop"])
+            d = billing.reading_delta(conn, c["series_id"], start, end,
+                                      now_ts, min_drop=c["min_drop"], statistics=True)
             d["en_cours"] = p["start"] <= now_ts < p["end"]
             if notes:
                 d["alertes"] = notes + d.get("alertes", [])
@@ -326,7 +327,7 @@ def appliquer_repartition_calculee(conn, compteurs: list[dict], data: dict,
         mesure = data[total_cle][p["key"]]
         total = mesure["kwh"]
         split = repartition.split_zone(conn, conso_src["series_id"], frac,
-                                       p["start"], p["end"])
+                                       p["start"], p["end"], statistics=True)
         # Part solaire déduite des seules heures dont on connaît le mix.
         base = split["total"] - split["non_reparti"]
         part = (split["solaire"] / base) if base > 0 else None
@@ -1246,8 +1247,24 @@ def main() -> None:
     # --tous, ça évite aussi de recalculer la part solaire horaire 22 fois.
     zones = billing.resolve_zones(series_site)
     batiment = billing.resolve_batiment(series_site)
+    sync_info = miniserver_statistics.sync_decompte(
+        cfg, conn, ms_name, series_site, now_ts,
+        periods[0]["start"], periods[-1]["end"], toutes_les_series=True,
+    )
+    if not sync_info["ok"]:
+        raise SystemExit(f"Statistics du Miniserver illisibles : {sync_info['erreur']}")
+
+    actives = billing.productions_sur_fenetre(
+        conn, series_site, periods[0]["start"], periods[-1]["end"], statistics=True)
+    if actives:
+        batiment["productions"] = actives
+    couvrant = billing.production_couvrante(
+        conn, series_site, periods[0]["start"], periods[-1]["end"], statistics=True)
+    if couvrant:
+        batiment["production"] = couvrant
     ev = repartition.evaluer_site(conn, zones, batiment,
-                                  periods[0]["start"], periods[-1]["end"])
+                                  periods[0]["start"], periods[-1]["end"],
+                                  statistics=True)
 
     print(f"Site        : {ms_name}")
     print(f"Période     : {periods[0]['label']} -> {periods[-1]['label']} "

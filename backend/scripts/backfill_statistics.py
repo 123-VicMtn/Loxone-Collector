@@ -51,8 +51,6 @@ accédé par DynDNS Loxone.
 from __future__ import annotations
 
 import argparse
-import json
-import struct
 import sys
 import time
 from datetime import datetime, timezone
@@ -68,98 +66,12 @@ from loxone_client import (  # noqa: E402
     LoxoneClient,
     extract_measurable_points,
 )
-
-
-def find_stat_mapping(control: dict, state_name: str) -> tuple[str, str] | None:
-    """Retourne (group_id, output_name) si ce state a un dataPoint
-    statisticV2 correspondant dans le contrôle parent, sinon None (pas de
-    Statistics configuré pour ce state précis -- fréquent : seuls certains
-    states d'un contrôle, comme "actual"/"total", ont un historique, pas
-    forcément tous, ex: pas "jLocked").
-
-    IMPORTANT (corrigé le 2026-08-26, cf. check_statistics.py v1) : le champ
-    "statisticV2" est au NIVEAU RACINE du contrôle (control["statisticV2"]),
-    PAS sous "details" comme deviné initialement -- confirmé en conditions
-    réelles sur MS-Arlopi via la recherche générique de check_statistics.py
-    v2 (chemin observé : "controls.<uuid>.statisticV2", jamais
-    "controls.<uuid>.details.statisticV2"). Un repli sur "details" est gardé
-    au cas où un autre firmware Loxone range ça différemment."""
-    stat = control.get("statisticV2") or control.get("statistic") or {}
-    if not stat:
-        details = control.get("details") or {}
-        stat = details.get("statisticV2") or details.get("statistic") or {}
-    for group in stat.get("groups", []):
-        for dp in group.get("dataPoints", []):
-            if dp.get("output") == state_name:
-                return str(group.get("id")), state_name
-    return None
-
-
-def get_statistic_info(client: LoxoneClient, control_uuid: str) -> dict[str, int]:
-    """Appelle getStatisticInfo une seule fois par contrôle et retourne
-    {group_id: activeSince_unix_ts}. Résultat mis en cache par l'appelant
-    pour éviter un appel répété par state (plusieurs states peuvent
-    partager le même contrôle)."""
-    resp = client._get(f"/jdev/sps/getStatisticInfo/{control_uuid}")
-    try:
-        payload = resp.json()
-        raw_value = payload.get("LL", {}).get("value")
-        entries = json.loads(raw_value) if isinstance(raw_value, str) else (raw_value or [])
-    except (ValueError, TypeError, json.JSONDecodeError):
-        return {}
-    result = {}
-    for entry in entries:
-        gid = entry.get("id")
-        active_since = entry.get("activeSince")
-        if gid is not None and active_since is not None:
-            result[str(gid)] = int(active_since)
-    return result
-
-
-def fetch_raw_history(client: LoxoneClient, control_uuid: str, group_id: str,
-                       output_name: str, from_ts: int, to_ts: int) -> list[tuple[int, float]]:
-    """Récupère et décode l'historique brut pour UN seul output (donc un
-    seul Float64 par enregistrement -- taille d'enregistrement fixe et sans
-    ambiguïté, contrairement à une requête sans outputName)."""
-    path = (f"/jdev/sps/getStatistic/{control_uuid}/raw/{from_ts}/{to_ts}/"
-            f"all/{group_id}/{output_name}")
-    resp = client._session.get(
-        f"{client.base_url}{path}", auth=client._auth, timeout=60,
-        verify=client.verify_ssl if client.scheme == "https" else True,
-    )
-    if resp.status_code != 200:
-        raise LoxoneError(f"HTTP {resp.status_code} pour {path}")
-    body = resp.content
-    record_size = 12  # Uint32 ts (4o) + Float64 (8o), un seul output demandé
-    if len(body) % record_size != 0:
-        raise LoxoneError(
-            f"Taille de réponse inattendue ({len(body)} octets, pas un "
-            f"multiple de {record_size}) pour {path}"
-        )
-    n = len(body) // record_size
-    records = []
-    for i in range(n):
-        chunk = body[i * record_size:(i + 1) * record_size]
-        ts = struct.unpack_from("<I", chunk, 0)[0]
-        value = struct.unpack_from("<d", chunk, 4)[0]
-        records.append((ts, value))
-    return records
-
-
-def bucket_hourly(records: list[tuple[int, float]]) -> list[tuple[int, float, float, float, int]]:
-    """Regroupe des (ts, valeur) par heure -- (bucket_ts, avg, min, max,
-    nombre d'échantillons dans l'heure). Nécessaire même si la résolution
-    native semble déjà horaire pour un point donné : rien ne garantit que
-    ce soit le cas pour tous (ex: un compteur en mode différentiel pourrait
-    être enregistré plus souvent)."""
-    buckets: dict[int, list[float]] = {}
-    for ts, value in records:
-        bucket = (ts // 3600) * 3600
-        buckets.setdefault(bucket, []).append(value)
-    return [
-        (bucket, sum(values) / len(values), min(values), max(values), len(values))
-        for bucket, values in buckets.items()
-    ]
+from miniserver_statistics import (  # noqa: E402
+    bucket_hourly,
+    fetch_raw_history,
+    find_stat_mapping,
+    get_statistic_info,
+)
 
 
 def main():
@@ -276,6 +188,11 @@ def main():
         if not args.dry_run:
             rows = [(series_id, ts, avg, mn, mx, cnt) for ts, avg, mn, mx, cnt in hourly]
             db.upsert_hourly_batch(conn, rows)
+            if p.state_name in ("total", "totalNeg"):
+                db.upsert_statistic_samples(
+                    conn, [(series_id, ts, value) for ts, value in records],
+                )
+                db.mark_statistic_sync(conn, series_id, now_ts, True)
             conn.commit()
 
     client.close()

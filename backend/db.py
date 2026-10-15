@@ -62,6 +62,24 @@ CREATE TABLE IF NOT EXISTS readings_hourly (
 );
 CREATE INDEX IF NOT EXISTS idx_readings_hourly_series_ts ON readings_hourly (series_id, ts);
 
+-- Index cumulatifs lus dans les Statistics du Miniserver (carte SD).
+-- Source des décomptes : ces points continuent d'être enregistrés quand le
+-- collecteur est arrêté. Jamais alimentée par le poller live (`readings`).
+CREATE TABLE IF NOT EXISTS statistic_samples (
+    series_id TEXT NOT NULL,
+    ts        INTEGER NOT NULL,
+    value     REAL NOT NULL,
+    PRIMARY KEY (series_id, ts)
+);
+
+-- Une série sans Statistics configurée n'est pas redemandée à chaque
+-- affichage du décompte. `available=0`, revérifié au bout d'un jour.
+CREATE TABLE IF NOT EXISTS statistic_sync (
+    series_id  TEXT PRIMARY KEY,
+    checked_at INTEGER NOT NULL,
+    available  INTEGER NOT NULL
+);
+
 -- Tarifs utilisés par la page de décompte de charges (/decompte).
 -- Un tarif s'applique à partir de `valid_from` (date locale Europe/Zurich,
 -- format 'YYYY-MM-DD') et jusqu'au tarif suivant. Stocker les tarifs en base
@@ -461,6 +479,67 @@ def vacuum(conn: sqlite3.Connection) -> None:
 # --------------------------------------------------------------------------
 # Décompte de charges (page /decompte)
 # --------------------------------------------------------------------------
+
+def upsert_statistic_samples(conn: sqlite3.Connection, rows: list[tuple]) -> int:
+    """rows: (series_id, ts, value). Les Statistics du Miniserver font foi :
+    un nouvel import remplace la valeur déjà stockée pour le même instant."""
+    if not rows:
+        return 0
+    conn.executemany(
+        """
+        INSERT INTO statistic_samples (series_id, ts, value) VALUES (?, ?, ?)
+        ON CONFLICT(series_id, ts) DO UPDATE SET value = excluded.value
+        """,
+        rows,
+    )
+    return len(rows)
+
+
+def query_statistic_at(conn: sqlite3.Connection, series_id: str, ts: int) -> tuple[int, float] | None:
+    """Dernier index Statistics à `ts` ou avant. Même rôle que
+    query_value_at, sans les mesures du collecteur."""
+    row = conn.execute(
+        "SELECT ts, value FROM statistic_samples WHERE series_id = ? AND ts <= ? "
+        "ORDER BY ts DESC LIMIT 1",
+        (series_id, ts),
+    ).fetchone()
+    if row is None:
+        return None
+    return int(row[0]), float(row[1])
+
+
+def statistic_unavailable_fresh(conn: sqlite3.Connection, series_id: str, now_ts: int,
+                                max_age_s: int = 86400) -> bool:
+    """True si on a déjà constaté, récemment, que cette série n'a pas de
+    Statistics. Évite de rappeler le Miniserver à chaque décompte."""
+    row = conn.execute(
+        "SELECT checked_at FROM statistic_sync WHERE series_id = ? AND available = 0",
+        (series_id,),
+    ).fetchone()
+    return row is not None and now_ts - int(row[0]) < max_age_s
+
+
+def mark_statistic_sync(conn: sqlite3.Connection, series_id: str, now_ts: int,
+                        available: bool) -> None:
+    conn.execute(
+        """
+        INSERT INTO statistic_sync (series_id, checked_at, available) VALUES (?, ?, ?)
+        ON CONFLICT(series_id) DO UPDATE SET
+            checked_at = excluded.checked_at,
+            available = excluded.available
+        """,
+        (series_id, now_ts, 1 if available else 0),
+    )
+
+
+def statistic_max_ts(conn: sqlite3.Connection, series_id: str) -> int | None:
+    row = conn.execute(
+        "SELECT MAX(ts) FROM statistic_samples WHERE series_id = ?", (series_id,)
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    return int(row[0])
+
 
 def query_value_at(conn: sqlite3.Connection, series_id: str, ts: int) -> tuple[int, float] | None:
     """Dernier relevé connu d'une série À la date `ts` ou AVANT -- retourne

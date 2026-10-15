@@ -358,6 +358,28 @@ def main():
     db.insert_readings_batch(conn, live_rows)
     conn.commit()
 
+    # Le décompte ne lit pas le collecteur. La démo n'a pas de Miniserver :
+    # les index synthétiques tiennent lieu de Statistics.
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO statistic_samples (series_id, ts, value)
+        SELECT r.series_id, r.ts, r.value
+          FROM readings r
+          JOIN series_meta s ON s.series_id = r.series_id
+         WHERE s.state_name IN ('total', 'totalNeg') AND r.value IS NOT NULL
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO statistic_samples (series_id, ts, value)
+        SELECT h.series_id, h.ts, h.max_value
+          FROM readings_hourly h
+          JOIN series_meta s ON s.series_id = h.series_id
+         WHERE s.state_name IN ('total', 'totalNeg') AND h.max_value IS NOT NULL
+        """
+    )
+    conn.commit()
+
     db.checkpoint_wal(conn)
     conn.close()
 

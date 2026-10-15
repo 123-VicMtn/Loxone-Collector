@@ -170,6 +170,27 @@ class TestResolutionDesSeries(unittest.TestCase):
         ]
         self.assertEqual(billing.resolve_batiment(series)["production"]["series_id"], "vif")
 
+    def test_fenetre_passee_prend_le_compteur_qui_a_des_heures(self):
+        # « Solaire (total) » n'existe qu'après le mois demandé.
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(db.SCHEMA)
+        start, end = billing.period_bounds(2026, 8)
+        conn.executemany(
+            "INSERT INTO readings_hourly (series_id, ts, avg_value, max_value) VALUES (?, ?, ?, ?)",
+            [
+                ("hist", start, 100.0, 100.0),
+                ("hist", start + 3600, 110.0, 110.0),
+                ("vif", ts(2026, 9, 24), 1.0, 1.0),
+            ],
+        )
+        series = [
+            s("hist", "Production Solaire (total)", "energie_solaire", ""),
+            s("vif", "Solaire (total)", "energie_solaire", ""),
+        ]
+        chosen = billing.production_couvrante(conn, series, start, end)
+        self.assertEqual(chosen["series_id"], "hist")
+        conn.close()
+
     def test_solaire_et_batterie_ne_remplace_pas_la_production(self):
         # Arlopi : « Solaire & Batterie » n'est pas le compteur de production.
         series = [
@@ -268,6 +289,26 @@ class TestConsommationDunePeriode(unittest.TestCase):
         res = billing.reading_delta(self.conn, "m", start, end, ts(2026, 6, 1))
         self.assertTrue(any("trou de collecte" in a for a in res["alertes"]))
 
+    def test_le_decompte_ignore_le_collecteur(self):
+        # Le collecteur s'est arrêté le 28 : son dernier index donne 70 kWh.
+        # Les Statistics du Miniserver, elles, vont jusqu'à la fin du mois.
+        self.conn.execute(
+            "INSERT INTO readings (series_id, ts, value) VALUES (?, ?, ?)",
+            ("m", ts(2026, 9, 28, 17), 170.0),
+        )
+        self.conn.executemany(
+            "INSERT INTO statistic_samples (series_id, ts, value) VALUES (?, ?, ?)",
+            [
+                ("m", ts(2026, 9, 1), 100.0),
+                ("m", ts(2026, 9, 30, 23), 177.1),
+            ],
+        )
+        self.conn.commit()
+        start, end = billing.period_bounds(2026, 9)
+        res = billing.reading_delta(self.conn, "m", start, end, ts(2026, 10, 2), statistics=True)
+        self.assertAlmostEqual(res["kwh"], 77.1)
+        self.assertEqual(res["alertes"], [])
+
     def test_pas_de_fausse_alerte_sur_une_periode_en_cours(self):
         # Mois en cours : la borne de fin est dans le futur, le dernier
         # relevé est forcément "vieux" par rapport à elle.
@@ -350,8 +391,8 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
 
     def index(self, series_id, points):
         self.conn.executemany(
-            "INSERT INTO readings_hourly (series_id, ts, avg_value, max_value) VALUES (?, ?, ?, ?)",
-            [(series_id, t, v, v) for t, v in points],
+            "INSERT INTO statistic_samples (series_id, ts, value) VALUES (?, ?, ?)",
+            [(series_id, t, v) for t, v in points],
         )
         self.conn.commit()
 
@@ -413,6 +454,41 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
         self.assertAlmostEqual(e["reseau"]["kwh"], 40.0)
         self.assertAlmostEqual(e["solaire"]["kwh"], 60.0)
         self.assertAlmostEqual(e["total"], 100.0)
+
+    def test_releve_de_compteurs_qui_se_relaient(self):
+        # « Production Solaire » couvre le début du mois, « Solaire (total) »
+        # la fin. Aucun des deux seul ne ferme le bilan ; ensemble, le
+        # décompte reste sur le compteur du lot.
+        t0 = ts(2026, 9, 1)
+        self.index("hist", [(t0, 1000.0), (t0 + 3600, 1010.0)])
+        self.index("vif", [(t0 + 7200, 0.0), (t0 + 10800, 6.0)])
+        self.index("imp", [
+            (t0, 0.0), (t0 + 3600, 0.0), (t0 + 7200, 0.0), (t0 + 10800, 4.0),
+        ])
+        self.index("exp", [
+            (t0, 0.0), (t0 + 3600, 2.0), (t0 + 7200, 2.0), (t0 + 10800, 3.0),
+        ])
+        self.index("lot", [(t0, 0.0), (t0 + 3600, 8.0), (t0 + 10800, 17.0)])
+        self.index("grid", [(t0, 0.0), (t0 + 3600, 5.0), (t0 + 10800, 6.0)])
+        self.index("sol", [(t0, 0.0), (t0 + 3600, 0.0), (t0 + 10800, 4.0)])
+        series = [
+            s("hist", "Production Solaire (total)", "energie_solaire", ""),
+            s("vif", "Solaire (total)", "energie_solaire", ""),
+            s("imp", "Réseau Général (total)", "energie_reseau", ""),
+            s("exp", "Réseau Général (totalNeg)", "energie_reseau", "", state_name="totalNeg"),
+            s("lot", "Appartement 1 (total)", "energie_consommee", "APP1"),
+            s("grid", "App 1 Grid (total)", "energie_reseau", "APP1"),
+            s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
+        ]
+        payload = billing.compute_decompte(
+            self.conn, series, billing.periods_covering(t0, t0 + 10800), [], ts(2026, 10, 2),
+        )
+        self.assertEqual(payload["repartition"]["source"], "calculee")
+        e = payload["zones"][0]["periodes"]["2026-09"]
+        self.assertEqual(e["total"], 17.0)
+        self.assertEqual(e["reseau"]["kwh"] + e["solaire"]["kwh"], e["total"])
+        prod = payload["batiment"]["periodes"]["2026-09"]["production"]["kwh"]
+        self.assertAlmostEqual(prod, 16.0)
 
 
 class TestBatimentPartiel(unittest.TestCase):

@@ -54,6 +54,8 @@ def main():
     deleted_hourly = conn.execute(
         "DELETE FROM readings_hourly WHERE series_id LIKE ?", (prefix,)
     ).rowcount
+    conn.execute("DELETE FROM statistic_samples WHERE series_id LIKE ?", (prefix,))
+    conn.execute("DELETE FROM statistic_sync WHERE series_id LIKE ?", (prefix,))
     deleted_meta = conn.execute(
         "DELETE FROM series_meta WHERE miniserver = ?", (miniserver_name,)
     ).rowcount

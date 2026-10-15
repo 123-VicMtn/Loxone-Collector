@@ -72,9 +72,34 @@ import db
 _TOLERANCE_PART = 0.02
 
 
-def hourly_deltas(conn, series_id: str, start_ts: int, end_ts: int) -> dict[int, float]:
+def _indexes_horaires_statistiques(conn, series_id: str, start_ts: int, end_ts: int):
+    """Un index par heure, le dernier échantillon Statistics de l'heure,
+    plus l'heure qui précède la fenêtre pour amorcer le premier delta."""
+    prev = conn.execute(
+        "SELECT ts, value FROM statistic_samples WHERE series_id = ? AND ts <= ? "
+        "ORDER BY ts DESC LIMIT 1",
+        (series_id, start_ts),
+    ).fetchone()
+    points = conn.execute(
+        "SELECT ts, value FROM statistic_samples WHERE series_id = ? AND ts > ? AND ts <= ? "
+        "ORDER BY ts",
+        (series_id, start_ts, end_ts),
+    ).fetchall()
+    by_hour: dict[int, float] = {}
+    if prev is not None:
+        by_hour[(prev[0] // 3600) * 3600] = prev[1]
+    for ts, value in points:
+        by_hour[(ts // 3600) * 3600] = value
+    return sorted(by_hour.items())
+
+
+def hourly_deltas(conn, series_id: str, start_ts: int, end_ts: int,
+                  statistics: bool = False) -> dict[int, float]:
     """Énergie enregistrée par un compteur cumulatif sur chaque heure de la
     plage : différence entre deux relevés horaires consécutifs.
+
+    `statistics=True` (décompte) ne lit que les index du Miniserver. Le
+    collecteur, lui, sert encore aux courbes du dashboard.
 
     Les micro-baisses (écart d'arrondi entre le poller live pleine précision
     et l'historique arrondi par Loxone -- voir billing.RUPTURE_MIN_DROP_KWH)
@@ -82,21 +107,24 @@ def hourly_deltas(conn, series_id: str, start_ts: int, end_ts: int) -> dict[int,
     remise à zéro de compteur reste, elle, du ressort de
     billing._detect_ruptures, appelé séparément sur la période complète.
     """
-    rows = conn.execute(
-        """
-        SELECT ts, MAX(value) FROM (
-            SELECT CAST(ts / 3600 AS INTEGER) * 3600 AS ts, value
-              FROM readings
-             WHERE series_id = ? AND ts BETWEEN ? AND ? AND value IS NOT NULL
-            UNION ALL
-            SELECT ts, max_value AS value
-              FROM readings_hourly
-             WHERE series_id = ? AND ts BETWEEN ? AND ?
-        )
-        GROUP BY ts ORDER BY ts
-        """,
-        (series_id, start_ts - 3600, end_ts, series_id, start_ts - 3600, end_ts),
-    ).fetchall()
+    if statistics:
+        rows = _indexes_horaires_statistiques(conn, series_id, start_ts, end_ts)
+    else:
+        rows = conn.execute(
+            """
+            SELECT ts, MAX(value) FROM (
+                SELECT CAST(ts / 3600 AS INTEGER) * 3600 AS ts, value
+                  FROM readings
+                 WHERE series_id = ? AND ts BETWEEN ? AND ? AND value IS NOT NULL
+                UNION ALL
+                SELECT ts, max_value AS value
+                  FROM readings_hourly
+                 WHERE series_id = ? AND ts BETWEEN ? AND ?
+            )
+            GROUP BY ts ORDER BY ts
+            """,
+            (series_id, start_ts - 3600, end_ts, series_id, start_ts - 3600, end_ts),
+        ).fetchall()
 
     out = {}
     for i in range(1, len(rows)):
@@ -109,7 +137,31 @@ def hourly_deltas(conn, series_id: str, start_ts: int, end_ts: int) -> dict[int,
     return out
 
 
-def solar_fraction(conn, batiment: dict, start_ts: int, end_ts: int) -> dict:
+def deltas_production(conn, batiment: dict, start_ts: int, end_ts: int,
+                     statistics: bool = False) -> dict[int, float]:
+    """Deltas horaires de la production du bâtiment.
+
+    Quand plusieurs compteurs se relaient (`productions`, du plus ancien au
+    plus récent), l'heure couverte par les deux garde le compteur le plus
+    récent. Un seul compteur reste la série `production`.
+    """
+    sources = [s for s in (batiment.get("productions") or []) if s]
+    if len(sources) > 1:
+        merged: dict[int, float] = {}
+        for src in sources:
+            merged.update(hourly_deltas(
+                conn, src["series_id"], start_ts, end_ts, statistics,
+            ))
+        return merged
+    if not batiment.get("production"):
+        return {}
+    return hourly_deltas(
+        conn, batiment["production"]["series_id"], start_ts, end_ts, statistics,
+    )
+
+
+def solar_fraction(conn, batiment: dict, start_ts: int, end_ts: int,
+                   statistics: bool = False) -> dict:
     """Part solaire du mix électrique du bâtiment, heure par heure.
 
     `batiment` est la structure rendue par billing.resolve_batiment
@@ -124,9 +176,9 @@ def solar_fraction(conn, batiment: dict, start_ts: int, end_ts: int) -> dict:
                 "bornees": 0, "production": 0.0, "autoconsomme": 0.0,
                 "injection": 0.0, "import_reseau": 0.0}
 
-    prod = hourly_deltas(conn, batiment["production"]["series_id"], start_ts, end_ts)
-    imp = hourly_deltas(conn, batiment["reseau_import"]["series_id"], start_ts, end_ts)
-    exp = hourly_deltas(conn, batiment["reseau_export"]["series_id"], start_ts, end_ts)
+    prod = deltas_production(conn, batiment, start_ts, end_ts, statistics)
+    imp = hourly_deltas(conn, batiment["reseau_import"]["series_id"], start_ts, end_ts, statistics)
+    exp = hourly_deltas(conn, batiment["reseau_export"]["series_id"], start_ts, end_ts, statistics)
 
     fraction = {}
     bornees = 0
@@ -153,7 +205,8 @@ def solar_fraction(conn, batiment: dict, start_ts: int, end_ts: int) -> dict:
             "injection": tot_inj, "import_reseau": tot_imp}
 
 
-def split_zone(conn, conso_series_id: str, frac: dict, start_ts: int, end_ts: int) -> dict:
+def split_zone(conn, conso_series_id: str, frac: dict, start_ts: int, end_ts: int,
+               statistics: bool = False) -> dict:
     """Scinde la consommation mesurée d'une zone en part réseau et part
     solaire, heure par heure, selon la part solaire du bâtiment.
 
@@ -162,7 +215,7 @@ def split_zone(conn, conso_series_id: str, frac: dict, start_ts: int, end_ts: in
     heures) : elle n'est PAS silencieusement versée au réseau, elle est
     remontée à part pour que l'appelant décide quoi en faire.
     """
-    conso = hourly_deltas(conn, conso_series_id, start_ts, end_ts)
+    conso = hourly_deltas(conn, conso_series_id, start_ts, end_ts, statistics)
     total = reseau = solaire = non_reparti = 0.0
     heures_sans_part = 0
     for h, kwh in conso.items():
@@ -186,7 +239,7 @@ def split_zone(conn, conso_series_id: str, frac: dict, start_ts: int, end_ts: in
 
 
 def qualite_bilan(conn, zones: list[dict], batiment: dict, frac_info: dict,
-                  start_ts: int, end_ts: int) -> dict:
+                  start_ts: int, end_ts: int, statistics: bool = False) -> dict:
     """Écart de bouclage : somme des consommations de zone contre la
     consommation déduite des compteurs de bâtiment.
 
@@ -201,7 +254,7 @@ def qualite_bilan(conn, zones: list[dict], batiment: dict, frac_info: dict,
         src = z["sources"].get("controle")
         if not src:
             continue
-        d = hourly_deltas(conn, src["series_id"], start_ts, end_ts)
+        d = hourly_deltas(conn, src["series_id"], start_ts, end_ts, statistics)
         conso_zones += sum(d.values())
 
     conso_batiment = (frac_info.get("import_reseau", 0.0)
@@ -227,7 +280,7 @@ _PROD_SIGNIFICATIVE_KWH = 1.0  # production franche, du solaire à répartir
 
 
 def audit_series_loxone(conn, zones: list[dict], batiment: dict,
-                        start_ts: int, end_ts: int) -> dict:
+                        start_ts: int, end_ts: int, statistics: bool = False) -> dict:
     """Vérifie que les séries `reseau`/`solaire` des zones sont physiquement
     possibles, avant de facturer sur leur base.
 
@@ -257,15 +310,15 @@ def audit_series_loxone(conn, zones: list[dict], batiment: dict,
         res["raisons"].append("compteurs de bâtiment incomplets : audit impossible")
         return res
 
-    imp = hourly_deltas(conn, batiment["reseau_import"]["series_id"], start_ts, end_ts)
-    prod = hourly_deltas(conn, batiment["production"]["series_id"], start_ts, end_ts)
+    imp = hourly_deltas(conn, batiment["reseau_import"]["series_id"], start_ts, end_ts, statistics)
+    prod = deltas_production(conn, batiment, start_ts, end_ts, statistics)
 
     grids, solaires = [], []
     for z in zones:
         if z["sources"].get("reseau"):
-            grids.append(hourly_deltas(conn, z["sources"]["reseau"]["series_id"], start_ts, end_ts))
+            grids.append(hourly_deltas(conn, z["sources"]["reseau"]["series_id"], start_ts, end_ts, statistics))
         if z["sources"].get("solaire"):
-            solaires.append(hourly_deltas(conn, z["sources"]["solaire"]["series_id"], start_ts, end_ts))
+            solaires.append(hourly_deltas(conn, z["sources"]["solaire"]["series_id"], start_ts, end_ts, statistics))
     if not grids and not solaires:
         res["raisons"].append("aucune série réseau/solaire par zone : rien à auditer")
         return res
@@ -322,7 +375,7 @@ def bilan_exploitable(bilan: dict, tolerance_pct: float = BILAN_TOLERANCE_PCT) -
 
 
 def evaluer_site(conn, zones: list[dict], batiment: dict,
-                 start_ts: int, end_ts: int) -> dict:
+                 start_ts: int, end_ts: int, statistics: bool = False) -> dict:
     """Point d'entrée unique : décide sur quoi facturer la part solaire d'un
     site, et pourquoi.
 
@@ -340,9 +393,9 @@ def evaluer_site(conn, zones: list[dict], batiment: dict,
     revérifiée ici, plutôt que de laisser croire à un contrôle qui n'a pas
     eu lieu.
     """
-    frac_info = solar_fraction(conn, batiment, start_ts, end_ts)
-    bilan = qualite_bilan(conn, zones, batiment, frac_info, start_ts, end_ts)
-    audit = audit_series_loxone(conn, zones, batiment, start_ts, end_ts)
+    frac_info = solar_fraction(conn, batiment, start_ts, end_ts, statistics)
+    bilan = qualite_bilan(conn, zones, batiment, frac_info, start_ts, end_ts, statistics)
+    audit = audit_series_loxone(conn, zones, batiment, start_ts, end_ts, statistics)
     ok_bilan = bilan_exploitable(bilan)
 
     if not ok_bilan:

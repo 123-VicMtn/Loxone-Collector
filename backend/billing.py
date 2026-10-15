@@ -117,9 +117,13 @@ SOLAR_LABEL_RE = re.compile(r"(?i)(\bsol\b|solaire|solar|\bpv\b)")
 
 BATIMENT_PRODUCTION_RE = re.compile(r"(?i)^production\b")
 BATIMENT_RESEAU_RE = re.compile(r"(?i)^r[ée]seau\b")
-# À Sequoia, « Production Solaire » est figé. Le compteur qui avance
-# s'appelle exactement « Solaire (total) ». « Solaire & Batterie » (Arlopi)
-# ne doit pas prendre sa place. Même règle que l'aperçu.
+# À Sequoia, « Production Solaire » s'arrête le 2026-09-09. Le compteur
+# qui avance ensuite s'appelle exactement « Solaire (total) » (depuis le
+# 2026-09-24, index différent : ce n'est pas la suite du précédent).
+# « Solaire & Batterie » (Arlopi) ne doit pas prendre sa place.
+# Sur une fenêtre passée, production_couvrante choisit celui qui a des
+# heures dans la fenêtre — sinon le bilan n'a aucune production et le
+# décompte reste sur les séries Grid/Solaire.
 SOLAIRE_BATIMENT_RE = re.compile(r"(?i)^solaire \(total\)$")
 # Précision des parts réseau/solaire recalculées : la même que
 # scripts/export_appartement.py, pour que réseau + solaire = consommation
@@ -288,6 +292,84 @@ def resolve_batiment(series: list[dict]) -> dict:
     return {"production": _src(prod), "reseau_import": _src(imp), "reseau_export": _src(exp)}
 
 
+def production_couvrante(conn, series: list[dict], start_ts: int, end_ts: int,
+                         statistics: bool = False) -> dict | None:
+    """Compteur de production qui a des relevés horaires sur [start, end).
+
+    resolve_batiment préfère « Solaire (total) », le compteur vivant. Sur
+    Sequoia ce compteur n'a pas d'historique avant le 2026-09-24 : un
+    décompte d'août n'y trouve aucune heure, le bilan se déclare
+    incalculable, et les parts restent les séries fausses du Miniserver.
+    Ici on garde le candidat qui couvre la fenêtre. À égalité d'heures,
+    « Solaire (total) » l'emporte.
+    """
+    globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
+    candidats = [
+        s for s in _totals(globals_)
+        if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))
+        or BATIMENT_PRODUCTION_RE.search(s.get("label", ""))
+    ]
+    if not candidats:
+        return None
+    scored = []
+    for s in candidats:
+        if statistics:
+            row = conn.execute(
+                "SELECT COUNT(DISTINCT ts / 3600) FROM statistic_samples "
+                "WHERE series_id = ? AND ts >= ? AND ts < ?",
+                (s["series_id"], start_ts, end_ts),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM readings_hourly WHERE series_id = ? AND ts >= ? AND ts < ?",
+                (s["series_id"], start_ts, end_ts),
+            ).fetchone()
+        n = row[0] if row else 0
+        live = 1 if SOLAIRE_BATIMENT_RE.search(s.get("label", "")) else 0
+        scored.append((n, live, s))
+    n, _, best = max(scored)
+    if n == 0:
+        return None
+    return _src(best)
+
+
+def productions_sur_fenetre(conn, series: list[dict], start_ts: int, end_ts: int,
+                            statistics: bool = False) -> list[dict]:
+    """Compteurs de production qui ont des relevés sur [start, end), du plus
+    ancien au plus récent.
+
+    À Sequoia, « Production Solaire » s'arrête le 9 septembre 2026 et
+    « Solaire (total) » commence le 10 : aucun des deux ne couvre septembre
+    seul. Les deux restent, dans l'ordre, pour que les heures se relaient
+    au lieu d'abandonner le début du mois.
+    """
+    globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
+    candidats = [
+        s for s in _totals(globals_)
+        if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))
+        or BATIMENT_PRODUCTION_RE.search(s.get("label", ""))
+    ]
+    scored = []
+    for s in candidats:
+        if statistics:
+            row = conn.execute(
+                "SELECT COUNT(*), MIN(ts) FROM statistic_samples "
+                "WHERE series_id = ? AND ts >= ? AND ts < ?",
+                (s["series_id"], start_ts, end_ts),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*), MIN(ts) FROM readings_hourly "
+                "WHERE series_id = ? AND ts >= ? AND ts < ?",
+                (s["series_id"], start_ts, end_ts),
+            ).fetchone()
+        n = row[0] if row else 0
+        if n:
+            scored.append((row[1], s))
+    scored.sort(key=lambda item: item[0])
+    return [_src(s) for _, s in scored]
+
+
 def _zone_sort_key(apt: str):
     m = re.search(r"\d+", apt)
     return (0, int(m.group()), apt) if m else (1, 0, apt)
@@ -333,7 +415,8 @@ def min_drop_for_resource_type(resource_type: str | None) -> float:
 
 
 def reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
-                   now_ts: int, min_drop: float = RUPTURE_MIN_DROP_KWH) -> dict:
+                   now_ts: int, min_drop: float = RUPTURE_MIN_DROP_KWH,
+                   statistics: bool = False) -> dict:
     """Consommation d'une série cumulative sur [start_ts, end_ts[ : relevé de
     fin - relevé de début, plus tout ce qui permet de juger sa fiabilité.
 
@@ -345,9 +428,17 @@ def reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
     `min_drop` est le seuil de détection d'une rupture de compteur, dans
     l'unité de la série : la valeur par défaut est calibrée pour des kWh, un
     compteur d'eau en m^3 demande un seuil plus fin (voir
-    scripts/export_appartement.py)."""
-    start = db.query_value_at(conn, series_id, start_ts)
-    end = db.query_value_at(conn, series_id, end_ts - 1)
+    scripts/export_appartement.py).
+
+    `statistics=True` : l'index vient des Statistics du Miniserver
+    (`statistic_samples`), pas du collecteur. C'est le mode des décomptes.
+    """
+    if statistics:
+        start = db.query_statistic_at(conn, series_id, start_ts)
+        end = db.query_statistic_at(conn, series_id, end_ts - 1)
+    else:
+        start = db.query_value_at(conn, series_id, start_ts)
+        end = db.query_value_at(conn, series_id, end_ts - 1)
 
     res = {
         "kwh": None,
@@ -382,7 +473,7 @@ def reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
 
     res["kwh"] = end[1] - start[1]
 
-    ruptures = _detect_ruptures(conn, series_id, start_ts, end_ts, min_drop)
+    ruptures = _detect_ruptures(conn, series_id, start_ts, end_ts, min_drop, statistics)
     if ruptures:
         res["ruptures"] = ruptures
         res["alertes"].append(
@@ -395,14 +486,99 @@ def reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
     return res
 
 
+# scripts/export_appartement.py appelle encore ce nom.
+_reading_delta = reading_delta
+
+
+def delta_compteurs_successifs(conn, sources: list[dict], start_ts: int, end_ts: int,
+                               now_ts: int, statistics: bool = False) -> dict:
+    """Consommation quand plusieurs compteurs se relaient sur la période.
+
+    Chaque compteur est lu jusqu'au premier relevé du suivant : les index
+    ne sont pas comparables d'un compteur à l'autre (changement de
+    « Production Solaire » vers « Solaire » à Sequoia), on additionne les
+    écarts. Un seul compteur reste un relevé de fin moins relevé de début.
+    """
+    if len(sources) <= 1:
+        src = sources[0] if sources else None
+        if not src:
+            return _absent()
+        return reading_delta(conn, src["series_id"], start_ts, end_ts, now_ts,
+                             statistics=statistics)
+
+    bornes = []
+    for src in sources:
+        if statistics:
+            row = conn.execute(
+                "SELECT MIN(ts) FROM statistic_samples "
+                "WHERE series_id = ? AND ts >= ? AND ts < ?",
+                (src["series_id"], start_ts, end_ts),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT MIN(ts) FROM readings_hourly "
+                "WHERE series_id = ? AND ts >= ? AND ts < ?",
+                (src["series_id"], start_ts, end_ts),
+            ).fetchone()
+        if row and row[0] is not None:
+            bornes.append((int(row[0]), src))
+    bornes.sort(key=lambda item: item[0])
+    if len(bornes) <= 1:
+        src = bornes[0][1] if bornes else (sources[0] if sources else None)
+        if not src:
+            return _absent()
+        return reading_delta(conn, src["series_id"], start_ts, end_ts, now_ts,
+                             statistics=statistics)
+
+    total = 0.0
+    got = False
+    alertes = []
+    debut_ts = debut = fin_ts = fin = None
+    for i, (first, src) in enumerate(bornes):
+        seg_start = start_ts if i == 0 else first
+        seg_end = bornes[i + 1][0] if i + 1 < len(bornes) else end_ts
+        if seg_start >= seg_end:
+            continue
+        d = reading_delta(conn, src["series_id"], seg_start, seg_end, now_ts,
+                          statistics=statistics)
+        if i == 0:
+            debut_ts, debut = d["releve_debut_ts"], d["releve_debut"]
+        if d["releve_fin_ts"] is not None:
+            fin_ts, fin = d["releve_fin_ts"], d["releve_fin"]
+        if d["kwh"] is not None:
+            total += d["kwh"]
+            got = True
+        alertes.extend(d["alertes"])
+    return {
+        "kwh": total if got else None,
+        "releve_debut": debut,
+        "releve_fin": fin,
+        "releve_debut_ts": debut_ts,
+        "releve_fin_ts": fin_ts,
+        "alertes": alertes,
+    }
+
+
 def _detect_ruptures(conn, series_id: str, start_ts: int, end_ts: int,
-                     min_drop: float = RUPTURE_MIN_DROP_KWH) -> list[dict]:
+                     min_drop: float = RUPTURE_MIN_DROP_KWH,
+                     statistics: bool = False) -> list[dict]:
     """Jours où le compteur cumulatif a BAISSÉ de plus de `min_drop` (par
     défaut RUPTURE_MIN_DROP_KWH) : reset, remplacement de compteur, ou
     dépassement de capacité. Un décompte calculé à cheval sur un tel jour est
     faux, donc on préfère ne rien afficher plutôt qu'un chiffre plausible
     mais faux."""
-    rows = db.query_daily_last(conn, series_id, start_ts, end_ts - 1)
+    if statistics:
+        rows = conn.execute(
+            """
+            SELECT CAST(ts / 86400 AS INTEGER) * 86400 AS day, MAX(value)
+              FROM statistic_samples
+             WHERE series_id = ? AND ts BETWEEN ? AND ?
+             GROUP BY day ORDER BY day
+            """,
+            (series_id, start_ts, end_ts - 1),
+        ).fetchall()
+    else:
+        rows = db.query_daily_last(conn, series_id, start_ts, end_ts - 1)
     out = []
     for i in range(1, len(rows)):
         prev_value = rows[i - 1][1]
@@ -480,8 +656,20 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
     batiment_src = resolve_batiment(series)
     evaluation = None
     if periods:
+        fenetre_debut, fenetre_fin = periods[0]["start"], periods[-1]["end"]
+        actives = productions_sur_fenetre(
+            conn, series, fenetre_debut, fenetre_fin, statistics=True,
+        )
+        if actives:
+            batiment_src["productions"] = actives
+        couvrant = production_couvrante(
+            conn, series, fenetre_debut, fenetre_fin, statistics=True,
+        )
+        if couvrant:
+            batiment_src["production"] = couvrant
         evaluation = repartition.evaluer_site(
             conn, zones, batiment_src, periods[0]["start"], periods[-1]["end"],
+            statistics=True,
         )
 
     for z in zones:
@@ -515,7 +703,8 @@ def _zone_period(conn, zone: dict, p: dict, tarifs: list[dict], now_ts: int,
 
     def delta(key):
         s = src[key]
-        return reading_delta(conn, s["series_id"], p["start"], p["end"], now_ts) if s else _absent()
+        return reading_delta(conn, s["series_id"], p["start"], p["end"], now_ts,
+                             statistics=True) if s else _absent()
 
     reseau, solaire, controle = delta("reseau"), delta("solaire"), delta("controle")
     r, s = reseau["kwh"], solaire["kwh"]
@@ -555,10 +744,18 @@ def _batiment_period(conn, src: dict, zones: list[dict], p: dict, now_ts: int) -
     s'en déduit par `production - autoconsommation`, plutôt que de lire le
     `totalNeg` du compteur Réseau, qui est sur un autre périmètre (voir
     resolve_batiment)."""
-    production = (
-        reading_delta(conn, src["production"]["series_id"], p["start"], p["end"], now_ts)
-        if src["production"] else _absent()
-    )
+    prods = [s for s in (src.get("productions") or []) if s]
+    if len(prods) > 1:
+        production = delta_compteurs_successifs(
+            conn, prods, p["start"], p["end"], now_ts, statistics=True,
+        )
+    elif src.get("production"):
+        production = reading_delta(
+            conn, src["production"]["series_id"], p["start"], p["end"], now_ts,
+            statistics=True,
+        )
+    else:
+        production = _absent()
 
     autoconso = 0.0
     achat = 0.0
@@ -628,7 +825,8 @@ def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
 
     src = zone["sources"]
     controle = (
-        reading_delta(conn, src["controle"]["series_id"], p["start"], p["end"], now_ts)
+        reading_delta(conn, src["controle"]["series_id"], p["start"], p["end"], now_ts,
+                      statistics=True)
         if src.get("controle") else _absent()
     )
     total = controle["kwh"]
@@ -645,6 +843,7 @@ def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
         split = repartition.split_zone(
             conn, src["controle"]["series_id"],
             evaluation["fraction"]["fraction"], p["start"], p["end"],
+            statistics=True,
         )
         base = split["total"] - split["non_reparti"]
         part = (split["solaire"] / base) if base > 0 else None
@@ -742,26 +941,19 @@ def export_lignes(payload: dict, period_key: str) -> list[list]:
 
 
 def available_range(conn, zones: list[dict], batiment: dict) -> tuple[int, int] | None:
-    """Premier et dernier relevé disponibles, tous compteurs du décompte
-    confondus -- sert à proposer par défaut la liste des mois qui ont
-    réellement des données. Interroge série par série (index (series_id, ts))
-    plutôt qu'un MIN/MAX global sur `readings_hourly`, qui scannerait les
-    centaines de milliers de lignes issues du backfill Statistics."""
+    """Premier et dernier index Statistics des compteurs du décompte.
+    Sert à proposer les mois qui ont réellement des relevés. Le collecteur
+    n'entre pas dans cette plage."""
     ids = [s["series_id"] for z in zones for s in z["sources"].values() if s]
     ids += [s["series_id"] for s in batiment.values() if s]
     firsts, lasts = [], []
     for sid in set(ids):
         row = conn.execute(
-            "SELECT MIN(ts), MAX(ts) FROM readings_hourly WHERE series_id = ?", (sid,)
+            "SELECT MIN(ts), MAX(ts) FROM statistic_samples WHERE series_id = ?", (sid,)
         ).fetchone()
         if row and row[0] is not None:
             firsts.append(row[0])
             lasts.append(row[1])
-        row = conn.execute(
-            "SELECT MAX(ts) FROM readings WHERE series_id = ? AND value IS NOT NULL", (sid,)
-        ).fetchone()
-        if row and row[0] is not None:
-            lasts.append(row[0])
     if not firsts:
         return None
     return min(firsts), max(lasts)
