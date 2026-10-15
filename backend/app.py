@@ -31,15 +31,16 @@ from functools import wraps
 from pathlib import Path
 
 from flask import Flask, jsonify, request, abort, send_file
-from openpyxl import Workbook
 from flask_login import current_user, login_required, login_user, logout_user
 
 import auth
 import billing
 import classification
 import db
+import miniserver_statistics
 from config import AppConfig, ConfigError, load_config
 from loxone_client import LoxoneAuthError, LoxoneClient, LoxoneError, extract_measurable_points
+from loxone_statistics import points_by_series
 from loxone_ws_client import LoxoneWsError, fetch_live_values
 
 logging.basicConfig(
@@ -438,6 +439,80 @@ def api_series_data(series_id: str):
     )
 
 
+def _client_for(name: str) -> LoxoneClient:
+    ms = next(m for m in _cfg().miniservers if m.name == name)
+    return LoxoneClient(
+        name=ms.name,
+        host=ms.host,
+        username=ms.username,
+        password=ms.password,
+        port=ms.port,
+        scheme=ms.scheme,
+        verify_ssl=ms.verify_ssl,
+    )
+
+
+@app.route("/api/apercu/puissance", methods=["POST"])
+@login_required
+def api_apercu_puissance():
+    """Puissance (kW) depuis une borne, lue sur le Miniserver (Statistics),
+    pas dans les mesures du collecteur. L'aperçu s'en sert pour la courbe
+    du jour : elle reste disponible quand le poller est arrêté."""
+    payload = request.get_json(force=True, silent=True) or {}
+    ms_name = _resolve_miniserver(payload.get("miniserver"))
+    try:
+        from_ts = int(payload["from"])
+        to_ts = int(payload["to"])
+    except (KeyError, TypeError, ValueError):
+        abort(400, "from/to sont requis et doivent être des timestamps unix")
+    if to_ts <= from_ts:
+        abort(400, "to doit être strictement supérieur à from")
+    if to_ts - from_ts > 48 * 3600:
+        abort(400, "la fenêtre de puissance est limitée à 48 h")
+    raw_ids = payload.get("series_ids")
+    if not isinstance(raw_ids, list) or any(not isinstance(s, str) or not s for s in raw_ids):
+        abort(400, "series_ids doit être une liste d'identifiants")
+    series_ids = list(dict.fromkeys(raw_ids))
+    if len(series_ids) > 80:
+        abort(400, "trop de séries demandées")
+    if not series_ids:
+        return jsonify({"miniserver": ms_name, "from": from_ts, "to": to_ts,
+                        "points": {}, "missing": []})
+
+    with closing(_read_conn()) as conn:
+        rows = db.get_series_rows(conn, series_ids)
+    found = {row["series_id"]: row for row in rows}
+    unknown = [sid for sid in series_ids if sid not in found]
+    if unknown:
+        abort(400, "série inconnue")
+    for row in rows:
+        if row["miniserver"] != ms_name:
+            abort(403, "accès refusé à cette série")
+        if row["state_name"] != "actual":
+            abort(400, "seule la puissance (actual) se lit sur le Miniserver pour ce graphique")
+
+    client = _client_for(ms_name)
+    try:
+        structure = client.fetch_structure()
+        points, missing = points_by_series(client, structure, rows, from_ts, to_ts)
+    except LoxoneAuthError as exc:
+        logger.error("[%s] Statistics: %s", ms_name, exc)
+        return jsonify({"error": "le Miniserver a refusé l'authentification"}), 502
+    except LoxoneError as exc:
+        logger.warning("[%s] Statistics: %s", ms_name, exc)
+        return jsonify({"error": "le Miniserver n'a pas répondu"}), 502
+    finally:
+        client.close()
+
+    return jsonify({
+        "miniserver": ms_name,
+        "from": from_ts,
+        "to": to_ts,
+        "points": points,
+        "missing": missing,
+    })
+
+
 @app.route("/api/series/<path:series_id>/latest")
 @login_required
 def api_series_latest(series_id: str):
@@ -561,6 +636,20 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
     with closing(_read_conn()) as conn:
         series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
         tarifs = db.list_tarifs(conn, ms_name)
+        start_hint = end_hint = None
+        try:
+            if request.args.get("from"):
+                year, month = billing.parse_period_key(request.args["from"])
+                start_hint = billing.period_bounds(year, month)[0]
+            if request.args.get("to"):
+                year, month = billing.parse_period_key(request.args["to"])
+                end_hint = billing.period_bounds(year, month)[1]
+        except ValueError as exc:
+            abort(400, str(exc))
+        # Les index viennent des Statistics du Miniserver, pas du collecteur.
+        sync_info = miniserver_statistics.sync_decompte(
+            _cfg(), conn, ms_name, series, now, start_hint, end_hint,
+        )
         zones = billing.resolve_zones(series)
         batiment_src = billing.resolve_batiment(series)
 
@@ -568,6 +657,7 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
         if rng is None:
             payload = billing.compute_decompte(conn, series, [], tarifs, now)
             payload["miniserver"] = ms_name
+            payload["statistiques_erreur"] = sync_info.get("erreur")
             return payload
         first_ts, last_ts = rng
 
@@ -587,6 +677,7 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
         periods = billing.periods_covering(first_ts, last_ts)
         payload = billing.compute_decompte(conn, series, periods, tarifs, now)
         payload["miniserver"] = ms_name
+        payload["statistiques_erreur"] = sync_info.get("erreur")
 
     return payload
 
@@ -652,16 +743,21 @@ def api_decompte_csv():
 @app.route("/api/decompte/export.xlsx")
 @login_required
 def api_decompte_xlsx():
-    rows, stem = _export_table()
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Décompte"
-    for row in rows:
-        ws.append(row)
-    for col in ("C", "D", "E"):
-        for cell in ws[col][1:]:
-            if isinstance(cell.value, float):
-                cell.number_format = "0.00"
+    """Même mois que le CSV. Onglet Décompte : kWh, prix et montants.
+    Onglet Relevés : un point horaire des statistiques par ligne."""
+    ms_name = _resolve_miniserver(request.args.get("miniserver"))
+    mois = (request.args.get("mois") or "").strip()
+    try:
+        billing.parse_period_key(mois)
+    except ValueError as exc:
+        abort(400, str(exc))
+    payload = _decompte_payload(ms_name, int(time.time()))
+    try:
+        with closing(_read_conn()) as conn:
+            wb = billing.build_decompte_workbook(payload, mois, ms_name, conn)
+    except KeyError:
+        abort(400, f"aucune donnée de décompte pour {mois}")
+    safe_site = re.sub(r"[^A-Za-z0-9._-]+", "_", ms_name).strip("_") or "site"
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -669,7 +765,7 @@ def api_decompte_xlsx():
         buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"{stem}.xlsx",
+        download_name=f"decompte-{safe_site}-{mois}.xlsx",
     )
 
 

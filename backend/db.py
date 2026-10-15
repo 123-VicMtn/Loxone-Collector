@@ -687,6 +687,22 @@ def revoke_miniserver(conn: sqlite3.Connection, user_id: int, miniserver: str) -
     return cur.rowcount > 0
 
 
+def get_series_rows(conn: sqlite3.Connection, series_ids: list[str]) -> list[dict]:
+    """Métadonnées des séries demandées (identité du compteur, pas ses
+    mesures). Sert à interroger Statistics sur le Miniserver sans lire
+    `readings`."""
+    if not series_ids:
+        return []
+    placeholders = ",".join("?" * len(series_ids))
+    cur = conn.execute(
+        "SELECT series_id, miniserver, control_uuid, state_name, label "
+        f"FROM series_meta WHERE series_id IN ({placeholders})",
+        series_ids,
+    )
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
 def get_series_miniserver(conn: sqlite3.Connection, series_id: str) -> str | None:
     """Site propriétaire d'une série -- utilisé pour vérifier qu'un compte
     'user' a le droit de lire cette série avant de répondre
