@@ -40,8 +40,27 @@ export function monthKey(ts: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
+const ZONE_LABEL_OVERRIDES: Record<string, string> = {
+  REZJARDIN: 'Rez Jardin',
+  COMMUN: 'Communs',
+  SALLESCOMMUNES: 'Salles Communes',
+  WALLBOX: 'Wallbox',
+}
+
+/** Libellé lisible d'une zone. Mêmes règles que billing._zone_label
+ * (APP01 → App 1, REZJARDIN → Rez Jardin). */
 export function zoneLabel(apartment: string | null | undefined): string {
-  return apartment ? apartment : 'Bâtiment (non affecté)'
+  if (!apartment) return 'Bâtiment'
+  const override = ZONE_LABEL_OVERRIDES[apartment]
+  if (override) return override
+  const app = /^APP(\d+)$/i.exec(apartment)
+  if (app) return `App ${parseInt(app[1], 10)}`
+  const bureau = /^BUREAU(\d+)$/i.exec(apartment)
+  if (bureau) return `Bureau ${parseInt(bureau[1], 10)}`
+  if (apartment === apartment.toUpperCase()) {
+    return apartment.charAt(0) + apartment.slice(1).toLowerCase()
+  }
+  return apartment
 }
 
 const ZONE_KEY_SEP = '::'
