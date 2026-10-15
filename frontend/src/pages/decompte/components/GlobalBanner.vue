@@ -2,23 +2,31 @@
 import { computed } from 'vue'
 import type { DecomptePayload } from '../types/decompte'
 
-const props = defineProps<{ payload: DecomptePayload }>()
+const props = defineProps<{ payload: DecomptePayload; periodKey: string }>()
 
-/** Combien de mois terminés sont facturables. Un mois ne l'est pas quand il
- * manque une donnée (compteur pas encore posé, trou de collecte) -- ce
- * n'est pas un problème d'installation. */
-const info = computed(() => {
-  const termines = props.payload.periodes.filter((p) => !props.payload.batiment.periodes[p.key].en_cours)
-  const incomplets = termines.filter((p) =>
-    props.payload.zones.some((z) => z.periodes[p.key] && !z.periodes[p.key].facturable))
-  return { termines, incomplets }
+/** Le bandeau ne parle que du mois affiché. Un autre mois incomplet
+ * (compteur pas encore posé, trou) ne s'affiche pas tant qu'on ne l'a pas
+ * choisi dans le calendrier. */
+const moisIncomplet = computed(() => {
+  const p = props.payload.periodes.find((x) => x.key === props.periodKey)
+  if (!p) return null
+  const bat = props.payload.batiment.periodes[p.key]
+  if (!bat || bat.en_cours) return null
+  const manque = props.payload.zones.some(
+    (z) => z.periodes[p.key] && !z.periodes[p.key].facturable,
+  )
+  return manque ? p : null
 })
 </script>
 
 <template>
-  <div v-if="info.incomplets.length" class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-    Des relevés manquent sur {{ info.incomplets.map((p) => p.label).join(', ') }}.
-    Le décompte de ces mois peut quand même être établi : les totaux utilisent les
-    relevés disponibles, et le détail des manques s'affiche pour le mois choisi.
+  <div v-if="payload.statistiques_erreur" class="mb-3 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900">
+    Les statistiques du Miniserver n'ont pas pu être relues.
+    {{ payload.statistiques_erreur }}
+  </div>
+  <div v-if="moisIncomplet" class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+    Des relevés manquent sur {{ moisIncomplet.label }}.
+    Le décompte de ce mois peut quand même être établi : les totaux utilisent les
+    relevés disponibles, et le détail des manques s'affiche sous le tableau.
   </div>
 </template>

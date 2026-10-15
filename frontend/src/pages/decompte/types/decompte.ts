@@ -109,4 +109,6 @@ export interface DecomptePayload {
   generated_at: number
   miniserver: string
   repartition: RepartitionInfo
+  /** Renseigné si les Statistics du Miniserver n'ont pas pu être relues. */
+  statistiques_erreur?: string | null
 }
