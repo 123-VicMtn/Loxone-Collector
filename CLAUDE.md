@@ -878,6 +878,57 @@ liens et lien actif sur les trois pages, aucun rechargement de bundle
 entre pages, Classification présente pour un admin, menu mobile qui se
 referme après un clic, déconnexion vers `/login`.
 
+## Décompte chauffage, eau chaude, buanderie — 2026-10-16
+
+L'export du décompte (`/api/decompte/export.xlsx` et `.csv`, mois choisi)
+contient quatre tableaux. Demande de l'utilisateur : chauffage en énergie
+seulement (pas le volume), eau chaude (pas l'eau froide), buanderie par
+appartement.
+
+- **Électricité** (onglet renommé de « Décompte » en « Électricité ») :
+ consommation totale, solaire, réseau, puis **Buanderie (kWh)** si le
+ mois en a une. Cette colonne n'est pas dans la consommation totale ni
+ dans les montants : elle passe par le compteur des Communs et n'en est
+ pas déduite. Montants (2026-10-16, sur demande) : seulement **Réseau
+ TTC**, **Solaire TTC** et **Total TTC**, plus de colonnes HT ni TVA.
+ Les cases de prix restent HT avec le taux de TVA à part (comme la table
+ `tarifs`) : montant = kWh × prix HT × (1 + TVA). La buanderie n'a pas
+ de montant.
+- **Chauffage** (en kWh thermiques, « kWh th »), **Eau chaude** (m³) :
+ une ligne par compteur (index de début, index de fin, consommation,
+ Montant TTC), total de l'immeuble. Les Communs de Sequoia et le
+ Commerce d'Arlopi ont deux compteurs de chauffage chacun. Chaque onglet
+ a son prix HT (B4, CHF/kWh th ou CHF/m³) et sa TVA (B5) en cases jaunes ;
+ pas de tarif en base pour ces postes, le prix part vide et la TVA
+ reprend celle du tarif électrique du mois s'il y en a un.
+- **Buanderie** : cycles (`CNrMachineAppXX`) et kWh (`CEnergieAppXX`) par
+ appartement, depuis le 17.07.2026 (`billing.BUANDERIE_VALID_FROM`).
+- CSV : une section par tableau, séparées par une ligne vide. Les totaux
+ sont ceux des valeurs affichées, comme le classeur.
+- Un onglet (ou une colonne) n'apparaît que si le site a ces compteurs :
+ pas de buanderie à Arlopi, rien de tout ça à Horizon.
+
+Code : `billing.resolve_postes` / `compute_postes` (index Statistics,
+comme l'électricité). Leurs Statistics ne sont synchronisées qu'à
+l'export (`sync_decompte(..., postes=True)`), pas à l'affichage de la
+page : le premier export de Sequoia a pris ~27 s (import initial),
+les suivants ~2 s. La page `/decompte` elle-même n'a pas changé.
+
+Constats sur les données :
+
+- Les compteurs de chaleur de Sequoia ont été renommés dans Loxone Config
+ (« APP 01 compteur chaleur [5] », plus de « kWh »). Seul « volume »
+ distingue l'énergie du volume. La règle de
+ `scripts/export_appartement.py` (`chaleur.*kwh`) les ratait ; corrigée.
+- **Sequoia, eau chaude App 41 = App 35** : les deux contrôles ont un
+ historique Statistics identique (27 488 points, 23,616 → 23,735 m³).
+ Un seul compteur est lu deux fois, celui de l'App 41 porte « [60!] »
+ dans son nom. À signaler à l'installateur. L'onglet Eau chaude le
+ signale automatiquement (« mêmes index en début et en fin de mois »).
+- Un 4e site, **La Calbasse** (APP35 à APP49, « APPxx Chauffage » en
+ kWhth et « APPxx Eau chaude »), est dans `config.yaml`. Il n'a pas été
+ testé dans le décompte : aucune Statistics importée au 2026-10-16.
+
 ## Prochaine étape prévue
 
 Le décompte RCP est branché. La suite du backlog, seulement si on la
