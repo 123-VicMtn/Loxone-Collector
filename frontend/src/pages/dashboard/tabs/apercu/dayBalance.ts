@@ -43,7 +43,8 @@ export interface DayBalance {
 
 const SOLAR_ZONE = /solaire|\bsol\b/i
 const GRID_ZONE = /\bgrid\b/i
-const PRODUCTION = /^(production\b|.*pv production)/i
+// « Compteur PV » : La Calbasse (51,7 kWh le 26.10.2026, comme sur place).
+const PRODUCTION = /^(production\b|.*pv production|compteur pv \(total\)$)/i
 export function pickProduction(series: Series[]): Series | null {
   const totals = series.filter((s) => !s.apartment && s.state_name === 'total')
   // À Sequoia, « Production Solaire » est figé. Le compteur qui avance
@@ -55,7 +56,8 @@ export function pickProduction(series: Series[]): Series | null {
 }
 
 export function pickExport(series: Series[]): Series | null {
-  const neg = series.find((s) => !s.apartment && s.state_name === 'totalNeg' && /r[ée]seau|alimentation/i.test(s.label))
+  // « Compteur Intro » : compteur de raccordement de La Calbasse.
+  const neg = series.find((s) => !s.apartment && s.state_name === 'totalNeg' && /r[ée]seau|alimentation|\bintro\b/i.test(s.label))
   if (neg) return neg
   return series.find((s) => !s.apartment && s.state_name === 'total' && /export/i.test(s.label)) || null
 }
@@ -80,13 +82,24 @@ export function pickImport(series: Series[]): Series | null {
   ) || null
 }
 
-/** Compteurs de consommation d'un lot, hors chaleur, buanderie et machines. */
+/** Compteurs thermiques (kWh th) : classés `energie_consommee` comme
+ * l'électricité, mais à ne jamais additionner avec elle. « APPxx Chauffage »
+ * de La Calbasse comptait ~150 000 kWh th par jour dans la consommation. */
+function isHeat(s: Series): boolean {
+  return /chaleur|ccaleur|chauffage/i.test(s.label) || /th$/i.test(s.unit || '')
+}
+
+/** Compteurs de consommation d'un lot, hors chaleur, buanderie et machines.
+ * Plus la PAC du bâtiment quand elle a son propre compteur hors des lots
+ * (La Calbasse : sans elle, il manque ~60 % de la consommation). À Sequoia,
+ * « PAC déjà mesuré » est dans les Communs et reste exclu. */
 export function lotConsumptionSeries(series: Series[]): Series[] {
   return series.filter((s) =>
-    s.apartment
+    (s.apartment || /^pac \(total\)$/i.test(s.label))
     && s.state_name === 'total'
     && s.resource_type === 'energie_consommee'
-    && !/chaleur|ccaleur|cenergie|nrmachine|zähler|déjà mesuré|mesuré aussi/i.test(s.label)
+    && !isHeat(s)
+    && !/cenergie|nrmachine|zähler|déjà mesuré|mesuré aussi/i.test(s.label)
     && !SOLAR_ZONE.test(s.label)
     && !GRID_ZONE.test(s.label),
   )
