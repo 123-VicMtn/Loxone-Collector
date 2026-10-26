@@ -608,6 +608,14 @@ fonctionnement d'abord, revenir sur la structure ensuite.
   cosmétique à corriger côté Loxone Config si l'installateur y retourne.
   (Le vrai bug de répartition solaire de ce même chantier, lui, **a déjà
   été corrigé par l'installateur** le 2026-09-10 -- ne pas le re-signaler.)
+- **Renommage des trois sites selon la convention de La Calbasse**
+  (voir « Convention de nommage », 2026-10-26) : Arlopi, Horizon et
+  Sequoia seront corrigés dans Loxone Config. Après chaque renommage,
+  revoir les règles du code qui portent sur les anciens noms (la liste
+  est dans cette section).
+- **La Calbasse, `APP47 Réseau`** : +1 147 kWh le 2026-10-26 alors que
+  les autres `APPxx Réseau` restent quasi à zéro. Probablement mal
+  configuré dans Loxone Config.
 
 ### Nettoyage mineur, non bloquant
 
@@ -929,10 +937,81 @@ Constats sur les données :
  kWhth et « APPxx Eau chaude »), est dans `config.yaml`. Il n'a pas été
  testé dans le décompte : aucune Statistics importée au 2026-10-16.
 
+## Convention de nommage Loxone (La Calbasse) — 2026-10-26
+
+**La Calbasse est le premier site avec une configuration Loxone
+normalisée.** Décision de l'utilisateur : Arlopi, Horizon et Sequoia
+seront renommés dans Loxone Config pour suivre la même convention, afin
+de simplifier le repérage des compteurs et les règles du code. Toute
+nouvelle règle doit viser cette convention en priorité ; les noms
+historiques des autres sites ne sont que des cas de transition, à
+retirer une fois le site renommé.
+
+Convention relevée sur La Calbasse (nom du contrôle `Meter`, sans le
+suffixe d'état) :
+
+| Niveau | Nom | Catégorie | Unité | Rôle |
+|---|---|---|---|---|
+| Lot | `APPxx` | Energie | kWh | consommation électrique du lot (compteur de facturation) |
+| Lot | `APPxx Réseau` / `APPxx Solaire` | Energie | kWh | part réseau / solaire du lot |
+| Lot | `APPxx Chauffage` | Chauffage | kWhth | chaleur du lot |
+| Lot | `APPxx Eau chaude` | Eau | (vide) | eau chaude du lot (m³) |
+| Communs | `Commun` | Energie | kWh | consommation des communs |
+| Communs | `Communs Réseau` / `Communs Solaire` | Energie | kWh | part réseau / solaire des communs |
+| Bâtiment | `Compteur Intro` | Energie | kWh | raccordement : `total` = import, `totalNeg` = injection |
+| Bâtiment | `Compteur PV` | Energie | kWh | production solaire |
+| Bâtiment | `PAC` (+ `PAC Réseau` / `PAC Solaire`) | Energie | kWh | pompe à chaleur, hors lots et hors Communs |
+| Bâtiment | `Boiler` | Chauffage | kWhth | production de chaleur (pas de l'électricité) |
+
+- Pièce Loxone d'un lot : `APPxx <nom de l'occupant>`. Compteurs du
+  bâtiment dans `Local Électrique` / `Local chauffage`. Moniteur de flux
+  (EFM, pièce `Central`) : `Compteur PV` (actual0), `Compteur Intro`
+  (actual1), `Appartements` (actual2), `Les Communs` (actual3),
+  `Valeurs Résiduelles` (actual4).
+- **Les compteurs de chaleur (catégorie Chauffage, unité `kWhth`) sont
+  classés `energie_consommee`** comme l'électricité : toute somme
+  électrique doit les exclure (unité en `…th` ou libellé « chauffage » /
+  « chaleur »).
+- Bilan validé le 2026-10-26 : import 92,65 + PV 51,74 − injection 0,98
+  = 143,4 kWh, contre 15 lots 34,9 + Commun 17,9 + PAC 88,9 = 141,7 kWh
+  (−1,2 %). La PAC fait partie de la consommation du bâtiment.
+- Les `APPxx Réseau` / `APPxx Solaire` sont encore quasi à zéro au
+  2026-10-26 (sauf `APP47 Réseau`, voir backlog) : la consommation d'un
+  lot se lit sur `APPxx`.
+
+**Aperçu du dashboard adapté** (`frontend/src/pages/dashboard/tabs/apercu/dayBalance.ts`) :
+avant, la production était vide et la consommation affichait
+150 052,6 kWh (les `APPxx Chauffage` additionnés à l'électricité).
+`pickProduction` reconnaît `Compteur PV (total)`, `pickExport`
+`Compteur Intro (totalNeg)`, `lotConsumptionSeries` exclut tout compteur
+thermique et ajoute `PAC (total)` du bâtiment (« PAC déjà mesuré » de
+Sequoia reste exclu). Arlopi, Horizon et Sequoia donnent exactement les
+mêmes chiffres qu'avant.
+
+**Règles du code qui portent sur les anciens noms**, à revoir quand le
+site concerné sera renommé :
+
+- `pickProduction` : `Solaire (total)` (Sequoia), `Production` (Arlopi),
+  `… PV Production` (Horizon).
+- `pickExport` : `Réseau` / `Alimentation` en `totalNeg`.
+- `zoneGridSeries` / `usesZoneSplit` : `Grid` (Arlopi) ; Sequoia est
+  écarté par son nom de site. La Calbasse dit `Réseau`, pas `Grid`.
+- `SOLAR_ZONE` (`solaire|\bsol\b`) : les sorties `Sol` de Sequoia.
+- `lotConsumptionSeries` : exclusions `cenergie`, `nrmachine`, `zähler`,
+  `déjà mesuré`, `mesuré aussi` (Sequoia).
+- Côté Python : `billing.resolve_zones` / `resolve_batiment` /
+  `resolve_postes`, `CONTROLE_EXCLUDE_RE`, `ZONE_LABEL_OVERRIDES`, les
+  `RULES` de `scripts/export_appartement.py`, et le motif d'appartement
+  de `classification.py` (qui reconnaît déjà `APPxx` et `Commun`).
+  **`/decompte` et l'export n'ont pas encore été vérifiés sur La
+  Calbasse** : le même problème (chauffage, PAC) peut s'y trouver.
+
 ## Prochaine étape prévue
 
-Le décompte RCP est branché. La suite du backlog, seulement si on la
-relance : compteurs de chauffage figés (hors périmètre électrique), ou le
+Le décompte RCP est branché. Prochain point concret : vérifier
+`/decompte` et l'export sur La Calbasse (convention de nommage,
+2026-10-26), puis suivre le renommage des autres sites. La suite du
+backlog, seulement si on la relance : compteurs de chauffage figés (hors périmètre électrique), ou le
 déploiement (Caddy, fallback SPA). Relancer `app.py` pour que l'API serve
 ce calcul (`use_reloader=False`).
 
