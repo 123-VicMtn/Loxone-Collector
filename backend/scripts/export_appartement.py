@@ -95,10 +95,13 @@ CHALEUR = r"c[ch]aleur|chauffage"
 RULES = [
     # (nom de la règle, regex sur le label, resource_type attendu ou None,
     #  famille, libellé affiché, unité, décimales, seuil de rupture)
-    ("chauffage_energie", re.compile(rf"(?i)({CHALEUR}).*kwh"), None,
-     "Chauffage", "Chauffage -- chaleur consommée", "kWh", 2, 0.5),
+    # Le volume avant l'énergie : les compteurs de chaleur de Sequoia ne
+    # portent plus « kWh » dans leur nom (« APP 01 compteur chaleur [5] »),
+    # seul « volume » distingue les deux.
     ("chauffage_volume", re.compile(rf"(?i)({CHALEUR}).*volume"), None,
      "Chauffage", "Chauffage -- volume circulé", "m³", 3, 0.05),
+    ("chauffage_energie", re.compile(rf"(?i)({CHALEUR})"), None,
+     "Chauffage", "Chauffage -- chaleur consommée", "kWh", 2, 0.5),
     ("eau_chaude", None, "eau_chaude",
      "Eau", "Eau chaude sanitaire", "m³", 3, 0.05),
     ("eau_froide", None, "eau_froide",
@@ -129,7 +132,7 @@ BUANDERIE_ROLES = {"buanderie", "buanderie_cycles"}
 # 2026 ». Avant cette date CEnergie incrémentait tous les lots (~37 kWh)
 # alors que CNrMachine restait à 0 (sauf APP100). Vérifié sur les relevés :
 # à partir du 17.07, 0 cycle = 0 kWh.
-BUANDERIE_VALID_FROM = int(dt.datetime(2026, 7, 17, tzinfo=TZ).timestamp())
+BUANDERIE_VALID_FROM = billing.BUANDERIE_VALID_FROM
 # Premier relevé Statistics du Wallbox Energizähler (index 0,000 kWh).
 # Avant cette date il n'y a rien à facturer : l'index démarre à zéro.
 WALLBOX_LABEL_RE = re.compile(r"(?i)wallbox\s+energiz")
