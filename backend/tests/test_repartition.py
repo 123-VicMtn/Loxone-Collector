@@ -212,6 +212,67 @@ class TestGardeFou(Base):
         self.assertAlmostEqual(a["kwh_grid_impossible"], 7.0)
         self.assertTrue(any("impossible" in r for r in a["raisons"]))
 
+    def test_residu_sous_le_seuil_est_tolere(self):
+        # Sequoia après la correction du bloc : un peu de Grid sur des heures
+        # sans import (horodatage, pertes), ~2 % de la consommation.
+        self.cumule("imp", self.t0, [0.0, 50.0])
+        self.cumule("prod", self.t0, [60.0, 0.0])
+        self.cumule("exp", self.t0, [10.0, 0.0])
+        self.cumule("zg", self.t0, [2.0, 48.0])      # 2 kWh « impossibles »
+        self.cumule("zs", self.t0, [48.0, 0.0])
+        self.cumule("zc", self.t0, [50.0, 50.0])     # 100 kWh consommés
+        zones = [zone("APP1", reseau="zg", solaire="zs", controle="zc")]
+        a = repartition.audit_series_loxone(self.conn, zones, batiment(),
+                                            self.t0, self.t0 + 3 * 3600)
+        self.assertTrue(a["fiable"], a["raisons"])
+        self.assertEqual(a["heures_grid_impossible"], 1)
+        self.assertAlmostEqual(a["part_grid_impossible_pct"], 2.0)
+
+    def test_residu_au_dessus_du_seuil_condamne(self):
+        self.cumule("imp", self.t0, [0.0, 50.0])
+        self.cumule("prod", self.t0, [60.0, 0.0])
+        self.cumule("exp", self.t0, [10.0, 0.0])
+        self.cumule("zg", self.t0, [6.0, 48.0])      # 6 kWh sur 100 : 6 %
+        self.cumule("zs", self.t0, [44.0, 0.0])
+        self.cumule("zc", self.t0, [50.0, 50.0])
+        zones = [zone("APP1", reseau="zg", solaire="zs", controle="zc")]
+        a = repartition.audit_series_loxone(self.conn, zones, batiment(),
+                                            self.t0, self.t0 + 3 * 3600)
+        self.assertFalse(a["fiable"])
+        self.assertTrue(any("6.0 %" in r and "seuil 5 %" in r for r in a["raisons"]), a["raisons"])
+
+    def test_solaire_sous_attribue_en_hiver_est_detecte(self):
+        # Sequoia, décembre 2025 : aucune heure impossible (le bâtiment
+        # importe toujours), mais le solaire autoconsommé part sur Grid.
+        self.cumule("imp", self.t0, [40.0, 50.0])
+        self.cumule("prod", self.t0, [60.0, 0.0])
+        self.cumule("exp", self.t0, [0.0, 0.0])
+        self.cumule("zg", self.t0, [85.0, 50.0])
+        self.cumule("zs", self.t0, [15.0, 0.0])      # 15 kWh pour 60 autoconsommés
+        self.cumule("zc", self.t0, [100.0, 50.0])
+        zones = [zone("APP1", reseau="zg", solaire="zs", controle="zc")]
+        a = repartition.audit_series_loxone(self.conn, zones, batiment(),
+                                            self.t0, self.t0 + 3 * 3600)
+        self.assertEqual(a["heures_grid_impossible"], 0)
+        self.assertFalse(a["fiable"])
+        self.assertAlmostEqual(a["ecart_solaire_pct"], -75.0)
+
+    def test_heures_sans_donnees_de_zone_ne_comptent_pas(self):
+        # Les Statistics des zones s'arrêtent avant celles de la production :
+        # les heures sans relevé de zone ne sont pas « sans solaire ».
+        self.cumule("imp", self.t0, [0.0, 0.0, 0.0])
+        self.cumule("prod", self.t0, [10.0, 10.0, 10.0])
+        self.cumule("exp", self.t0, [5.0, 5.0, 5.0])
+        self.cumule("zg", self.t0, [0.0])
+        self.cumule("zs", self.t0, [5.0])
+        self.cumule("zc", self.t0, [5.0])
+        zones = [zone("APP1", reseau="zg", solaire="zs", controle="zc")]
+        a = repartition.audit_series_loxone(self.conn, zones, batiment(),
+                                            self.t0, self.t0 + 4 * 3600)
+        self.assertEqual(a["heures_prod"], 1)
+        self.assertEqual(a["heures_prod_sans_solaire"], 0)
+        self.assertTrue(a["fiable"], a["raisons"])
+
     def test_production_sans_solaire_attribue_est_detectee(self):
         self.cumule("imp", self.t0, [5.0, 5.0])
         self.cumule("prod", self.t0, [8.0, 9.0])     # production franche

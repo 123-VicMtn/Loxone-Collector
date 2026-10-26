@@ -744,6 +744,7 @@ def api_decompte_csv():
 def api_decompte_xlsx():
     """Même mois que le CSV. Onglet Électricité : kWh, buanderie, prix et
     montants. Onglets Chauffage, Eau chaude, Buanderie quand le site en a.
+    Onglet Frais supplémentaires : tableau vide par zone, à remplir.
     Onglet Relevés : un point horaire des statistiques par ligne."""
     ms_name = _resolve_miniserver(request.args.get("miniserver"))
     mois = (request.args.get("mois") or "").strip()

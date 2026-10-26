@@ -108,7 +108,8 @@ export interface DecomptePayload {
   tarifs: Tarif[]
   generated_at: number
   miniserver: string
-  repartition: RepartitionInfo
+  /** Un verdict par mois (clé YYYY-MM) : un mois faux ne juge pas les autres. */
+  repartition: Record<string, RepartitionInfo>
   /** Renseigné si les Statistics du Miniserver n'ont pas pu être relues. */
   statistiques_erreur?: string | null
 }

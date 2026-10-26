@@ -401,11 +401,11 @@ class TestDecompteWorkbook(unittest.TestCase):
                 "start": billing.period_bounds(2026, 5)[0],
                 "end": billing.period_bounds(2026, 5)[1],
             }],
-            "repartition": {
+            "repartition": {"2026-05": {
                 "source": "calculee",
                 "confiance_verifiee": True,
                 "raisons": ["heures d'achat au réseau impossibles"],
-            },
+            }},
             "zones": [
                 {"label": "App 1", "sources": {
                     "controle": {"label": "Appartement 1 (total)", "series_id": "lot", "unit": "kWh"},
@@ -447,6 +447,25 @@ class TestDecompteWorkbook(unittest.TestCase):
             if ws.cell(r, col).value == valeur:
                 return r
         self.fail(f"{valeur!r} introuvable")
+
+    def test_onglet_frais_supplementaires_vide_et_lie_aux_zones(self):
+        wb = self.classeur()
+        elec, ws = wb["Électricité"], wb["Frais supplémentaires"]
+        self.assertIn("MS-Démo", ws["A1"].value)
+        self.assertEqual(
+            [ws.cell(4, c).value for c in range(1, 7)],
+            ["Zone", "Location des compteurs (CHF)", "Frais exceptionnels (CHF)",
+             "Autres frais (CHF)", "Total frais (CHF)", "Remarque"],
+        )
+        for row, zone in ((5, "App 1"), (6, "App 2")):
+            self.assertEqual(ws.cell(row, 1).value, zone)
+            cible = ws.cell(row, 1).hyperlink.location
+            self.assertEqual(cible, f"'Électricité'!A{self._ligne(elec, zone)}")
+            for c in (2, 3, 4, 6):
+                self.assertIsNone(ws.cell(row, c).value)
+            self.assertEqual(ws.cell(row, 5).value, f'=IF(COUNT(B{row}:D{row})=0,"",SUM(B{row}:D{row}))')
+        self.assertEqual(ws["A7"].value, "Total immeuble")
+        self.assertEqual(ws["E7"].value, '=IF(COUNT(E5:E6)=0,"",SUM(E5:E6))')
 
     def test_titre_largeurs_et_nombres(self):
         ws = self.workbook()
@@ -546,7 +565,7 @@ class TestDecompteWorkbook(unittest.TestCase):
             )
         conn.commit()
         wb = self.classeur(conn=conn)
-        self.assertEqual(wb.sheetnames, ["Électricité", "Relevés"])
+        self.assertEqual(wb.sheetnames, ["Électricité", "Frais supplémentaires", "Relevés"])
         ws = wb["Relevés"]
         self.assertIn("Relevés de compteurs", ws["A1"].value)
         self.assertIn("Mai 2026", ws["A2"].value)
@@ -658,7 +677,7 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
         payload = billing.compute_decompte(
             self.conn, series, billing.periods_covering(t0, t0 + 7200), [], ts(2026, 6, 1),
         )
-        self.assertEqual(payload["repartition"]["source"], "calculee")
+        self.assertEqual(payload["repartition"]["2026-01"]["source"], "calculee")
         self.assertEqual(payload["batiment"]["sources"]["production"]["series_id"], "prod")
         e = payload["zones"][0]["periodes"]["2026-01"]
         self.assertEqual(e["reseau"]["kwh"], 4.0)
@@ -689,11 +708,44 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
         payload = billing.compute_decompte(
             self.conn, series, billing.periods_covering(t0, t0 + 3600), [], ts(2026, 6, 1),
         )
-        self.assertEqual(payload["repartition"]["source"], "loxone")
+        self.assertEqual(payload["repartition"]["2026-01"]["source"], "loxone")
         e = payload["zones"][0]["periodes"]["2026-01"]
         self.assertAlmostEqual(e["reseau"]["kwh"], 40.0)
         self.assertAlmostEqual(e["solaire"]["kwh"], 60.0)
         self.assertAlmostEqual(e["total"], 100.0)
+
+    def test_verdict_propre_a_chaque_mois(self):
+        # Janvier : le Grid du lot augmente sans import du bâtiment (bloc
+        # faux, comme Sequoia avant le 10.09.2026). Février : séries justes.
+        # Le mois faux ne doit pas condamner le mois juste.
+        t0, f0 = ts(2026, 1, 1), ts(2026, 2, 1)
+        self.index("prod", [(t0, 0.0), (t0 + 3600, 10.0), (t0 + 7200, 16.0), (f0, 16.0), (f0 + 3600, 32.0)])
+        self.index("imp", [(t0, 0.0), (t0 + 3600, 0.0), (t0 + 7200, 4.0), (f0, 4.0), (f0 + 3600, 8.0)])
+        self.index("exp", [(t0, 0.0), (t0 + 3600, 2.0), (t0 + 7200, 3.0), (f0, 3.0), (f0 + 3600, 6.0)])
+        self.index("lot", [(t0, 0.0), (t0 + 3600, 8.0), (t0 + 7200, 17.0), (f0, 17.0), (f0 + 3600, 34.0)])
+        self.index("grid", [(t0, 0.0), (t0 + 3600, 5.0), (t0 + 7200, 6.0), (f0, 6.0), (f0 + 3600, 10.0)])
+        self.index("sol", [(t0, 0.0), (t0 + 3600, 0.0), (t0 + 7200, 4.0), (f0, 4.0), (f0 + 3600, 17.0)])
+        series = [
+            s("prod", "Solaire (total)", "energie_solaire", ""),
+            s("imp", "Réseau (total)", "energie_reseau", ""),
+            s("exp", "Réseau (totalNeg)", "energie_reseau", "", state_name="totalNeg"),
+            s("lot", "Appartement 1 (total)", "energie_consommee", "APP1"),
+            s("grid", "App 1 Grid (total)", "energie_reseau", "APP1"),
+            s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
+        ]
+        payload = billing.compute_decompte(
+            self.conn, series, billing.periods_covering(t0, f0 + 3600), [], ts(2026, 6, 1),
+        )
+        janvier, fevrier = payload["repartition"]["2026-01"], payload["repartition"]["2026-02"]
+        self.assertEqual(janvier["source"], "calculee")
+        self.assertTrue(janvier["raisons"])
+        self.assertEqual(fevrier["source"], "loxone")
+        self.assertTrue(fevrier["confiance_verifiee"])
+        e = payload["zones"][0]["periodes"]["2026-02"]
+        self.assertAlmostEqual(e["reseau"]["kwh"], 4.0)
+        self.assertAlmostEqual(e["solaire"]["kwh"], 13.0)
+        self.assertEqual(billing.repartition_du_mois(payload, "2026-02"), fevrier)
+        self.assertEqual(billing.repartition_du_mois(payload, "2030-01")["source"], "loxone")
 
     def test_releve_de_compteurs_qui_se_relaient(self):
         # « Production Solaire » couvre le début du mois, « Solaire (total) »
@@ -723,7 +775,7 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
         payload = billing.compute_decompte(
             self.conn, series, billing.periods_covering(t0, t0 + 10800), [], ts(2026, 10, 2),
         )
-        self.assertEqual(payload["repartition"]["source"], "calculee")
+        self.assertEqual(payload["repartition"]["2026-09"]["source"], "calculee")
         e = payload["zones"][0]["periodes"]["2026-09"]
         self.assertEqual(e["total"], 17.0)
         self.assertEqual(e["reseau"]["kwh"] + e["solaire"]["kwh"], e["total"])
@@ -914,7 +966,8 @@ class TestExportPostes(unittest.TestCase):
     def test_onglets(self):
         self.assertEqual(
             self.classeur().sheetnames,
-            ["Électricité", "Chauffage", "Eau chaude", "Buanderie", "Relevés"],
+            ["Électricité", "Chauffage", "Eau chaude", "Buanderie",
+             "Frais supplémentaires", "Relevés"],
         )
 
     def test_colonne_buanderie_dans_l_electricite(self):

@@ -75,6 +75,7 @@ from zoneinfo import ZoneInfo
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.hyperlink import Hyperlink
 from openpyxl.worksheet.page import PageMargins
 
 import db
@@ -659,7 +660,6 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
 
     zones = resolve_zones(series)
     batiment_src = resolve_batiment(series)
-    evaluation = None
     if periods:
         fenetre_debut, fenetre_fin = periods[0]["start"], periods[-1]["end"]
         actives = productions_sur_fenetre(
@@ -672,15 +672,26 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
         )
         if couvrant:
             batiment_src["production"] = couvrant
-        evaluation = repartition.evaluer_site(
-            conn, zones, batiment_src, periods[0]["start"], periods[-1]["end"],
-            statistics=True,
-        )
+
+    # Un verdict par mois : à Sequoia, le bloc « Répartition Solaire » est
+    # faux jusqu'au 09.09.2026 et juste ensuite. Jugé sur tout l'historique,
+    # les mois d'avant la correction condamnaient aussi les mois suivants.
+    # La comparabilité des compteurs de bâtiment, elle, reste jugée sur
+    # toute la fenêtre (voir repartition.evaluer_site, `bilan_reference`).
+    evaluations = {}
+    if periods:
+        bilan_fenetre = repartition.evaluer_site(
+            conn, zones, batiment_src, fenetre_debut, fenetre_fin, statistics=True,
+        )["bilan"]
+        evaluations = {
+            p["key"]: _evaluer_mois(conn, series, zones, p, bilan_fenetre) for p in periods
+        }
 
     for z in zones:
         z["periodes"] = {}
         for p in periods:
-            if evaluation and evaluation["source_recommandee"] == "calculee":
+            evaluation = evaluations[p["key"]]
+            if evaluation["source_recommandee"] == "calculee":
                 z["periodes"][p["key"]] = _zone_period_calculee(
                     conn, z, p, tarifs, now_ts, tz_name, evaluation,
                 )
@@ -698,8 +709,33 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
         "batiment": batiment,
         "tarifs": tarifs,
         "generated_at": now_ts,
-        "repartition": _repartition_payload(evaluation),
+        "repartition": {k: _repartition_payload(ev) for k, ev in evaluations.items()},
     }
+
+
+def _evaluer_mois(conn, series: list[dict], zones: list[dict], p: dict,
+                  bilan_fenetre: dict) -> dict:
+    """`repartition.evaluer_site` sur le seul mois `p`, avec le compteur de
+    production qui couvre ce mois-là. `bilan_fenetre` décide si le bilan
+    du bâtiment est exploitable."""
+    import repartition
+
+    batiment = resolve_batiment(series)
+    actives = productions_sur_fenetre(conn, series, p["start"], p["end"], statistics=True)
+    if actives:
+        batiment["productions"] = actives
+    couvrant = production_couvrante(conn, series, p["start"], p["end"], statistics=True)
+    if couvrant:
+        batiment["production"] = couvrant
+    return repartition.evaluer_site(
+        conn, zones, batiment, p["start"], p["end"], statistics=True,
+        bilan_reference=bilan_fenetre,
+    )
+
+
+def repartition_du_mois(payload: dict, period_key: str) -> dict:
+    """Source des parts réseau/solaire du mois (`_repartition_payload`)."""
+    return (payload.get("repartition") or {}).get(period_key) or _repartition_payload(None)
 
 
 def _zone_period(conn, zone: dict, p: dict, tarifs: list[dict], now_ts: int,
@@ -1371,7 +1407,7 @@ def _releves_manquants(entries: list) -> list[str]:
     return lignes
 
 
-def _notes_classeur(payload: dict, manquants: list[str],
+def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
                     postes: dict | None = None) -> list[tuple[str, str]]:
     notes: list[tuple[str, str]] = [(
         "Chaque zone est scindée en kWh achetés au réseau et kWh solaires "
@@ -1391,7 +1427,7 @@ def _notes_classeur(payload: dict, manquants: list[str],
             "Buanderie : pas de décompte avant sa mise en service le 17.07.2026.",
             "note",
         ))
-    rep = payload.get("repartition") or {}
+    rep = repartition_du_mois(payload, period_key)
     if rep.get("source") == "calculee":
         notes.append((
             "Ces parts sont calculées. La consommation vient du compteur du lot, "
@@ -1554,7 +1590,7 @@ def _ecrire_onglet_releves(wb: Workbook, entries: list, payload: dict, period_ke
                            site: str, label: str, couverture: str, tz: str, conn) -> None:
     """Une ligne par point horaire des statistiques du Miniserver, pour
     le compteur de chaque appartement."""
-    calculee = (payload.get("repartition") or {}).get("source") == "calculee"
+    calculee = repartition_du_mois(payload, period_key).get("source") == "calculee"
     start, end = _bornes_mois(payload, period_key)
     compteurs = []
     for z, _e in entries:
@@ -1838,12 +1874,96 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
     )
 
 
+_FRAIS_COLONNES = [
+    # (titre, largeur, saisie par l'utilisateur)
+    ("Zone", 28, False),
+    ("Location des compteurs (CHF)", 20, True),
+    ("Frais exceptionnels (CHF)", 20, True),
+    ("Autres frais (CHF)", 20, True),
+    ("Total frais (CHF)", 18, False),
+    ("Remarque", 46, True),
+]
+
+
+def _ecrire_onglet_frais(wb: Workbook, zones: list[tuple[str, int]], site: str,
+                         label: str, couverture: str) -> None:
+    """Tableau vide, une ligne par zone de l'onglet Électricité, pour
+    reporter à la main les frais hors relevés (location des compteurs,
+    frais exceptionnels). `zones` : (nom, ligne dans Électricité) ; le nom
+    de la zone est un lien vers sa ligne."""
+    ws = wb.create_sheet("Frais supplémentaires")
+    ncol = len(_FRAIS_COLONNES)
+    _ecrire_titre(
+        ws, f"Frais supplémentaires — {site}" if site else "Frais supplémentaires",
+        f"{label}  ·  {couverture}", ncol,
+    )
+    ws.row_dimensions[2].height = 22
+    header_row = 4
+    for c, (nom, _w, _s) in enumerate(_FRAIS_COLONNES, start=1):
+        cell = ws.cell(header_row, c, nom)
+        cell.font = _FONT_HEADER
+        cell.fill = _FILL_HEADER
+        cell.alignment = _ALIGN_CENTER
+        cell.border = _THIN
+    ws.row_dimensions[header_row].height = 32
+
+    first = header_row + 1
+    for i, (zone, ligne_elec) in enumerate(zones):
+        row = first + i
+        for c, (_n, _w, saisie) in enumerate(_FRAIS_COLONNES, start=1):
+            cell = ws.cell(row, c)
+            cell.border = _THIN
+            if saisie:
+                cell.fill = _FILL_EDIT
+            if c == 1:
+                cell.value = zone
+                cell.hyperlink = Hyperlink(ref=cell.coordinate,
+                                           location=f"'Électricité'!A{ligne_elec}")
+                cell.font = Font(color="0563C1", underline="single")
+                cell.alignment = _ALIGN_LEFT
+            elif c == ncol:
+                cell.alignment = _ALIGN_WRAP
+            else:
+                cell.number_format = _CHF_FMT
+                cell.alignment = _ALIGN_RIGHT
+        ws.cell(row, 5).value = f'=IF(COUNT(B{row}:D{row})=0,"",SUM(B{row}:D{row}))'
+        ws.cell(row, 5).font = Font(bold=True)
+        ws.row_dimensions[row].height = 18
+    last = first + len(zones) - 1
+
+    total_row = last + 1
+    for c in range(1, ncol + 1):
+        cell = ws.cell(total_row, c)
+        cell.font = _FONT_TOTAL
+        cell.fill = _FILL_TOTAL
+        cell.border = _TOTAL_BORDER
+        if 2 <= c <= 5:
+            cell.value = _formule_somme(get_column_letter(c), first, last)
+            cell.number_format = _CHF_FMT
+            cell.alignment = _ALIGN_RIGHT
+    ws.cell(total_row, 1, "Total immeuble").alignment = _ALIGN_LEFT
+    ws.row_dimensions[total_row].height = 22
+
+    for c, (_n, width, _s) in enumerate(_FRAIS_COLONNES, start=1):
+        ws.column_dimensions[get_column_letter(c)].width = width
+    notes = [
+        ("Tableau à remplir : les cases jaunes sont vides à la génération. "
+         "Reporter les montants à facturer en CHF, TVA comprise.", "note"),
+        ("Le nom de chaque zone renvoie à sa ligne dans l'onglet Électricité. "
+         "Le total de la ligne et celui de l'immeuble se calculent seuls.", "note"),
+    ]
+    last_row = _ecrire_notes(ws, total_row + 2, notes, ncol,
+                             sum(w for _n, w, _s in _FRAIS_COLONNES))
+    _mise_en_page(ws, ncol, last_row, header_row, site, label, "Frais supplémentaires · CHF")
+
+
 def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None) -> Workbook:
     """Classeur du mois choisi, ouvrable tel quel.
 
     Onglets : Électricité (kWh, prix et montants, colonne buanderie si le
     mois en a une), puis Chauffage, Eau chaude et Buanderie quand le site
-    a ces compteurs (`payload["postes"]`), et enfin les Relevés horaires.
+    a ces compteurs (`payload["postes"]`), Frais supplémentaires (tableau
+    vide à remplir) et enfin les Relevés horaires.
 
     Les chiffres sont ceux de `export_lignes` (donc de la page), arrondis
     au centième de kWh pour que la somme des lignes égale le total affiché.
@@ -2029,13 +2149,17 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
         ws.column_dimensions[get_column_letter(col[key])].width = width
 
     last_row = _ecrire_notes(
-        ws, rate_row + 2, _notes_classeur(payload, manquants, postes), ncol,
+        ws, rate_row + 2, _notes_classeur(payload, period_key, manquants, postes), ncol,
         sum(largeurs.values()),
     )
     _mise_en_page(ws, ncol, last_row, _XLSX_HEADER_ROW, site, label, "Électricité · kWh et CHF")
 
     if postes:
         _ecrire_onglets_postes(wb, postes, site, label, couverture, taux_tva)
+    _ecrire_onglet_frais(
+        wb, [(ln["zone"], first_data + i) for i, ln in enumerate(lignes)],
+        site, label, couverture,
+    )
     _ecrire_onglet_releves(
         wb, entries, payload, period_key, site, label, couverture, tz, conn,
     )

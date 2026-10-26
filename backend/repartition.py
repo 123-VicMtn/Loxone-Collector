@@ -277,6 +277,21 @@ def qualite_bilan(conn, zones: list[dict], batiment: dict, frac_info: dict,
 _IMPORT_NUL_KWH = 0.01        # en dessous, le bâtiment n'importe rien
 _GRID_SIGNIFICATIF_KWH = 0.01  # au dessus, la zone prétend acheter au réseau
 _PROD_SIGNIFICATIVE_KWH = 1.0  # production franche, du solaire à répartir
+# Part des kWh « impossibles » (achat des zones sans import du bâtiment)
+# tolérée avant de rejeter les séries du mois. Décidé avec l'utilisateur le
+# 2026-10-26 : une installation de cette taille a des pertes et des
+# décalages d'horodatage. Mesuré à Sequoia : ~2 % après la correction du
+# bloc (10.09-02.10.2026), 50 à 95 % avant.
+SEUIL_KWH_IMPOSSIBLES_PCT = 5.0
+# Écart toléré entre le solaire attribué aux zones et le solaire réellement
+# autoconsommé (production - injection). Le test des kWh impossibles seul
+# laissait passer l'hiver d'avant la correction : peu d'injection, donc peu
+# d'heures impossibles, mais 293 kWh de solaire attribué pour 1 281 kWh
+# autoconsommés (Sequoia, décembre 2025). Même valeur prudente que le seuil
+# ci-dessus, en attendant une décision sur l'effet de la batterie (~-10 %
+# après la correction, 10.09-01.10.2026).
+SEUIL_ECART_SOLAIRE_PCT = 5.0
+_AUTOCONSO_MIN_KWH = 10.0     # en dessous, l'écart relatif n'a pas de sens
 
 
 def audit_series_loxone(conn, zones: list[dict], batiment: dict,
@@ -298,12 +313,18 @@ def audit_series_loxone(conn, zones: list[dict], batiment: dict,
     bloc EFM). C'est `bilan_exploitable()` qui tranche : sans bouclage du
     bilan, l'audit se déclare non testable au lieu d'accuser à tort.
 
+    Le test 1 ne condamne les séries que si les kWh impossibles dépassent
+    `SEUIL_KWH_IMPOSSIBLES_PCT` de la consommation des zones (compteurs des
+    lots, à défaut Grid + Solaire des zones).
+
     Retourne `testable` (les tests ont pu être menés) et `fiable` (verdict,
     qui n'a de sens que si `testable`).
     """
     res = {"fiable": True, "testable": False, "raisons": [],
            "heures_import_nul": 0, "heures_grid_impossible": 0,
-           "kwh_grid_impossible": 0.0,
+           "kwh_grid_impossible": 0.0, "part_grid_impossible_pct": None,
+           "solaire_zones_kwh": None, "autoconsomme_kwh": None,
+           "ecart_solaire_pct": None,
            "heures_prod_sans_solaire": 0, "heures_prod": 0}
 
     if not batiment.get("reseau_import") or not batiment.get("production"):
@@ -313,8 +334,10 @@ def audit_series_loxone(conn, zones: list[dict], batiment: dict,
     imp = hourly_deltas(conn, batiment["reseau_import"]["series_id"], start_ts, end_ts, statistics)
     prod = deltas_production(conn, batiment, start_ts, end_ts, statistics)
 
-    grids, solaires = [], []
+    grids, solaires, controles = [], [], []
     for z in zones:
+        if z["sources"].get("controle"):
+            controles.append(hourly_deltas(conn, z["sources"]["controle"]["series_id"], start_ts, end_ts, statistics))
         if z["sources"].get("reseau"):
             grids.append(hourly_deltas(conn, z["sources"]["reseau"]["series_id"], start_ts, end_ts, statistics))
         if z["sources"].get("solaire"):
@@ -333,21 +356,49 @@ def audit_series_loxone(conn, zones: list[dict], batiment: dict,
             res["heures_grid_impossible"] += 1
             res["kwh_grid_impossible"] += somme
 
+    # Heures où les séries Solaire des zones ont des relevés : une heure
+    # sans données n'est pas une heure « sans solaire attribué » (les
+    # Statistics locales des zones peuvent s'arrêter avant la production).
+    heures_solaire = set().union(*solaires) if solaires else set()
     for h, dp in prod.items():
-        if dp <= _PROD_SIGNIFICATIVE_KWH:
+        if dp <= _PROD_SIGNIFICATIVE_KWH or h not in heures_solaire:
             continue
         res["heures_prod"] += 1
         if sum(s.get(h, 0.0) for s in solaires) <= _GRID_SIGNIFICATIF_KWH:
             res["heures_prod_sans_solaire"] += 1
 
+    conso = sum(sum(d.values()) for d in controles)
+    if conso <= 0:
+        conso = sum(sum(d.values()) for d in grids + solaires)
     if res["heures_grid_impossible"]:
-        res["fiable"] = False
-        res["raisons"].append(
-            f"{res['heures_grid_impossible']} heure(s) sur "
-            f"{res['heures_import_nul']} sans import du bâtiment voient malgré tout "
-            f"les compteurs réseau des zones augmenter "
-            f"({res['kwh_grid_impossible']:.0f} kWh impossibles)"
-        )
+        part = 100.0 * res["kwh_grid_impossible"] / conso if conso > 0 else None
+        res["part_grid_impossible_pct"] = part
+        if part is None or part > SEUIL_KWH_IMPOSSIBLES_PCT:
+            res["fiable"] = False
+            detail = f", {part:.1f} % de la consommation" if part is not None else ""
+            res["raisons"].append(
+                f"{res['heures_grid_impossible']} heure(s) sur "
+                f"{res['heures_import_nul']} sans import du bâtiment voient malgré tout "
+                f"les compteurs réseau des zones augmenter "
+                f"({res['kwh_grid_impossible']:.0f} kWh impossibles{detail} ; "
+                f"seuil {SEUIL_KWH_IMPOSSIBLES_PCT:.0f} %)"
+            )
+    if batiment.get("reseau_export") and heures_solaire:
+        exp = hourly_deltas(conn, batiment["reseau_export"]["series_id"], start_ts, end_ts, statistics)
+        heures = [h for h in heures_solaire if h in prod and h in exp]
+        autoconso = sum(prod[h] for h in heures) - sum(exp[h] for h in heures)
+        attribue = sum(sum(sl.get(h, 0.0) for sl in solaires) for h in heures)
+        res["solaire_zones_kwh"], res["autoconsomme_kwh"] = attribue, autoconso
+        if autoconso >= _AUTOCONSO_MIN_KWH:
+            ecart = 100.0 * (attribue - autoconso) / autoconso
+            res["ecart_solaire_pct"] = ecart
+            if abs(ecart) > SEUIL_ECART_SOLAIRE_PCT:
+                res["fiable"] = False
+                res["raisons"].append(
+                    f"solaire attribué aux zones {attribue:.0f} kWh pour "
+                    f"{autoconso:.0f} kWh réellement autoconsommés (production − "
+                    f"injection), écart {ecart:+.1f} % ; seuil {SEUIL_ECART_SOLAIRE_PCT:.0f} %"
+                )
     if res["heures_prod"] and res["heures_prod_sans_solaire"] > 0.5 * res["heures_prod"]:
         res["fiable"] = False
         res["raisons"].append(
@@ -375,7 +426,8 @@ def bilan_exploitable(bilan: dict, tolerance_pct: float = BILAN_TOLERANCE_PCT) -
 
 
 def evaluer_site(conn, zones: list[dict], batiment: dict,
-                 start_ts: int, end_ts: int, statistics: bool = False) -> dict:
+                 start_ts: int, end_ts: int, statistics: bool = False,
+                 bilan_reference: dict | None = None) -> dict:
     """Point d'entrée unique : décide sur quoi facturer la part solaire d'un
     site, et pourquoi.
 
@@ -392,21 +444,33 @@ def evaluer_site(conn, zones: list[dict], batiment: dict,
     doit dire que la répartition vient du Miniserver sans avoir pu être
     revérifiée ici, plutôt que de laisser croire à un contrôle qui n'a pas
     eu lieu.
+
+    `bilan_reference` : bilan d'une fenêtre plus longue (tout l'historique
+    affiché) qui décide seul si les compteurs de bâtiment sont comparables
+    aux zones. C'est une question d'emplacement des compteurs, pas de mois :
+    à Arlopi (compteur à l'onduleur) un mois isolé boucle parfois par
+    hasard, et l'audit y condamnerait à tort des séries justes. L'audit,
+    lui, porte sur [start_ts, end_ts[.
     """
     frac_info = solar_fraction(conn, batiment, start_ts, end_ts, statistics)
     bilan = qualite_bilan(conn, zones, batiment, frac_info, start_ts, end_ts, statistics)
     audit = audit_series_loxone(conn, zones, batiment, start_ts, end_ts, statistics)
-    ok_bilan = bilan_exploitable(bilan)
+    juge = bilan_reference if bilan_reference is not None else bilan
+    ok_bilan = bilan_exploitable(juge)
+    if ok_bilan and bilan.get("ecart_pct") is None:
+        # Fenêtre longue exploitable, mais ce mois-ci un compteur manque.
+        ok_bilan = False
+        juge = bilan
 
     if not ok_bilan:
         audit["testable"] = False
         audit["fiable"] = True
         audit["raisons"] = [
             f"compteurs de bâtiment non comparables aux compteurs de zone "
-            f"(écart de bouclage {bilan['ecart_pct']:+.1f} %) : ni l'audit des "
+            f"(écart de bouclage {juge['ecart_pct']:+.1f} %) : ni l'audit des "
             f"séries du Miniserver ni une répartition recalculée ne sont "
             f"possibles sur ce site."
-        ] if bilan.get("ecart_pct") is not None else [
+        ] if juge.get("ecart_pct") is not None else [
             "bilan du bâtiment incalculable (compteur manquant)."
         ]
 
