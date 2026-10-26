@@ -630,9 +630,13 @@ def _resolve_miniserver(name: str | None) -> str:
     return name
 
 
-def _decompte_payload(ms_name: str, now: int) -> dict:
+def _decompte_payload(ms_name: str, now: int, mois: str | None = None) -> dict:
     """Décompte complet d'un site. `from` / `to` (clés YYYY-MM) bornent
-    les mois ; sans eux, tous les mois couverts par les données."""
+    les mois ; sans eux, tous les mois couverts par les données.
+
+    `mois` (export) : ajoute pour ce mois le chauffage, l'eau chaude et la
+    buanderie (`payload["postes"]`). Leurs Statistics ne sont lues qu'ici,
+    pas à chaque affichage de la page."""
     with closing(_read_conn()) as conn:
         series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
         tarifs = db.list_tarifs(conn, ms_name)
@@ -644,21 +648,35 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
             if request.args.get("to"):
                 year, month = billing.parse_period_key(request.args["to"])
                 end_hint = billing.period_bounds(year, month)[1]
+            periode_export = None
+            if mois:
+                year, month = billing.parse_period_key(mois)
+                start, end = billing.period_bounds(year, month)
+                periode_export = {"key": mois, "start": start, "end": end}
+                start_hint = start if start_hint is None else start_hint
+                end_hint = end if end_hint is None else end_hint
         except ValueError as exc:
             abort(400, str(exc))
         # Les index viennent des Statistics du Miniserver, pas du collecteur.
         sync_info = miniserver_statistics.sync_decompte(
             _cfg(), conn, ms_name, series, now, start_hint, end_hint,
+            postes=periode_export is not None,
         )
         zones = billing.resolve_zones(series)
         batiment_src = billing.resolve_batiment(series)
 
-        rng = billing.available_range(conn, zones, batiment_src)
-        if rng is None:
-            payload = billing.compute_decompte(conn, series, [], tarifs, now)
+        def finaliser(payload: dict) -> dict:
             payload["miniserver"] = ms_name
             payload["statistiques_erreur"] = sync_info.get("erreur")
+            if periode_export:
+                payload["postes"] = {mois: billing.compute_postes(
+                    conn, billing.resolve_postes(series), periode_export, now,
+                )}
             return payload
+
+        rng = billing.available_range(conn, zones, batiment_src)
+        if rng is None:
+            return finaliser(billing.compute_decompte(conn, series, [], tarifs, now))
         first_ts, last_ts = rng
 
         try:
@@ -675,11 +693,7 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
             abort(400, "la période de début est postérieure à la période de fin")
 
         periods = billing.periods_covering(first_ts, last_ts)
-        payload = billing.compute_decompte(conn, series, periods, tarifs, now)
-        payload["miniserver"] = ms_name
-        payload["statistiques_erreur"] = sync_info.get("erreur")
-
-    return payload
+        return finaliser(billing.compute_decompte(conn, series, periods, tarifs, now))
 
 
 @app.route("/api/decompte")
@@ -699,51 +713,37 @@ def api_decompte():
     return jsonify(_decompte_payload(ms_name, int(time.time())))
 
 
-def _export_table():
-    """Lignes du mois demandé (`mois=YYYY-MM`) pour le site, mêmes chiffres
-    que le tableau de la page."""
+@app.route("/api/decompte/export.csv")
+@login_required
+def api_decompte_csv():
+    """Mois demandé (`mois=YYYY-MM`) : une section par tableau
+    (électricité, chauffage, eau chaude, buanderie)."""
     ms_name = _resolve_miniserver(request.args.get("miniserver"))
     mois = (request.args.get("mois") or "").strip()
     try:
         billing.parse_period_key(mois)
     except ValueError as exc:
         abort(400, str(exc))
-    payload = _decompte_payload(ms_name, int(time.time()))
+    payload = _decompte_payload(ms_name, int(time.time()), mois=mois)
     try:
-        rows = billing.export_lignes(payload, mois)
+        rows = billing.export_csv_lignes(payload, mois)
     except KeyError:
         abort(400, f"aucune donnée de décompte pour {mois}")
     safe_site = re.sub(r"[^A-Za-z0-9._-]+", "_", ms_name).strip("_") or "site"
-    return rows, f"decompte-{safe_site}-{mois}"
-
-
-def _csv_cell(value) -> str:
-    if value is None or value == "":
-        return ""
-    if isinstance(value, float):
-        return f"{value:.2f}".replace(".", ",")
-    return str(value)
-
-
-@app.route("/api/decompte/export.csv")
-@login_required
-def api_decompte_csv():
-    rows, stem = _export_table()
     buf = io.StringIO()
-    writer = csv.writer(buf, delimiter=";")
-    for row in rows:
-        writer.writerow([_csv_cell(c) if not isinstance(c, str) else c for c in row])
+    csv.writer(buf, delimiter=";").writerows(rows)
     data = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
     return send_file(
         data, mimetype="text/csv; charset=utf-8", as_attachment=True,
-        download_name=f"{stem}.csv",
+        download_name=f"decompte-{safe_site}-{mois}.csv",
     )
 
 
 @app.route("/api/decompte/export.xlsx")
 @login_required
 def api_decompte_xlsx():
-    """Même mois que le CSV. Onglet Décompte : kWh, prix et montants.
+    """Même mois que le CSV. Onglet Électricité : kWh, buanderie, prix et
+    montants. Onglets Chauffage, Eau chaude, Buanderie quand le site en a.
     Onglet Relevés : un point horaire des statistiques par ligne."""
     ms_name = _resolve_miniserver(request.args.get("miniserver"))
     mois = (request.args.get("mois") or "").strip()
@@ -751,7 +751,7 @@ def api_decompte_xlsx():
         billing.parse_period_key(mois)
     except ValueError as exc:
         abort(400, str(exc))
-    payload = _decompte_payload(ms_name, int(time.time()))
+    payload = _decompte_payload(ms_name, int(time.time()), mois=mois)
     try:
         with closing(_read_conn()) as conn:
             wb = billing.build_decompte_workbook(payload, mois, ms_name, conn)

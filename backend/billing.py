@@ -890,9 +890,124 @@ def _absent() -> dict:
     }
 
 
+# --------------------------------------------------------------------------
+# Postes hors électricité : chauffage, eau chaude, buanderie
+# --------------------------------------------------------------------------
+
+# Chauffage : seule l'énergie thermique (kWh) est décomptée, jamais le
+# volume circulé. Sequoia nomme ses compteurs « APP 01 compteur chaleur [5] »
+# et « APP 01 compteur chaleur volume [5] » (« Ccaleur » à l'App 34) ;
+# Arlopi « Chauffage App 1 », La Calbasse « APP35 Chauffage ».
+CHAUFFAGE_RE = re.compile(r"(?i)(chauffage|c[ch]aleur)")
+VOLUME_RE = re.compile(r"(?i)\bvolume\b")
+# Buanderie de Sequoia (catégorie Loxone « Lessive ») : CEnergieAppXX est
+# l'électricité de la buanderie attribuée au lot par badge, CNrMachineAppXX
+# son nombre de cycles.
+BUANDERIE_KWH_RE = re.compile(r"(?i)cenergie")
+BUANDERIE_CYCLES_RE = re.compile(r"(?i)cnrmachine")
+# APP100 naît des points « CEnergieApp100 » : ce n'est pas un logement.
+ZONES_FANTOMES = {"APP100"}
+# Buanderie livrée le 17.07.2026. Avant, CEnergie incrémentait tous les
+# lots (~37 kWh) avec 0 cycle.
+BUANDERIE_VALID_FROM = int(datetime(2026, 7, 17, tzinfo=ZoneInfo(TIMEZONE)).timestamp())
+RUPTURE_MIN_DROP_CYCLES = 0.9
+
+POSTES = ("chauffage", "eau_chaude", "buanderie", "buanderie_cycles")
+_POSTE_MIN_DROP = {
+    "chauffage": RUPTURE_MIN_DROP_KWH,
+    "eau_chaude": RUPTURE_MIN_DROP_EAU_M3,
+    "buanderie": RUPTURE_MIN_DROP_KWH,
+    "buanderie_cycles": RUPTURE_MIN_DROP_CYCLES,
+}
+
+
+def _role_poste(s: dict) -> str | None:
+    label = s.get("label") or ""
+    if BUANDERIE_CYCLES_RE.search(label):
+        return "buanderie_cycles"
+    if BUANDERIE_KWH_RE.search(label):
+        return "buanderie"
+    if CHAUFFAGE_RE.search(label):
+        if VOLUME_RE.search(label):
+            return None
+        if s.get("resource_type") in ("energie_reseau", "energie_solaire"):
+            return None
+        return "chauffage"
+    if s.get("resource_type") == "eau_chaude":
+        return "eau_chaude"
+    return None
+
+
+def resolve_postes(series: list[dict]) -> list[dict]:
+    """Compteurs de chauffage (énergie), d'eau chaude et de buanderie de
+    chaque zone. Une zone peut avoir plusieurs compteurs d'un même poste
+    (deux compteurs de chaleur aux Communs de Sequoia, deux au Commerce
+    d'Arlopi) : tous sont gardés. Les compteurs sans zone (« Charge
+    Chauffage », « Boiler ecs ») sont des compteurs d'immeuble, hors
+    décompte."""
+    zones: dict[str, dict[str, list[dict]]] = {}
+    for s in _totals(series):
+        apt = (s.get("apartment") or "").strip()
+        if not apt or apt.upper() in ZONES_FANTOMES:
+            continue
+        role = _role_poste(s)
+        if role is None:
+            continue
+        zones.setdefault(apt, {r: [] for r in POSTES})[role].append(_src(s))
+    out = []
+    for apt in sorted(zones, key=_zone_sort_key):
+        compteurs = {r: sorted(v, key=lambda c: c["label"]) for r, v in zones[apt].items()}
+        out.append({"zone": apt, "label": _zone_label(apt), "compteurs": compteurs})
+    return out
+
+
+def compute_postes(conn, postes: list[dict], p: dict, now_ts: int) -> dict:
+    """Relevés du mois `p` pour le chauffage, l'eau chaude et la buanderie.
+    Une ligne par compteur pour le chauffage et l'eau chaude, une ligne
+    par zone pour la buanderie (énergie et cycles). Même méthode que
+    l'électricité : index de fin − index de début, Statistics du
+    Miniserver."""
+    en_cours = p["end"] > now_ts
+    buanderie_ouverte = p["end"] > BUANDERIE_VALID_FROM
+    buanderie_start = max(p["start"], BUANDERIE_VALID_FROM)
+
+    def lire(src, role, start):
+        return reading_delta(conn, src["series_id"], start, p["end"], now_ts,
+                             min_drop=_POSTE_MIN_DROP[role], statistics=True)
+
+    out = {
+        "chauffage": [], "eau_chaude": [], "buanderie": [],
+        "en_cours": en_cours,
+        "buanderie_depuis": buanderie_start if buanderie_ouverte and buanderie_start > p["start"] else None,
+        "buanderie_avant_mise_en_service": False,
+    }
+    for z in postes:
+        for role in ("chauffage", "eau_chaude"):
+            for src in z["compteurs"][role]:
+                out[role].append({
+                    "zone": z["zone"], "label": z["label"],
+                    "compteur": src["label"], "series_id": src["series_id"],
+                    "en_cours": en_cours, **lire(src, role, p["start"]),
+                })
+        kwh_src = (z["compteurs"]["buanderie"] or [None])[0]
+        cycles_src = (z["compteurs"]["buanderie_cycles"] or [None])[0]
+        if not (kwh_src or cycles_src):
+            continue
+        if not buanderie_ouverte:
+            out["buanderie_avant_mise_en_service"] = True
+            continue
+        out["buanderie"].append({
+            "zone": z["zone"], "label": z["label"], "en_cours": en_cours,
+            "energie": lire(kwh_src, "buanderie", buanderie_start) if kwh_src else _absent(),
+            "cycles": lire(cycles_src, "buanderie_cycles", buanderie_start) if cycles_src else _absent(),
+        })
+    return out
+
+
 EXPORT_HEADERS = [
-    "Mois", "Zone", "Réseau (kWh)", "Solaire (kWh)", "Consommation (kWh)", "État",
+    "Mois", "Zone", "Consommation totale (kWh)", "Solaire (kWh)", "Réseau (kWh)", "État",
 ]
+_BUANDERIE_HEADER = "Buanderie (kWh)"
 
 
 def etat_zone(entry: dict) -> str:
@@ -905,63 +1020,214 @@ def etat_zone(entry: dict) -> str:
     return "données incomplètes"
 
 
-def export_lignes(payload: dict, period_key: str) -> list[list]:
-    """Tableau du mois choisi, tel qu'affiché : une ligne par zone puis le
-    total. Les kWh sont des nombres (ou None), pas des textes formatés.
-    Lève KeyError si le mois n'est pas dans le décompte."""
+def _etat_releve(quantite, en_cours: bool) -> str:
+    if en_cours:
+        return "mois en cours"
+    return "facturable" if quantite is not None else "données incomplètes"
+
+
+def _postes_du_mois(payload: dict, period_key: str) -> dict | None:
+    return (payload.get("postes") or {}).get(period_key)
+
+
+def _buanderie_par_zone(postes: dict | None) -> dict[str, float | None] | None:
+    """kWh de buanderie par code de zone, ou None si le mois n'en a pas
+    (site sans buanderie, ou mois antérieur à sa mise en service)."""
+    if not postes or not postes.get("buanderie"):
+        return None
+    return {b["zone"]: b["energie"]["kwh"] for b in postes["buanderie"]}
+
+
+def _mois_label(payload: dict, period_key: str) -> str:
     year, month = parse_period_key(period_key)
-    mois_label = period_label(year, month)
     for p in payload.get("periodes") or []:
         if p.get("key") == period_key and p.get("label"):
-            mois_label = p["label"]
-            break
+            return p["label"]
+    return period_label(year, month)
 
+
+def export_lignes(payload: dict, period_key: str) -> list[list]:
+    """Tableau électricité du mois choisi : une ligne par zone puis le
+    total. Colonne Buanderie quand le mois en a une. Les kWh sont des
+    nombres (ou None), pas des textes formatés. Lève KeyError si le mois
+    n'est pas dans le décompte."""
+    mois_label = _mois_label(payload, period_key)
+    buanderie = _buanderie_par_zone(_postes_du_mois(payload, period_key))
+
+    cles = ["total", "solaire", "reseau"] + (["buanderie"] if buanderie is not None else [])
     rows: list[list] = []
-    sums = {"reseau": 0.0, "solaire": 0.0, "total": 0.0}
-    seen = {"reseau": False, "solaire": False, "total": False}
+    sums = {k: 0.0 for k in cles}
+    seen = {k: False for k in cles}
     found = False
     for z in payload.get("zones", []):
         e = z.get("periodes", {}).get(period_key)
         if e is None:
             continue
         found = True
-        r, s, t = e["reseau"]["kwh"], e["solaire"]["kwh"], e["total"]
-        for key, val in (("reseau", r), ("solaire", s), ("total", t)):
-            if val is None:
+        vals = {"total": e["total"], "solaire": e["solaire"]["kwh"], "reseau": e["reseau"]["kwh"]}
+        if buanderie is not None:
+            vals["buanderie"] = buanderie.get(z.get("zone"))
+        for key in cles:
+            if vals[key] is None:
                 continue
-            sums[key] += val
+            sums[key] += vals[key]
             seen[key] = True
-        rows.append([mois_label, z.get("label") or z.get("zone"), r, s, t, etat_zone(e)])
+        rows.append([mois_label, z.get("label") or z.get("zone"),
+                     *[vals[k] for k in cles], etat_zone(e)])
     if not found:
         raise KeyError(period_key)
-    rows.append([
-        mois_label,
-        "Total immeuble",
-        sums["reseau"] if seen["reseau"] else None,
-        sums["solaire"] if seen["solaire"] else None,
-        sums["total"] if seen["total"] else None,
-        "",
-    ])
-    return [EXPORT_HEADERS, *rows]
+    rows.append([mois_label, "Total immeuble",
+                 *[sums[k] if seen[k] else None for k in cles], ""])
+    headers = list(EXPORT_HEADERS)
+    if buanderie is not None:
+        headers.insert(-1, _BUANDERIE_HEADER)
+    return [headers, *rows]
+
+
+# Tableaux chauffage et eau chaude : (titre, grandeur, unité, décimales).
+_POSTE_TABLES = {
+    "chauffage": ("Chauffage", "Énergie", "kWh th", 2),
+    "eau_chaude": ("Eau chaude", "Volume", "m³", 3),
+}
+_INDEX_DECIMALES = 3
+
+
+def _arrondi(value, decimales: int) -> float | None:
+    if value is None:
+        return None
+    return float(f"{float(value):.{decimales}f}")
+
+
+def _somme_arrondie(values: list, decimales: int) -> float | None:
+    nums = [v for v in values if v is not None]
+    if not nums:
+        return None
+    return float(f"{sum(nums):.{decimales}f}")
+
+
+def _nom_compteur(label: str) -> str:
+    return re.sub(r"\s*\(total\)\s*$", "", label or "").strip()
+
+
+def lignes_compteurs(postes: dict, role: str) -> tuple[list[dict], float | None]:
+    """Lignes du tableau chauffage ou eau chaude (une par compteur), avec
+    les valeurs arrondies telles qu'affichées, et leur total."""
+    dec = _POSTE_TABLES[role][3]
+    lignes = []
+    for r in postes.get(role) or []:
+        lignes.append({
+            "zone": r["label"],
+            "compteur": _nom_compteur(r["compteur"]),
+            "debut": _arrondi(r.get("releve_debut"), _INDEX_DECIMALES),
+            "fin": _arrondi(r.get("releve_fin"), _INDEX_DECIMALES),
+            "quantite": _arrondi(r.get("kwh"), dec),
+            "etat": _etat_releve(r.get("kwh"), r.get("en_cours", False)),
+            "alertes": list(r.get("alertes") or []),
+        })
+    return lignes, _somme_arrondie([ln["quantite"] for ln in lignes], dec)
+
+
+def lignes_buanderie(postes: dict) -> tuple[list[dict], dict]:
+    """Lignes du tableau buanderie (une par appartement) et leurs totaux."""
+    lignes = []
+    for b in postes.get("buanderie") or []:
+        energie, cycles = b["energie"]["kwh"], b["cycles"]["kwh"]
+        complet = energie is not None and cycles is not None
+        alertes = [f"Énergie : {a}" for a in b["energie"].get("alertes") or []]
+        alertes += [f"Cycles : {a}" for a in b["cycles"].get("alertes") or []]
+        lignes.append({
+            "zone": b["label"],
+            "cycles": _arrondi(cycles, 0),
+            "energie": _arrondi(energie, 2),
+            "etat": _etat_releve(energie if complet else None, b.get("en_cours", False)),
+            "alertes": alertes,
+        })
+    totaux = {
+        "cycles": _somme_arrondie([ln["cycles"] for ln in lignes], 0),
+        "energie": _somme_arrondie([ln["energie"] for ln in lignes], 2),
+    }
+    return lignes, totaux
+
+
+def _fr(value, decimales: int) -> str:
+    if value is None or value == "":
+        return ""
+    return f"{float(value):.{decimales}f}".replace(".", ",")
+
+
+def export_csv_lignes(payload: dict, period_key: str) -> list[list[str]]:
+    """CSV du mois : une section par tableau (électricité, chauffage, eau
+    chaude, buanderie), séparées par une ligne vide. Point-virgule et
+    virgule décimale, déjà formatés. Lève KeyError si le mois n'est pas
+    dans le décompte."""
+    elec = export_lignes(payload, period_key)
+    mois_label = _mois_label(payload, period_key)
+    out: list[list[str]] = [["Électricité"], elec[0]]
+    zones = [[_arrondi(c, 2) if not isinstance(c, str) else c for c in row] for row in elec[1:-1]]
+    # Total des valeurs affichées, comme le classeur : sinon la somme des
+    # lignes du fichier diffère du total d'un centime.
+    total = [mois_label, "Total immeuble"]
+    for i in range(2, len(elec[0]) - 1):
+        total.append(_somme_arrondie([row[i] for row in zones], 2))
+    total.append("")
+    for row in [*zones, total]:
+        out.append([c if isinstance(c, str) else _fr(c, 2) for c in row])
+
+    postes = _postes_du_mois(payload, period_key)
+    if not postes:
+        return out
+    for role, (titre, grandeur, unite, dec) in _POSTE_TABLES.items():
+        lignes, total = lignes_compteurs(postes, role)
+        if not lignes:
+            continue
+        out += [[], [titre], [
+            "Mois", "Zone", "Compteur", f"Index début ({unite})", f"Index fin ({unite})",
+            f"{grandeur} ({unite})", "État",
+        ]]
+        for ln in lignes:
+            out.append([
+                mois_label, ln["zone"], ln["compteur"],
+                _fr(ln["debut"], _INDEX_DECIMALES), _fr(ln["fin"], _INDEX_DECIMALES),
+                _fr(ln["quantite"], dec), ln["etat"],
+            ])
+        out.append([mois_label, "Total immeuble", "", "", "", _fr(total, dec), ""])
+    lignes, totaux = lignes_buanderie(postes)
+    if lignes:
+        out += [[], ["Buanderie"], ["Mois", "Zone", "Cycles", "Énergie (kWh)", "État"]]
+        for ln in lignes:
+            out.append([mois_label, ln["zone"], _fr(ln["cycles"], 0),
+                        _fr(ln["energie"], 2), ln["etat"]])
+        out.append([mois_label, "Total immeuble", _fr(totaux["cycles"], 0),
+                    _fr(totaux["energie"], 2), ""])
+    return out
 
 
 # Mise en page du classeur téléchargé. Même famille visuelle que
 # scripts/export_appartement.py : le fichier doit s'ouvrir déjà lisible,
 # sans élargir les colonnes ni deviner le site et le mois.
-_XLSX_HEADERS = [
-    "Zone", "Réseau (kWh)", "Solaire (kWh)", "Consommation (kWh)",
-    "Montant réseau (CHF)", "Montant solaire (CHF)", "HT (CHF)", "TVA (CHF)", "TTC (CHF)",
-    "État",
-]
-_XLSX_NCOL = len(_XLSX_HEADERS)
+# Colonnes de l'onglet Électricité : (titre, largeur). La colonne
+# buanderie n'existe que si le mois en a une, d'où des positions
+# calculées et non figées.
+_ELEC_COLONNES = {
+    "zone": ("Zone", 28),
+    "total": ("Consommation totale (kWh)", 22),
+    "solaire": ("Solaire (kWh)", 18),
+    "reseau": ("Réseau (kWh)", 18),
+    "buanderie": (_BUANDERIE_HEADER, 18),
+    "chf_reseau": ("Réseau TTC (CHF)", 18),
+    "chf_solaire": ("Solaire TTC (CHF)", 18),
+    "ttc": ("Total TTC (CHF)", 18),
+    "etat": ("État", 24),
+}
+_ELEC_KWH = ("total", "solaire", "reseau", "buanderie")
+_ELEC_CHF = ("chf_reseau", "chf_solaire", "ttc")
 _PRIX_RESEAU_ROW = 4
 _PRIX_SOLAIRE_ROW = 5
 _TVA_ROW = 6
 _XLSX_HEADER_ROW = 8
-_COL_KWH_RESEAU, _COL_KWH_SOLAIRE = 2, 3
-_COL_CHF_RESEAU, _COL_CHF_SOLAIRE = 5, 6
-_COL_HT, _COL_TVA, _COL_TTC, _COL_ETAT = 7, 8, 9, 10
 _KWH_FMT = "#,##0.00"
+_M3_FMT = "#,##0.000"
+_CYCLES_FMT = "#,##0"
 _CHF_FMT = "#,##0.00"
 _PRIX_FMT = "0.0000"
 _TVA_FMT = "0.00"
@@ -1105,12 +1371,26 @@ def _releves_manquants(entries: list) -> list[str]:
     return lignes
 
 
-def _notes_classeur(payload: dict, manquants: list[str]) -> list[tuple[str, str]]:
+def _notes_classeur(payload: dict, manquants: list[str],
+                    postes: dict | None = None) -> list[tuple[str, str]]:
     notes: list[tuple[str, str]] = [(
         "Chaque zone est scindée en kWh achetés au réseau et kWh solaires "
-        "autoconsommés. La consommation est leur somme.",
+        "autoconsommés. La consommation totale est leur somme.",
         "note",
     )]
+    if _buanderie_par_zone(postes) is not None:
+        notes.append((
+            "La colonne Buanderie est l'électricité de la buanderie commune "
+            "attribuée au lot (CEnergieAppXX). Elle passe par le compteur des "
+            "Communs : elle n'est ni dans la consommation totale du lot, ni "
+            "dans les montants, ni déduite des Communs. Détail dans l'onglet Buanderie.",
+            "note",
+        ))
+    elif postes and postes.get("buanderie_avant_mise_en_service"):
+        notes.append((
+            "Buanderie : pas de décompte avant sa mise en service le 17.07.2026.",
+            "note",
+        ))
     rep = payload.get("repartition") or {}
     if rep.get("source") == "calculee":
         notes.append((
@@ -1160,10 +1440,10 @@ def _tarif_du_mois(entries: list) -> dict | None:
     return None
 
 
-def _formule_produit(qte: str, prix: str) -> str:
-    """Montant vide si la quantité ou le prix manque : un 0 CHF ne doit
-    pas se confondre avec une ligne sans relevé."""
-    return f'=IF(OR({qte}="",{prix}=""),"",{qte}*{prix})'
+def _formule_ttc(qte: str, prix: str, tva: str) -> str:
+    """Montant TTC, vide si la quantité, le prix ou la TVA manque : un
+    0 CHF ne doit pas se confondre avec une ligne sans relevé."""
+    return f'=IF(OR({qte}="",{prix}="",{tva}=""),"",{qte}*{prix}*(1+{tva}/100))'
 
 
 def _formule_somme(col: str, first: int, last: int) -> str:
@@ -1323,8 +1603,247 @@ def _ecrire_onglet_releves(wb: Workbook, entries: list, payload: dict, period_ke
     )
 
 
+def _ecrire_notes(ws, start_row: int, notes: list[tuple[str, str]], ncol: int,
+                  largeur_totale: float) -> int:
+    """Notes de lecture sous un tableau, une par ligne fusionnée. Retourne
+    la dernière ligne écrite."""
+    car_par_ligne = max(40, int(largeur_totale * 0.73))
+    row = start_row
+    for text, kind in notes:
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=ncol)
+        cell = ws.cell(row, 1, text)
+        cell.font = _FONT_NOTE_HEAD if kind == "head" else _FONT_NOTE
+        cell.alignment = _ALIGN_WRAP
+        lignes_texte = max(1, (len(text) + car_par_ligne - 1) // car_par_ligne)
+        ws.row_dimensions[row].height = 16 * lignes_texte + 4
+        row += 1
+    return row - 1
+
+
+def _ecrire_onglet_tableau(wb: Workbook, nom: str, titre: str, sous: str,
+                           colonnes: list[tuple[str, int, str | None]],
+                           lignes: list[list], total: list | None,
+                           notes: list[tuple[str, str]],
+                           site: str, label: str, footer: str,
+                           prix: list[tuple[str, float | None, str]] | None = None,
+                           note_prix: str = "") -> None:
+    """Onglet à un tableau : en-tête, une ligne par entrée, ligne de total,
+    notes. `colonnes` : (titre, largeur, format) où format est un format
+    numérique Excel, None pour du texte, ou "etat" pour la colonne d'état.
+
+    `prix` : cases jaunes modifiables (libellé, valeur, format) écrites en
+    B4, B5... au-dessus du tableau. Une cellule de ligne peut alors être
+    une fonction `f(row)` qui rend une formule, et une cellule du total une
+    fonction `f(first, last)`."""
+    ws = wb.create_sheet(nom)
+    ncol = len(colonnes)
+    _ecrire_titre(ws, titre, sous, ncol)
+    ws.row_dimensions[2].height = 36
+    header_row = 4
+    if prix:
+        for i, (libelle, valeur, fmt) in enumerate(prix):
+            r = 4 + i
+            ws.cell(r, 1, libelle).font = Font(bold=True, color=_NAVY)
+            _prix_jaune(ws.cell(r, 2), valeur, fmt)
+            ws.row_dimensions[r].height = 20
+        last_prix = 4 + len(prix) - 1
+        ws.merge_cells(start_row=4, start_column=3, end_row=last_prix, end_column=ncol)
+        cell = ws.cell(4, 3, note_prix)
+        cell.font = _FONT_SUB
+        cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        header_row = last_prix + 2
+    for c, (nom_col, _w, _f) in enumerate(colonnes, start=1):
+        cell = ws.cell(header_row, c, nom_col)
+        cell.font = _FONT_HEADER
+        cell.fill = _FILL_HEADER
+        cell.alignment = _ALIGN_CENTER
+        cell.border = _THIN
+    ws.row_dimensions[header_row].height = 32
+
+    i_etat = next((i for i, (_n, _w, f) in enumerate(colonnes) if f == "etat"), None)
+    row = header_row
+    for i, valeurs in enumerate(lignes):
+        row += 1
+        etat = valeurs[i_etat] if i_etat is not None else "facturable"
+        fill = _FILL_AMBER if etat != "facturable" else (_FILL_STRIPE if i % 2 else None)
+        for c, (value, (_n, _w, fmt)) in enumerate(zip(valeurs, colonnes), start=1):
+            formule = callable(value)
+            cell = ws.cell(row, c, value(row) if formule else value)
+            cell.border = _THIN
+            if fill is not None:
+                cell.fill = fill
+            if fmt == "etat":
+                cell.font = _FONT_ETAT.get(value, Font())
+                cell.alignment = _ALIGN_CENTER
+            elif fmt:
+                if formule or isinstance(value, (int, float)):
+                    cell.number_format = fmt
+                cell.alignment = _ALIGN_RIGHT
+            else:
+                cell.alignment = _ALIGN_LEFT
+        ws.row_dimensions[row].height = 18
+    if lignes:
+        ws.auto_filter.ref = f"A{header_row}:{get_column_letter(ncol)}{row}"
+
+    if total is not None and lignes:
+        first_data, last_data = header_row + 1, row
+        row += 1
+        for c, (value, (_n, _w, fmt)) in enumerate(zip(total, colonnes), start=1):
+            formule = callable(value)
+            cell = ws.cell(row, c, value(first_data, last_data) if formule else value)
+            cell.font = _FONT_TOTAL
+            cell.fill = _FILL_TOTAL
+            cell.border = _TOTAL_BORDER
+            if fmt and fmt != "etat":
+                if formule or isinstance(value, (int, float)):
+                    cell.number_format = fmt
+                cell.alignment = _ALIGN_RIGHT
+            else:
+                cell.alignment = _ALIGN_LEFT
+        ws.row_dimensions[row].height = 22
+
+    for c, (_n, width, _f) in enumerate(colonnes, start=1):
+        ws.column_dimensions[get_column_letter(c)].width = width
+    last_row = _ecrire_notes(ws, row + 2, notes, ncol, sum(w for _n, w, _f in colonnes))
+    _mise_en_page(ws, ncol, max(last_row, header_row), header_row, site, label, footer)
+
+
+def _notes_manquants(lignes: list[dict], nom) -> list[tuple[str, str]]:
+    """Relevés qui empêchent une ligne d'être facturable. Le mois en cours
+    est déjà dit dans le sous-titre."""
+    detail = []
+    for ln in lignes:
+        if ln["etat"] != "données incomplètes":
+            continue
+        for a in ln["alertes"] or ["relevé manquant"]:
+            detail.append((f"{nom(ln)} : {a}", "note"))
+    return [("Relevés incomplets", "head"), *detail] if detail else []
+
+
+def _index_identiques(lignes: list[dict]) -> list[tuple[str, str]]:
+    """Compteurs de zones différentes aux mêmes index de début et de fin :
+    à Sequoia, l'eau chaude de l'App 41 a l'historique exact de celle de
+    l'App 35 (un seul compteur lu deux fois dans Loxone Config)."""
+    groupes: dict[tuple, list[dict]] = {}
+    for ln in lignes:
+        if ln["debut"] and ln["fin"] is not None:
+            groupes.setdefault((ln["debut"], ln["fin"]), []).append(ln)
+    notes = []
+    for (debut, fin), group in groupes.items():
+        zones = list(dict.fromkeys(ln["zone"] for ln in group))
+        if len(zones) < 2:
+            continue
+        notes.append((
+            f"{' et '.join(zones)} : mêmes index en début et en fin de mois "
+            f"({_fr(debut, _INDEX_DECIMALES)} → {_fr(fin, _INDEX_DECIMALES)}). "
+            "Probablement un seul compteur lu deux fois : à vérifier dans Loxone Config.",
+            "note",
+        ))
+    return [("Points d'attention", "head"), *notes] if notes else []
+
+
+def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
+                           couverture: str, tva_defaut: float | None = None) -> None:
+    """Onglets Chauffage, Eau chaude et Buanderie. Un onglet n'est créé que
+    si le site a des compteurs de ce poste.
+
+    Chauffage et eau chaude ont leur prix HT et leur TVA en cases jaunes
+    (pas de tarif en base pour ces postes : le prix part vide, la TVA
+    reprend celle du tarif électrique s'il y en a un)."""
+    explications = {
+        "chauffage": "Énergie de chauffage = index de fin − index de début du "
+                     "compteur de chaleur. Le volume circulé n'est pas repris.",
+        "eau_chaude": "Volume d'eau chaude sanitaire = index de fin − index de "
+                      "début. L'eau froide n'est pas reprise.",
+    }
+    for role, (titre, grandeur, unite, dec) in _POSTE_TABLES.items():
+        lignes, total = lignes_compteurs(postes, role)
+        if not lignes:
+            continue
+        qte_fmt = _M3_FMT if unite == "m³" else _KWH_FMT
+        colonnes = [
+            ("Zone", 22, None),
+            ("Compteur", 46, None),
+            (f"Index début ({unite})", 18, _INDEX_FMT),
+            (f"Index fin ({unite})", 18, _INDEX_FMT),
+            (f"{grandeur} ({unite})", 18, qte_fmt),
+            ("Montant TTC (CHF)", 18, _CHF_FMT),
+            ("État", 22, "etat"),
+        ]
+        # Prix en B4, TVA en B5 ; quantité en E, montant en F.
+        def montant(row):
+            return _formule_ttc(f"E{row}", "$B$4", "$B$5")
+
+        def somme_montants(first, last):
+            return _formule_somme("F", first, last)
+
+        rows = [[ln["zone"], ln["compteur"], ln["debut"], ln["fin"], ln["quantite"],
+                 montant, ln["etat"]]
+                for ln in lignes]
+        notes = [(explications[role], "note")]
+        if len({ln["zone"] for ln in lignes}) < len(lignes):
+            notes.append((
+                "Une zone peut avoir plusieurs compteurs : une ligne par compteur, "
+                "le total les additionne tous.", "note",
+            ))
+        notes.append((
+            "Une case vide n'est pas un zéro : le relevé manque, et le total "
+            "ne compte que les relevés présents.", "note",
+        ))
+        notes += _index_identiques(lignes)
+        notes += _notes_manquants(lignes, lambda ln: f"{ln['zone']} — {ln['compteur']}")
+        _ecrire_onglet_tableau(
+            wb, titre, f"{titre} — {site}" if site else titre,
+            f"{label}  ·  {couverture}", colonnes, rows,
+            ["Total immeuble", "", None, None, total, somme_montants, ""], notes,
+            site, label, f"{titre} · {unite} et CHF",
+            prix=[
+                (f"Prix {titre.lower()} HT (CHF/{unite})", None, _PRIX_FMT),
+                ("TVA (%)", tva_defaut, _TVA_FMT),
+            ],
+            note_prix=(
+                f"Montant TTC = {grandeur.lower()} × prix HT × (1 + TVA). Les cases "
+                "jaunes sont modifiables : les montants se recalculent. Une quantité, "
+                "un prix ou une TVA vide ne donne pas de montant."
+            ),
+        )
+
+    lignes, totaux = lignes_buanderie(postes)
+    if not lignes:
+        return
+    colonnes = [
+        ("Zone", 22, None),
+        ("Cycles", 14, _CYCLES_FMT),
+        ("Énergie (kWh)", 18, _KWH_FMT),
+        ("État", 22, "etat"),
+    ]
+    rows = [[ln["zone"], ln["cycles"], ln["energie"], ln["etat"]] for ln in lignes]
+    notes = [
+        ("Énergie (CEnergieAppXX) et nombre de cycles (CNrMachineAppXX) de la "
+         "buanderie commune, attribués à chaque appartement par badge.", "note"),
+        ("Cette énergie passe par le compteur des Communs : elle n'est pas dans "
+         "la consommation électrique du lot, et n'est pas déduite des Communs.", "note"),
+    ]
+    if postes.get("buanderie_depuis"):
+        notes.append((
+            "Décompte à partir du 17.07.2026, mise en service de la buanderie. "
+            "Avant, l'énergie s'incrémentait sur tous les lots sans cycle.", "note",
+        ))
+    notes += _notes_manquants(lignes, lambda ln: ln["zone"])
+    _ecrire_onglet_tableau(
+        wb, "Buanderie", f"Buanderie — {site}" if site else "Buanderie",
+        f"{label}  ·  {couverture}", colonnes, rows,
+        ["Total immeuble", totaux["cycles"], totaux["energie"], ""], notes,
+        site, label, "Buanderie · kWh et cycles",
+    )
+
+
 def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None) -> Workbook:
     """Classeur du mois choisi, ouvrable tel quel.
+
+    Onglets : Électricité (kWh, prix et montants, colonne buanderie si le
+    mois en a une), puis Chauffage, Eau chaude et Buanderie quand le site
+    a ces compteurs (`payload["postes"]`), et enfin les Relevés horaires.
 
     Les chiffres sont ceux de `export_lignes` (donc de la page), arrondis
     au centième de kWh pour que la somme des lignes égale le total affiché.
@@ -1338,6 +1857,8 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
     label, couverture = _couverture_mois(payload, period_key, entries)
     generated = payload.get("generated_at")
     manquants = _releves_manquants(entries)
+    postes = _postes_du_mois(payload, period_key)
+    buanderie = _buanderie_par_zone(postes)
 
     lignes = []
     for z, e in entries:
@@ -1346,22 +1867,29 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
             "reseau": _kwh_affiche((e.get("reseau") or {}).get("kwh")),
             "solaire": _kwh_affiche((e.get("solaire") or {}).get("kwh")),
             "total": _kwh_affiche(e.get("total")),
+            "buanderie": _kwh_affiche((buanderie or {}).get(z.get("zone"))),
             "etat": etat_zone(e),
         })
-    totaux = {
-        "reseau": _somme_affichee([ln["reseau"] for ln in lignes]),
-        "solaire": _somme_affichee([ln["solaire"] for ln in lignes]),
-        "total": _somme_affichee([ln["total"] for ln in lignes]),
-    }
+    totaux = {k: _somme_affichee([ln[k] for ln in lignes]) for k in _ELEC_KWH}
     taux = None
     if totaux["total"]:
         taux = (totaux["solaire"] or 0.0) / totaux["total"]
+
+    cles = ["zone", "total", "solaire", "reseau"]
+    if buanderie is not None:
+        cles.append("buanderie")
+    cles += [*_ELEC_CHF, "etat"]
+    col = {k: i for i, k in enumerate(cles, start=1)}
+    ncol = len(cles)
+
+    def ref(key: str, row: int) -> str:
+        return f"{get_column_letter(col[key])}{row}"
 
     wb = Workbook()
     wb.calculation.calcMode = "auto"
     wb.calculation.fullCalcOnLoad = True
     ws = wb.active
-    ws.title = "Décompte"
+    ws.title = "Électricité"
 
     sous = label + "  ·  " + couverture
     if generated:
@@ -1369,7 +1897,7 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
     _ecrire_titre(
         ws,
         f"Décompte de charges — {site}" if site else "Décompte de charges",
-        sous, _XLSX_NCOL,
+        sous, ncol,
     )
     ws.row_dimensions[2].height = 22
     ws.row_dimensions[3].height = 8
@@ -1378,8 +1906,8 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
     prix_reseau = tarif.get("prix_reseau") if tarif else None
     prix_solaire = tarif.get("prix_solaire") if tarif else None
     taux_tva = tarif.get("taux_tva") if tarif else None
-    ws.cell(_PRIX_RESEAU_ROW, 1, "Prix réseau (CHF/kWh)").font = Font(bold=True, color=_NAVY)
-    ws.cell(_PRIX_SOLAIRE_ROW, 1, "Prix solaire (CHF/kWh)").font = Font(bold=True, color=_NAVY)
+    ws.cell(_PRIX_RESEAU_ROW, 1, "Prix réseau HT (CHF/kWh)").font = Font(bold=True, color=_NAVY)
+    ws.cell(_PRIX_SOLAIRE_ROW, 1, "Prix solaire HT (CHF/kWh)").font = Font(bold=True, color=_NAVY)
     ws.cell(_TVA_ROW, 1, "TVA (%)").font = Font(bold=True, color=_NAVY)
     _prix_jaune(ws.cell(_PRIX_RESEAU_ROW, 2), prix_reseau, _PRIX_FMT)
     _prix_jaune(ws.cell(_PRIX_SOLAIRE_ROW, 2), prix_solaire, _PRIX_FMT)
@@ -1393,10 +1921,11 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
         origine = "Tarif enregistré pour ce site."
     else:
         origine = "Aucun tarif enregistré pour ce mois."
-    ws.merge_cells(start_row=_PRIX_RESEAU_ROW, start_column=3, end_row=_TVA_ROW, end_column=_XLSX_NCOL)
+    ws.merge_cells(start_row=_PRIX_RESEAU_ROW, start_column=3, end_row=_TVA_ROW, end_column=ncol)
     note_prix = ws.cell(
         _PRIX_RESEAU_ROW, 3,
-        f"{origine} Les cases jaunes sont modifiables : les montants se recalculent. "
+        f"{origine} Les montants sont TTC : kWh × prix HT × (1 + TVA). "
+        "Les cases jaunes sont modifiables : les montants se recalculent. "
         "Une quantité vide ne donne pas de montant.",
     )
     note_prix.font = _FONT_SUB
@@ -1406,8 +1935,8 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
     ref_prix_solaire = f"$B${_PRIX_SOLAIRE_ROW}"
     ref_tva = f"$B${_TVA_ROW}"
 
-    for col, nom in enumerate(_XLSX_HEADERS, start=1):
-        cell = ws.cell(_XLSX_HEADER_ROW, col, nom)
+    for key in cles:
+        cell = ws.cell(_XLSX_HEADER_ROW, col[key], _ELEC_COLONNES[key][0])
         cell.font = _FONT_HEADER
         cell.fill = _FILL_HEADER
         cell.alignment = _ALIGN_CENTER
@@ -1419,39 +1948,33 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
         row = first_data + i
         incomplet = ln["etat"] != "facturable"
         fill = _FILL_AMBER if incomplet else (_FILL_STRIPE if i % 2 else None)
-        kwh_reseau = f"{get_column_letter(_COL_KWH_RESEAU)}{row}"
-        kwh_solaire = f"{get_column_letter(_COL_KWH_SOLAIRE)}{row}"
-        chf_reseau = f"{get_column_letter(_COL_CHF_RESEAU)}{row}"
-        chf_solaire = f"{get_column_letter(_COL_CHF_SOLAIRE)}{row}"
-        ht = f"{get_column_letter(_COL_HT)}{row}"
-        tva = f"{get_column_letter(_COL_TVA)}{row}"
+        chf_reseau, chf_solaire = ref("chf_reseau", row), ref("chf_solaire", row)
         valeurs = {
-            1: ln["zone"],
-            _COL_KWH_RESEAU: ln["reseau"],
-            _COL_KWH_SOLAIRE: ln["solaire"],
-            4: ln["total"],
-            _COL_CHF_RESEAU: _formule_produit(kwh_reseau, ref_prix_reseau),
-            _COL_CHF_SOLAIRE: _formule_produit(kwh_solaire, ref_prix_solaire),
-            _COL_HT: f'=IF(OR({chf_reseau}="",{chf_solaire}=""),"",{chf_reseau}+{chf_solaire})',
-            _COL_TVA: f'=IF(OR({ht}="",{ref_tva}=""),"",{ht}*{ref_tva}/100)',
-            _COL_TTC: f'=IF({ht}="","",{ht}+{tva})',
-            _COL_ETAT: ln["etat"],
+            "zone": ln["zone"],
+            "total": ln["total"],
+            "solaire": ln["solaire"],
+            "reseau": ln["reseau"],
+            "buanderie": ln["buanderie"],
+            "chf_reseau": _formule_ttc(ref("reseau", row), ref_prix_reseau, ref_tva),
+            "chf_solaire": _formule_ttc(ref("solaire", row), ref_prix_solaire, ref_tva),
+            "ttc": f'=IF(OR({chf_reseau}="",{chf_solaire}=""),"",{chf_reseau}+{chf_solaire})',
+            "etat": ln["etat"],
         }
-        for col in range(1, _XLSX_NCOL + 1):
-            cell = ws.cell(row, col, valeurs[col])
+        for key in cles:
+            cell = ws.cell(row, col[key], valeurs[key])
             cell.border = _THIN
             if fill is not None:
                 cell.fill = fill
-            if col in (_COL_KWH_RESEAU, _COL_KWH_SOLAIRE, 4):
-                _style_kwh(cell, valeurs[col])
-                if col == 4 and valeurs[col] is not None:
+            if key in _ELEC_KWH:
+                _style_kwh(cell, valeurs[key])
+                if key == "total" and valeurs[key] is not None:
                     cell.font = Font(bold=True)
-            elif col in (_COL_CHF_RESEAU, _COL_CHF_SOLAIRE, _COL_HT, _COL_TVA, _COL_TTC):
+            elif key in _ELEC_CHF:
                 cell.number_format = _CHF_FMT
                 cell.alignment = _ALIGN_RIGHT
-                if col == _COL_TTC:
+                if key == "ttc":
                     cell.font = Font(bold=True)
-            elif col == _COL_ETAT:
+            elif key == "etat":
                 cell.font = _FONT_ETAT.get(ln["etat"], Font())
                 cell.alignment = _ALIGN_CENTER
             else:
@@ -1460,25 +1983,19 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
 
     last_data = first_data + len(lignes) - 1
     total_row = last_data + 1
-    for col in range(1, _XLSX_NCOL + 1):
-        cell = ws.cell(total_row, col, None)
+    for key in cles:
+        cell = ws.cell(total_row, col[key], None)
         cell.font = _FONT_TOTAL
         cell.fill = _FILL_TOTAL
         cell.border = _TOTAL_BORDER
-        if col == 1:
+        if key == "zone":
             cell.value = "Total immeuble"
             cell.alignment = _ALIGN_LEFT
-        elif col == _COL_KWH_RESEAU:
-            cell.value = totaux["reseau"]
-            _style_kwh(cell, totaux["reseau"])
-        elif col == _COL_KWH_SOLAIRE:
-            cell.value = totaux["solaire"]
-            _style_kwh(cell, totaux["solaire"])
-        elif col == 4:
-            cell.value = totaux["total"]
-            _style_kwh(cell, totaux["total"])
-        elif col in (_COL_CHF_RESEAU, _COL_CHF_SOLAIRE, _COL_HT, _COL_TVA, _COL_TTC):
-            letter = get_column_letter(col)
+        elif key in _ELEC_KWH:
+            cell.value = totaux[key]
+            _style_kwh(cell, totaux[key])
+        elif key in _ELEC_CHF:
+            letter = get_column_letter(col[key])
             cell.value = _formule_somme(letter, first_data, last_data)
             cell.number_format = _CHF_FMT
             cell.alignment = _ALIGN_RIGHT
@@ -1486,7 +2003,7 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
             cell.alignment = _ALIGN_CENTER
     ws.row_dimensions[total_row].height = 22
 
-    ws.auto_filter.ref = f"A{_XLSX_HEADER_ROW}:{get_column_letter(_XLSX_NCOL)}{last_data}"
+    ws.auto_filter.ref = f"A{_XLSX_HEADER_ROW}:{get_column_letter(ncol)}{last_data}"
 
     rate_row = total_row + 2
     if taux is not None:
@@ -1499,34 +2016,26 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
             "Taux d'autoproduction : pas calculé, la consommation du mois "
             "n'est pas connue."
         )
-    ws.merge_cells(start_row=rate_row, start_column=1, end_row=rate_row, end_column=_XLSX_NCOL)
+    ws.merge_cells(start_row=rate_row, start_column=1, end_row=rate_row, end_column=ncol)
     expl = ws.cell(rate_row, 1, phrase_taux)
     expl.font = Font(bold=True, size=12, color=_NAVY)
     expl.alignment = _ALIGN_WRAP
     ws.row_dimensions[rate_row].height = 22
 
-    note_row = rate_row + 2
-    for text, kind in _notes_classeur(payload, manquants):
-        ws.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=_XLSX_NCOL)
-        cell = ws.cell(note_row, 1, text)
-        cell.font = _FONT_NOTE_HEAD if kind == "head" else _FONT_NOTE
-        cell.alignment = _ALIGN_WRAP
-        lignes_texte = max(1, (len(text) + 139) // 140)
-        ws.row_dimensions[note_row].height = 16 * lignes_texte + 4
-        note_row += 1
-    last_row = note_row - 1
-
     largeur_zone = max((len(ln["zone"]) for ln in lignes), default=12)
-    ws.column_dimensions["A"].width = min(42, max(28, largeur_zone + 3))
-    ws.column_dimensions["B"].width = 16
-    ws.column_dimensions["C"].width = 18
-    ws.column_dimensions["D"].width = 20
-    for col in ("E", "F", "G", "I"):
-        ws.column_dimensions[col].width = 18
-    ws.column_dimensions["H"].width = 14
-    ws.column_dimensions["J"].width = 24
+    largeurs = {k: _ELEC_COLONNES[k][1] for k in cles}
+    largeurs["zone"] = min(42, max(28, largeur_zone + 3))
+    for key, width in largeurs.items():
+        ws.column_dimensions[get_column_letter(col[key])].width = width
 
-    _mise_en_page(ws, _XLSX_NCOL, last_row, _XLSX_HEADER_ROW, site, label, "Décompte RCP · kWh et CHF")
+    last_row = _ecrire_notes(
+        ws, rate_row + 2, _notes_classeur(payload, manquants, postes), ncol,
+        sum(largeurs.values()),
+    )
+    _mise_en_page(ws, ncol, last_row, _XLSX_HEADER_ROW, site, label, "Électricité · kWh et CHF")
+
+    if postes:
+        _ecrire_onglets_postes(wb, postes, site, label, couverture, taux_tva)
     _ecrire_onglet_releves(
         wb, entries, payload, period_key, site, label, couverture, tz, conn,
     )

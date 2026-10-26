@@ -101,9 +101,10 @@ def bucket_hourly(records: list[tuple[int, float]]) -> list[tuple[int, float, fl
     ]
 
 
-def series_du_decompte(series: list[dict]) -> list[dict]:
+def series_du_decompte(series: list[dict], postes: bool = False) -> list[dict]:
     """Compteurs cumulatifs dont le décompte web a besoin : zones, bâtiment,
-    et les candidats de production (pour choisir celui qui couvre le mois)."""
+    et les candidats de production (pour choisir celui qui couvre le mois).
+    `postes` : aussi le chauffage, l'eau chaude et la buanderie (export)."""
     zones = billing.resolve_zones(series)
     batiment = billing.resolve_batiment(series)
     ids: set[str] = set()
@@ -111,6 +112,10 @@ def series_du_decompte(series: list[dict]) -> list[dict]:
         for src in z["sources"].values():
             if src:
                 ids.add(src["series_id"])
+    if postes:
+        for z in billing.resolve_postes(series):
+            for srcs in z["compteurs"].values():
+                ids.update(src["series_id"] for src in srcs)
     for src in batiment.values():
         if src:
             ids.add(src["series_id"])
@@ -167,12 +172,13 @@ def _a_rafraichir(conn, series_id: str, start_ts: int | None, end_ts: int | None
 
 def sync_decompte(cfg, conn, ms_name: str, series: list[dict], now_ts: int,
                   start_ts: int | None = None, end_ts: int | None = None,
-                  toutes_les_series: bool = False) -> dict:
+                  toutes_les_series: bool = False, postes: bool = False) -> dict:
     """Importe les index Statistics des compteurs du décompte.
 
     `toutes_les_series` : tous les total/totalNeg du site (export CLI, qui
-    couvre aussi l'eau et le chauffage). Sinon, seulement les séries du
-    décompte électrique.
+    couvre aussi l'eau et le chauffage). `postes` : séries du décompte
+    électrique plus chauffage, eau chaude et buanderie (export web). Sinon,
+    seulement les séries du décompte électrique.
 
     Ne lit pas `readings`. Si le Miniserver ne répond pas, `ok` est False
     et les échantillons déjà en base restent utilisables.
@@ -183,7 +189,7 @@ def sync_decompte(cfg, conn, ms_name: str, series: list[dict], now_ts: int,
             if s.get("state_name") in ("total", "totalNeg")
         ]
     else:
-        targets = series_du_decompte(series)
+        targets = series_du_decompte(series, postes=postes)
     besoin = [
         s for s in targets
         if _a_rafraichir(conn, s["series_id"], start_ts, end_ts, now_ts)
