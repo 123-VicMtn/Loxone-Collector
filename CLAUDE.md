@@ -915,6 +915,13 @@ appartement.
  sont ceux des valeurs affichées, comme le classeur.
 - Un onglet (ou une colonne) n'apparaît que si le site a ces compteurs :
  pas de buanderie à Arlopi, rien de tout ça à Horizon.
+- **Frais supplémentaires** (ajouté le 2026-10-26, sur demande ; Excel
+ seulement, pas dans le CSV) : onglet toujours présent, avant Relevés.
+ Une ligne par zone de l'onglet Électricité, le nom de la zone est un
+ lien interne vers sa ligne. Cases jaunes vides à remplir à la main :
+ location des compteurs, frais exceptionnels, autres frais (CHF TTC),
+ remarque. Total par ligne et total immeuble en formules. Rien n'est
+ stocké en base ni repris dans les montants de l'onglet Électricité.
 
 Code : `billing.resolve_postes` / `compute_postes` (index Statistics,
 comme l'électricité). Leurs Statistics ne sont synchronisées qu'à
@@ -936,6 +943,52 @@ Constats sur les données :
 - Un 4e site, **La Calbasse** (APP35 à APP49, « APPxx Chauffage » en
  kWhth et « APPxx Eau chaude »), est dans `config.yaml`. Il n'a pas été
  testé dans le décompte : aucune Statistics importée au 2026-10-16.
+
+## Verdict de répartition par mois — 2026-10-26
+
+Demande de l'utilisateur : les messages et le verdict de `/decompte`
+(« Ces parts sont calculées… », heures impossibles) portent sur le **mois
+choisi dans le calendrier**, plus sur tout l'historique. Avant, un seul
+`evaluer_site` sur toute la fenêtre : à Sequoia, les mois d'avant la
+correction de l'installateur (09.09.2026) condamnaient aussi les suivants
+(« 2177 heures sur 2177 »).
+
+- `payload["repartition"]` est un dict par mois (`"YYYY-MM"` →
+  `{source, confiance_verifiee, raisons}`), lu par
+  `billing.repartition_du_mois()` (classeur) et `repartitionMois` dans
+  `DecomptePage.vue`. Les kWh de chaque mois suivent le verdict de ce mois.
+- **La comparabilité des compteurs de bâtiment reste jugée sur toute la
+  fenêtre** (`evaluer_site(..., bilan_reference=...)`) : c'est une
+  question d'emplacement des compteurs. Jugée par mois, Arlopi (compteur
+  à l'onduleur) bouclait par hasard certains mois (juil.-sept. 2025,
+  mars 2026) et passait à tort en répartition calculée. Seul l'audit des
+  séries Loxone est mensuel.
+- Constat du 2026-10-26 (Statistics, 10.09-02.10) : depuis la correction,
+  Grid + Solaire des lots de Sequoia = consommation des lots à +0,4 %
+  (+67 % en août). Il reste 52 kWh « impossibles » en 3 semaines (0,075 kWh
+  par heure en médiane, bruit d'horodatage).
+- **Seuils de l'audit (`repartition.py`), décidés le 2026-10-26** :
+  - `SEUIL_KWH_IMPOSSIBLES_PCT = 5` (choix de l'utilisateur : « une
+    installation de cette ampleur a forcément des pertes ») : les kWh
+    achetés par les zones sans import du bâtiment ne condamnent le mois
+    qu'au-delà de 5 % de la consommation des lots. Avant : une seule heure
+    au-dessus de 0,01 kWh suffisait.
+  - `SEUIL_ECART_SOLAIRE_PCT = 5` (ajouté en même temps, valeur prudente) :
+    solaire attribué aux zones contre production − injection. Sans ce
+    test, décembre 2025 et janvier 2026 passaient sur les séries Loxone
+    alors qu'elles attribuent 293 kWh de solaire pour 1 281 autoconsommés
+    (−77 %) : l'hiver, peu d'injection, donc peu d'heures impossibles.
+  - Le test « production sans solaire attribué » ne compte plus les heures
+    sans relevé de zone (Statistics locales des zones arrêtées au 02.10
+    alors que la production continue : 143 heures comptées à tort).
+- Effet sur Sequoia : tous les mois restent « calculée ». Après la
+  correction, le solaire Loxone reste 10 à 17 % sous production −
+  injection (probablement la **batterie**, ~600 kWh chargés et déchargés
+  en 3 semaines). Relever `SEUIL_ECART_SOLAIRE_PCT` (vers 15-20 %) ferait
+  passer les mois corrigés sur les séries Loxone : **décision de
+  l'utilisateur en attente**. Le recalcul reste juste dans tous les cas.
+- `scripts/export_appartement.py` (CLI) garde son propre verdict sur la
+  plage demandée, non modifié.
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
