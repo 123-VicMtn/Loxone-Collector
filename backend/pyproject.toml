@@ -19,7 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 websocket = ["pyloxone-api==0.2.4"]
-dev = ["pytest"]
+dev = ["pytest", "ruff"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

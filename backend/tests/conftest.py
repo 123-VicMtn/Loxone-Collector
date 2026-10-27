@@ -4,19 +4,21 @@ Fixtures communes des tests de route et de caractérisation.
 - `base_reference` : la base du site synthétique (tests/site_reference.py),
   construite une fois par session ;
 - `app_test` : l'application Flask sur une copie de cette base, sans poller
-  ni Miniserver ; l'heure de `app.py` est figée à `site_reference.NOW` et la
-  synchro Statistics ne fait rien (les Statistics sont déjà en base) ;
+  ni Miniserver ; l'heure des routes (`access.maintenant`) est figée à
+  `site_reference.NOW` et la synchro Statistics ne fait rien (les
+  Statistics sont déjà en base) ;
 - `client_admin`, `client_user` (accès au seul site « Ref »), `client_anonyme`.
 """
 import shutil
 from contextlib import closing
-from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 from werkzeug.security import generate_password_hash
 
 from loxone_collector import app as app_module
+from loxone_collector.api import access
+from loxone_collector.services import statistics_sync
 from loxone_collector.api import auth
 from loxone_collector import db
 import site_reference as ref
@@ -61,9 +63,8 @@ def app_test(base_reference, tmp_path):
         auth.login_manager.init_app(flask_app)
 
     sync_ok = {"ok": True, "erreur": None, "series": 0, "points": 0}
-    horloge = SimpleNamespace(time=lambda: float(ref.NOW), sleep=lambda s: None)
-    with mock.patch.object(app_module.statistics_sync, "sync_decompte", return_value=sync_ok), \
-            mock.patch.object(app_module, "time", horloge):
+    with mock.patch.object(statistics_sync, "sync_decompte", return_value=sync_ok), \
+            mock.patch.object(access, "maintenant", return_value=ref.NOW):
         yield flask_app
 
 
