@@ -73,6 +73,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from loxone_collector import db
+from loxone_collector.services import repartition
 
 TIMEZONE = "Europe/Zurich"
 
@@ -675,8 +676,6 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
     répartition recalculée sur le compteur du lot quand elles sont
     incohérentes (Sequoia). Le total facturé reste le relevé de compteur.
     """
-    # Import local : repartition importe déjà billing (résolution des séries).
-    from loxone_collector.services import repartition
 
     zones = resolve_zones(series)
     batiment_src = resolve_batiment(series)
@@ -739,7 +738,6 @@ def _evaluer_mois(conn, series: list[dict], zones: list[dict], p: dict,
     """`repartition.evaluer_site` sur le seul mois `p`, avec le compteur de
     production qui couvre ce mois-là. `bilan_fenetre` décide si le bilan
     du bâtiment est exploitable."""
-    from loxone_collector.services import repartition
 
     batiment = resolve_batiment(series)
     actives = productions_sur_fenetre(conn, series, p["start"], p["end"], statistics=True)
@@ -883,7 +881,6 @@ def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
     """Même forme que `_zone_period`, mais réseau et solaire sont la part
     du relevé du lot. Leur somme est ce relevé, arrondi à KWH_DECIMALES.
     """
-    from loxone_collector.services import repartition
 
     src = zone["sources"]
     controle = (
