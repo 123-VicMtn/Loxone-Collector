@@ -47,15 +47,19 @@ datées ci-dessous, écrites avant ce déplacement) désigne le fichier sous
 - **Backend 100% API** : `app.py` ne sert plus aucune page HTML, uniquement
   du JSON (`/api/*`, `/health`). Le **frontend est une SPA Vue 3 +
   TypeScript + Tailwind autonome** (`frontend/`, un seul build, `vue-router`
-  en mode history pour les 3 routes `/`, `/admin`, `/decompte`), qui tourne
+  en mode history), qui tourne
   sur sa propre origine/hébergement et ne parle au backend que via HTTP.
   Une barre latérale commune (`shared/components/AppSidebar.vue`,
-  montée dans `App.vue`, absente de `/login`) : Dashboard, Décompte,
-  Classification (admin seulement), et le compte connecté en bas.
+  montée dans `App.vue`, absente de `/login`), en deux parties :
+  **Équipements** (Communication, Matériels) et **Outils** (Graphiques,
+  Décompte, Classification pour un admin). Le compte est en bas.
+  Le site affiché est mémorisé (`site-actif`) et partagé par les outils
+  et la liste de matériels.
   Fixe à partir de 1024 px ; en dessous, tiroir ouvert depuis une barre
   du haut.
-  Dashboard (`/`) : **Aperçu** (bilan depuis minuit + courbe) et
-  **Relevés** (dernier index de chaque compteur). **Mode avancé**
+  Graphiques (`/`) : bilan depuis minuit et courbe du site choisi.
+  Matériels (`/equipements/materiels`) : dernier index de chaque compteur.
+  **Mode avancé**
   (l'ancien Explorer, confirmation avant d'entrer ; seule vue qui affiche
   la sidebar capteurs) est masqué provisoirement depuis le 2026-10-02
   (`SHOW_ADVANCED_TAB` dans `DashboardPage.vue`). Les onglets Énergie et
@@ -1155,9 +1159,14 @@ section 7, règle « un commit déplace, un autre corrige »).
 - Fait ensuite : `loxone/client.py: client_for(ms_cfg, timeout=10.0)`,
   seul point de construction d'un `LoxoneClient` (poller, route de
   puissance, synchro du décompte à `timeout=30`, 5 scripts).
-- `ruff` est dans les extras `dev` ; pas encore de passe de lint ni de
-  configuration (quelques imports inutiles déjà présents, ex.
-  `services/repartition.py`).
+- `ruff` (extras `dev`) configuré dans `pyproject.toml` : F, E, W, I ;
+  ignorés : longueur de ligne (E501), affectations groupées (E702) et `l`
+  de boucle (E741), voulus. Avant chaque commit, depuis `backend/` :
+  `../.venv/bin/ruff check . && ../.venv/bin/python3 -m pytest -q`.
+- Plus de dépendance circulaire `billing` ↔ `repartition` : `repartition`
+  importait `billing` et `db` sans s'en servir ; `billing` importe
+  désormais `repartition` en tête de module (plus d'import dans les
+  fonctions).
 - Le venv de cette machine a dû passer à pip 26 / setuptools 82 (pip 21 ne
   sait pas installer en éditable depuis un `pyproject.toml`).
 - Les scripts restent dans `backend/scripts/` pour l'instant.
@@ -1263,12 +1272,15 @@ le 14.10) :
 ## Barre latérale — 2026-10-27
 
 La barre du haut (`AppNavbar.vue`) est une barre latérale
-(`shared/components/AppSidebar.vue`). À partir de 1024 px elle reste
-affichée et le contenu est décalé d'autant. En dessous, une barre avec
-le bouton menu ouvre un tiroir (fermeture au clic dehors, à Échap, ou
-en changeant de page). `/login` n'a pas cette barre. Le fond de page
-est forcé clair (`color-scheme: light` dans `style.css`) : l'app n'a
-pas de thème sombre.
+(`shared/components/AppSidebar.vue`), en deux parties : Équipements
+(Communication, Matériels) et Outils (Graphiques, Décompte,
+Classification). Le site affiché est mémorisé (`site-actif`) et sert
+aux outils et à la liste de matériels. À partir
+de 1024 px elle reste affichée et le contenu est décalé d'autant. En
+dessous, une barre avec le bouton menu ouvre un tiroir (fermeture au
+clic dehors, à Échap, ou en changeant de page).
+`/login` n'a pas cette barre. Le fond de page est forcé clair
+(`color-scheme: light` dans `style.css`) : l'app n'a pas de thème sombre.
 
 ## Prochaine étape prévue
 
