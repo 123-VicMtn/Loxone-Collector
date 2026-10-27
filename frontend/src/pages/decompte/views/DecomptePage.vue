@@ -306,6 +306,13 @@ onMounted(async () => {
         >
           <li v-for="(raison, i) in repartitionMois.raisons" :key="i">{{ raison }}</li>
         </ul>
+        <div
+          v-if="payload.reserves?.length"
+          class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <p class="font-semibold">Sous réserve</p>
+          <p v-for="(reserve, i) in payload.reserves" :key="i" class="mt-1">{{ reserve }}</p>
+        </div>
       </Card>
 
       <Card title="Consommation mensuelle de l'immeuble" hint="comparée à la production solaire">

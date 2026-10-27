@@ -121,8 +121,32 @@ CONTROLE_EXCLUDE_RE = re.compile(
 # (risque de capturer "chauffage au sol"), on fait le repli ici, localement.
 SOLAR_LABEL_RE = re.compile(r"(?i)(\bsol\b|solaire|solar|\bpv\b)")
 
-BATIMENT_PRODUCTION_RE = re.compile(r"(?i)^production\b")
-BATIMENT_RESEAU_RE = re.compile(r"(?i)^r[ée]seau\b")
+# « Compteur PV (total) » et « Compteur Intro » : convention de La Calbasse
+# (CLAUDE.md, 2026-10-26). Le libellé exact pour le PV : Horizon a des
+# « Compteur PV PPE / garages / Production » qui ne sont pas la production.
+BATIMENT_PRODUCTION_RE = re.compile(r"(?i)^(production\b|compteur pv \(total\)$)")
+BATIMENT_RESEAU_RE = re.compile(r"(?i)^(r[ée]seau|compteur intro)\b")
+# PAC de La Calbasse : compteur de bâtiment (sans zone), hors lots et hors
+# Communs, avec ses parts réseau / solaire. Elle devient une ligne du
+# décompte, comme les Communs, sinon ses kWh ne sont facturés nulle part et
+# le bilan ne boucle pas. « PAC déjà mesuré » de Sequoia, compris dans les
+# Communs, n'est pas concerné.
+PAC_BATIMENT_RE = re.compile(r"(?i)^pac( r[ée]seau| solaire)? \(total\)$")
+ZONE_PAC = "PAC"
+# Réserves affichées sous le décompte (page et classeur) quand une zone
+# repose sur un compteur dont la place dans l'installation reste à
+# confirmer. La PAC de La Calbasse serait un sous-compteur du Commun
+# (utilisateur, 2026-10-27), alors que les données disent le contraire
+# (octobre 2026 : PAC 1 328 kWh, Commun 171 kWh ; bilan à +2,6 % avec la
+# PAC comptée à part). Elle reste une ligne à part, sous réserve.
+RESERVES_ZONES = {
+    ZONE_PAC: (
+        "PAC : sa consommation est une ligne à part, en plus des Communs. "
+        "Ces chiffres sont sous réserve de l'installation physique : si le "
+        "compteur de la PAC est un sous-compteur des Communs, ses kWh sont "
+        "déjà dans ceux des Communs et le total les compte deux fois."
+    ),
+}
 # À Sequoia, « Production Solaire » s'arrête le 2026-09-09. Le compteur
 # qui avance ensuite s'appelle exactement « Solaire (total) » (depuis le
 # 2026-09-24, index différent : ce n'est pas la suite du précédent).
@@ -234,6 +258,8 @@ def resolve_zones(series: list[dict]) -> list[dict]:
     zones: dict[str, list[dict]] = {}
     for s in _totals(series):
         apt = (s.get("apartment") or "").strip()
+        if not apt and PAC_BATIMENT_RE.match(s.get("label", "")):
+            apt = ZONE_PAC
         if not apt:
             continue
         zones.setdefault(apt, []).append(s)
@@ -386,7 +412,7 @@ def _zone_sort_key(apt: str):
 # ici le chemin inverse pour l'affichage, qui est lu par un propriétaire.
 ZONE_LABEL_OVERRIDES = {"REZJARDIN": "Rez Jardin", "COMMUN": "Communs",
                         "SALLESCOMMUNES": "Salles Communes",
-                        "WALLBOX": "Wallbox"}
+                        "WALLBOX": "Wallbox", ZONE_PAC: "PAC"}
 
 
 def _zone_label(apt: str) -> str:
@@ -710,6 +736,7 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
         "tarifs": tarifs,
         "generated_at": now_ts,
         "repartition": {k: _repartition_payload(ev) for k, ev in evaluations.items()},
+        "reserves": [RESERVES_ZONES[z["zone"]] for z in zones if z["zone"] in RESERVES_ZONES],
     }
 
 
@@ -1443,6 +1470,9 @@ def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
         ))
     elif rep.get("source") == "loxone":
         notes.append(("Ces parts sont les mesures du Miniserver.", "note"))
+    if payload.get("reserves"):
+        notes.append(("Sous réserve", "head"))
+        notes.extend((ligne, "note") for ligne in payload["reserves"])
     notes.append((
         "Une case vide n'est pas un zéro : le relevé manque, et le total "
         "ne compte que les relevés présents.",

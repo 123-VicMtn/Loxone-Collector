@@ -110,6 +110,8 @@ export interface DecomptePayload {
   miniserver: string
   /** Un verdict par mois (clé YYYY-MM) : un mois faux ne juge pas les autres. */
   repartition: Record<string, RepartitionInfo>
+  /** Zones dont le compteur reste à confirmer sur place (PAC de La Calbasse). */
+  reserves: string[]
   /** Renseigné si les Statistics du Miniserver n'ont pas pu être relues. */
   statistiques_erreur?: string | null
 }

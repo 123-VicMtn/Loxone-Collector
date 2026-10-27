@@ -202,6 +202,71 @@ class TestResolutionDesSeries(unittest.TestCase):
         ]
         self.assertEqual(billing.resolve_batiment(series)["production"]["series_id"], "p")
 
+    def test_batiment_convention_la_calbasse(self):
+        series = [
+            s("pv", "Compteur PV (total)", "energie_solaire", ""),
+            s("i", "Compteur Intro (total)", "energie_consommee", ""),
+            s("e", "Compteur Intro (totalNeg)", "energie_consommee", "", state_name="totalNeg"),
+        ]
+        b = billing.resolve_batiment(series)
+        self.assertEqual(b["production"]["series_id"], "pv")
+        self.assertEqual(b["reseau_import"]["series_id"], "i")
+        self.assertEqual(b["reseau_export"]["series_id"], "e")
+
+    def test_compteurs_pv_dhorizon_ne_sont_pas_la_production(self):
+        series = [
+            s("ppe", "Compteur PV PPE (total)", "energie_solaire", ""),
+            s("gar", "Compteur PV garages (total)", "energie_solaire", ""),
+        ]
+        self.assertIsNone(billing.resolve_batiment(series)["production"])
+
+    def test_pac_du_batiment_est_une_zone_a_part(self):
+        # La Calbasse : la PAC n'a pas de zone dans Loxone Config, mais a ses
+        # parts réseau / solaire, hors lots et hors Communs.
+        series = [
+            s("pac", "PAC (total)", "energie_consommee", ""),
+            s("pr", "PAC Réseau (total)", "energie_reseau", ""),
+            s("ps", "PAC Solaire (total)", "energie_solaire", ""),
+            s("c", "Commun (total)", "energie_consommee", "COMMUN"),
+        ]
+        zones = {z["zone"]: z for z in billing.resolve_zones(series)}
+        self.assertEqual(list(zones), ["COMMUN", "PAC"])
+        pac = zones["PAC"]
+        self.assertEqual(pac["label"], "PAC")
+        self.assertEqual(pac["sources"]["controle"]["series_id"], "pac")
+        self.assertEqual(pac["sources"]["reseau"]["series_id"], "pr")
+        self.assertEqual(pac["sources"]["solaire"]["series_id"], "ps")
+
+    def test_pac_affichee_sous_reserve(self):
+        # Sous-compteur des Communs ou non : à confirmer sur place
+        # (utilisateur, 2026-10-27). La réserve suit le payload et le classeur.
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(db.SCHEMA)
+        series = [
+            s("pac", "PAC (total)", "energie_consommee", ""),
+            s("c", "Commun (total)", "energie_consommee", "COMMUN"),
+        ]
+        payload = billing.compute_decompte(conn, series, [], [], ts(2026, 10, 27))
+        conn.close()
+        self.assertEqual(payload["reserves"], [billing.RESERVES_ZONES["PAC"]])
+        notes = [texte for texte, _ in billing._notes_classeur(payload, "2026-10", [])]
+        self.assertIn("Sous réserve", notes)
+        self.assertIn(billing.RESERVES_ZONES["PAC"], notes)
+
+    def test_pas_de_reserve_sans_pac(self):
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(db.SCHEMA)
+        series = [s("c", "Commun (total)", "energie_consommee", "COMMUN")]
+        payload = billing.compute_decompte(conn, series, [], [], ts(2026, 10, 27))
+        conn.close()
+        self.assertEqual(payload["reserves"], [])
+
+    def test_pac_deja_mesuree_de_sequoia_reste_hors_zone(self):
+        # Comprise dans le compteur des Communs : en faire une zone la
+        # compterait deux fois.
+        series = [s("pac", "PAC déjà mesuré (total)", "energie_consommee", "")]
+        self.assertEqual(billing.resolve_zones(series), [])
+
 
 class TestTaux(unittest.TestCase):
     """Les deux taux évoluent en sens INVERSE au fil des saisons. Les avoir
