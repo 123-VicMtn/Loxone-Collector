@@ -19,6 +19,8 @@ from loxone_collector.api.access import (
     read_conn,
     resolve_miniserver,
 )
+from loxone_collector.exports import decompte as decompte_export
+from loxone_collector.exports import decompte_xlsx
 from loxone_collector.services import billing, statistics_sync
 
 logger = logging.getLogger("app")
@@ -132,7 +134,7 @@ def api_decompte_csv():
         abort(400, str(exc))
     payload = _decompte_payload(ms_name, access.maintenant(), mois=mois)
     try:
-        rows = billing.export_csv_lignes(payload, mois)
+        rows = decompte_export.export_csv_lignes(payload, mois)
     except KeyError:
         abort(400, f"aucune donnée de décompte pour {mois}")
     safe_site = re.sub(r"[^A-Za-z0-9._-]+", "_", ms_name).strip("_") or "site"
@@ -161,7 +163,7 @@ def api_decompte_xlsx():
     payload = _decompte_payload(ms_name, access.maintenant(), mois=mois)
     try:
         with closing(read_conn()) as conn:
-            wb = billing.build_decompte_workbook(payload, mois, ms_name, conn)
+            wb = decompte_xlsx.build_decompte_workbook(payload, mois, ms_name, conn)
     except KeyError:
         abort(400, f"aucune donnée de décompte pour {mois}")
     safe_site = re.sub(r"[^A-Za-z0-9._-]+", "_", ms_name).strip("_") or "site"

@@ -24,6 +24,8 @@ from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 
+from loxone_collector.exports import decompte as decompte_export
+from loxone_collector.exports import decompte_xlsx
 from loxone_collector.services import billing
 from loxone_collector import db
 
@@ -245,7 +247,7 @@ class TestResolutionDesSeries(unittest.TestCase):
         payload = billing.compute_decompte(conn, series, [], [], ts(2026, 10, 27))
         conn.close()
         self.assertEqual(payload["reserves"], [billing.RESERVES_ZONES["PAC"]])
-        notes = [texte for texte, _ in billing._notes_classeur(payload, "2026-10", [])]
+        notes = [texte for texte, _ in decompte_xlsx._notes_classeur(payload, "2026-10", [])]
         self.assertIn("Sous réserve", notes)
         self.assertIn(billing.RESERVES_ZONES["PAC"], notes)
 
@@ -425,8 +427,8 @@ class TestExportLignes(unittest.TestCase):
                 }}},
             ],
         }
-        rows = billing.export_lignes(payload, "2026-05")
-        self.assertEqual(rows[0], billing.EXPORT_HEADERS)
+        rows = decompte_export.export_lignes(payload, "2026-05")
+        self.assertEqual(rows[0], decompte_export.EXPORT_HEADERS)
         self.assertEqual(rows[1][0], "Mai 2026")
         self.assertEqual(rows[1][1], "App 1")
         self.assertEqual(rows[1][5], "facturable")
@@ -439,7 +441,7 @@ class TestExportLignes(unittest.TestCase):
 
     def test_mois_absent(self):
         with self.assertRaises(KeyError):
-            billing.export_lignes({"zones": []}, "2026-01")
+            decompte_export.export_lignes({"zones": []}, "2026-01")
 
 
 class TestDecompteWorkbook(unittest.TestCase):
@@ -495,7 +497,7 @@ class TestDecompteWorkbook(unittest.TestCase):
 
     def classeur(self, payload=None, mois="2026-05", site="MS-Démo", conn=None):
         buf = io.BytesIO()
-        wb = billing.build_decompte_workbook(payload or self.payload, mois, site, conn)
+        wb = decompte_xlsx.build_decompte_workbook(payload or self.payload, mois, site, conn)
         wb.save(buf)
         buf.seek(0)
         return load_workbook(buf)
@@ -695,7 +697,7 @@ class TestDecompteWorkbook(unittest.TestCase):
 
     def test_mois_absent(self):
         with self.assertRaises(KeyError):
-            billing.build_decompte_workbook({"zones": []}, "2026-01", "site")
+            decompte_xlsx.build_decompte_workbook({"zones": []}, "2026-01", "site")
 
 
 class TestRepartitionDansLeDecompte(unittest.TestCase):
@@ -1014,7 +1016,7 @@ class TestExportPostes(unittest.TestCase):
 
     def classeur(self):
         buf = io.BytesIO()
-        billing.build_decompte_workbook(self.payload, "2026-08", "MS-PPE-Sequoia").save(buf)
+        decompte_xlsx.build_decompte_workbook(self.payload, "2026-08", "MS-PPE-Sequoia").save(buf)
         buf.seek(0)
         return load_workbook(buf)
 
@@ -1101,7 +1103,7 @@ class TestExportPostes(unittest.TestCase):
         self.assertEqual([ws.cell(5, c).value for c in range(1, 5)], ["App 1", 3.0, 4.5, "facturable"])
 
     def test_csv_en_sections(self):
-        rows = billing.export_csv_lignes(self.payload, "2026-08")
+        rows = decompte_export.export_csv_lignes(self.payload, "2026-08")
         titres = [r[0] for r in rows if len(r) == 1]
         self.assertEqual(titres, ["Électricité", "Chauffage", "Eau chaude", "Buanderie"])
         self.assertEqual(rows[1][-2], "Buanderie (kWh)")
@@ -1123,13 +1125,13 @@ class TestExportPostes(unittest.TestCase):
         z = self.payload["zones"]
         z[0]["periodes"]["2026-08"]["total"] = 1.004
         z[1]["periodes"]["2026-08"]["total"] = 4.504
-        rows = billing.export_csv_lignes(self.payload, "2026-08")
+        rows = decompte_export.export_csv_lignes(self.payload, "2026-08")
         total = next(r for r in rows if r[1:2] == ["Total immeuble"])
         self.assertEqual(total[2], "5,50")
 
     def test_sans_postes_le_csv_reste_l_electricite(self):
         del self.payload["postes"]
-        rows = billing.export_csv_lignes(self.payload, "2026-08")
+        rows = decompte_export.export_csv_lignes(self.payload, "2026-08")
         self.assertEqual([r[0] for r in rows if len(r) == 1], ["Électricité"])
         self.assertNotIn("Buanderie (kWh)", rows[1])
 
