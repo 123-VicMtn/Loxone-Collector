@@ -989,6 +989,31 @@ correction de l'installateur (09.09.2026) condamnaient aussi les suivants
   l'utilisateur en attente**. Le recalcul reste juste dans tous les cas.
 - `scripts/export_appartement.py` (CLI) garde son propre verdict sur la
   plage demandée, non modifié.
+- **Synchro Statistics automatique** (2026-10-26) : thread `statistics-sync`
+  dans `app.py`, toutes les `statistics_sync_hours` heures (défaut 6, 0 =
+  off, 0 dans `config.demo.yaml`), première passe 120 s après le
+  démarrage. Complète jusqu'à maintenant les index du décompte et des
+  postes de chaque site. Avant, ils n'avançaient qu'à l'ouverture de
+  `/decompte` ou à un export, et seulement jusqu'à la fin du mois demandé.
+- **Sequoia, octobre 2026** (Statistics complètes au 26.10) : la RCP Loxone
+  n'est juste que du 10.09 au 06.10. **À partir du 07.10, le Grid des lots
+  tombe à ~1-2 kWh/jour** alors que le bâtiment importe 35 à 200 kWh/jour :
+  tout part sur « Solaire » (16-26.10 : 1 798 kWh attribués pour 595
+  autoconsommés). Nouvelle modification dans Loxone Config ? À signaler à
+  l'installateur. L'audit le détecte, octobre reste en recalcul.
+- **Sites renommés dans `config.yaml` le 2026-10-26 vers 13 h 40**, à la
+  demande d'un futur client (`MS-Arlopi` → `Arlopy`, `MS-PPE-Horizon` →
+  `Horizon`, `MS-PPE-Sequoia` → `Sequoia`) : le `series_id` contient le nom
+  du site, donc nouvelles séries. Décision de l'utilisateur : les nouveaux
+  noms doivent avoir les données des anciens. Migration faite le 2026-10-27
+  par un script ponctuel (séries, relevés, horaires, Statistics, tarifs,
+  accès et classifications manuelles recopiés sous le nouveau nom, sans
+  écraser ses lignes ; anciens noms supprimés). Le script a été retiré du
+  dépôt : un tel renommage ne doit plus se reproduire. `MS-PPE-Calbasse`
+  (ancienne config, 2 contrôles communs sur 40, 5 h de données le 01.10)
+  reste en base, non migré vers `La Calbasse`. `Horizon` n'avait aucune
+  série sous son nouveau nom (l'ancien s'arrête le 16.10) : vérifier le
+  poll.
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
