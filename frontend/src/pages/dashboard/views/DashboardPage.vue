@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * Page / : onglets Aperçu et Relevés. La navigation entre pages est dans
- * la barre latérale (shared/components/AppSidebar.vue).
+ * Page / : graphiques du site affiché (mémorisé, partagé avec les
+ * autres pages).
+ * La navigation entre pages est dans shared/components/AppSidebar.vue.
  *
  * Mode avancé (Explorer) reste dans le code mais masqué : voir
  * SHOW_ADVANCED_TAB et la note du 2026-10-02 dans CLAUDE.md. La sélection
@@ -14,18 +15,16 @@ import { useCollecte } from '@shared/composables/useCollecte'
 import CollecteBanner from '@shared/components/CollecteBanner.vue'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
-import RelevesTab from '../tabs/RelevesTab.vue'
 import ApercuTab from '../tabs/ApercuTab.vue'
 import { useExplorerSelection } from '../composables/useExplorerSelection'
 
-type TabKey = 'apercu' | 'explorer' | 'releves'
+type TabKey = 'apercu' | 'explorer'
 
 /** Provisoire (2026-10-02). `true` réaffiche l'onglet et sa confirmation. */
 const SHOW_ADVANCED_TAB = false
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'apercu', label: 'Aperçu' },
-  { key: 'releves', label: 'Relevés' },
   ...(SHOW_ADVANCED_TAB
     ? [{ key: 'explorer' as const, label: 'Mode avancé' }]
     : []),
@@ -58,9 +57,9 @@ function confirmAdvanced() {
     </aside>
 
     <main class="min-w-0 w-full flex-1">
-      <h1 class="mb-4 text-xl font-bold text-neutral-900">Dashboard</h1>
+      <h1 class="mb-4 text-xl font-bold text-neutral-900">Graphiques</h1>
       <CollecteBanner :sites="enRetard" />
-      <div class="mb-4 flex gap-1 border-b border-neutral-200" role="tablist">
+      <div v-if="TABS.length > 1" class="mb-4 flex gap-1 border-b border-neutral-200" role="tablist">
         <button
           v-for="t in TABS"
           :key="t.key"
@@ -80,9 +79,6 @@ function confirmAdvanced() {
       </section>
       <section v-show="activeTab === 'explorer'">
         <ExplorerTab :selected="selected" @clear="clearSelection" />
-      </section>
-      <section v-show="activeTab === 'releves'">
-        <RelevesTab />
       </section>
 
       <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">

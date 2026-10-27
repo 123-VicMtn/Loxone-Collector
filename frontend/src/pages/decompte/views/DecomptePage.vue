@@ -6,11 +6,12 @@
  * (billing.reading_delta lit le dernier point avant la fin de période).
  */
 
-import { computed, onMounted, ref } from 'vue'
-import { downloadDecompte, fetchDecompte, fetchMiniservers } from '../api/decompte'
+import { computed, onMounted, ref, watch } from 'vue'
+import { downloadDecompte, fetchDecompte } from '../api/decompte'
 import type { DecomptePayload, Period, RepartitionInfo } from '../types/decompte'
 import { fmtDay, fmtPeriodBounds } from '../utils/format'
 import { useCollecte } from '@shared/composables/useCollecte'
+import { useSiteActif } from '@shared/composables/useSiteActif'
 
 import Card from '../components/Card.vue'
 import GlobalBanner from '../components/GlobalBanner.vue'
@@ -22,8 +23,8 @@ import SolaireChart from '../components/SolaireChart.vue'
 const SITE_STORAGE_KEY = 'decompte-site'
 
 const { text: healthText } = useCollecte()
+const { site: siteActif, loadSites } = useSiteActif()
 
-const sites = ref<string[]>([])
 const currentSite = ref('')
 const payload = ref<DecomptePayload | null>(null)
 
@@ -184,25 +185,30 @@ function onMonthInput(value: string) {
   if (payload.value.periodes.some((p) => p.key === value)) periodeKey.value = value
 }
 
+let demarre = false
+
 onMounted(async () => {
   try {
-    const list = await fetchMiniservers()
-    sites.value = list
-    if (!list.length) {
+    await loadSites()
+    demarre = true
+    if (!siteActif.value) {
       loading.value = false
       errored.value = true
       loadingMessage.value = 'Aucun site n\'est accessible avec ce compte.'
       return
     }
-    const saved = localStorage.getItem(SITE_STORAGE_KEY)
-    const initial = saved && list.includes(saved) ? saved : list[0]
-    await loadSite(initial)
+    await loadSite(siteActif.value)
   } catch (err) {
     loading.value = false
     errored.value = true
     console.error(err)
     loadingMessage.value = MESSAGE_INDISPONIBLE
   }
+})
+
+watch(siteActif, (name) => {
+  if (!demarre || !name || name === currentSite.value) return
+  void loadSite(name)
 })
 </script>
 
@@ -216,17 +222,6 @@ onMounted(async () => {
     </p>
 
     <div class="space-y-6">
-
-    <label v-if="sites.length > 1" class="flex w-fit flex-col text-sm text-neutral-600">
-      Site
-      <select
-        class="mt-1 rounded border border-neutral-300 px-2 py-1"
-        :value="currentSite"
-        @change="loadSite(($event.target as HTMLSelectElement).value)"
-      >
-        <option v-for="s in sites" :key="s" :value="s">{{ s }}</option>
-      </select>
-    </label>
 
     <GlobalBanner v-if="payload && !loading && !empty" :payload="payload" :period-key="periodeKey" />
 

@@ -7,6 +7,7 @@
 
 import { computed, onMounted, ref, watch } from 'vue'
 import { fetchJSON } from '@shared/api/http'
+import { useSiteActif } from '@shared/composables/useSiteActif'
 import { compareApartments, fmtNumber, zoneLabel } from '@shared/format'
 import {
   FAMILY_LABELS,
@@ -22,7 +23,6 @@ import {
   type Releve,
 } from './releves/present'
 
-const SITE_KEY = 'releves-site'
 /** Au-delà, les zones se replient : Sequoia dépasse les 200 compteurs. */
 const ACCORDION_ABOVE = 40
 
@@ -36,7 +36,7 @@ const FAMILY_DOT: Record<MeterFamily, string> = {
 const rows = ref<Releve[]>([])
 const loading = ref(true)
 const error = ref('')
-const site = ref('')
+const { site } = useSiteActif()
 const query = ref('')
 const family = ref<MeterFamily | 'tous'>('tous')
 const onlyStale = ref(false)
@@ -44,8 +44,6 @@ const expanded = ref<Record<string, boolean>>({})
 const copiedId = ref('')
 const nowMs = ref(Date.now())
 let copyTimer = 0
-
-const siteNames = computed(() => Array.from(new Set(rows.value.map((r) => r.miniserver))).sort())
 
 const siteRows = computed(() => rows.value.filter((r) => r.miniserver === site.value))
 const siteMeters = computed(() => groupMeters(siteRows.value))
@@ -128,18 +126,6 @@ function scopedMeters(withChips: boolean): MeterRow[] {
   })
 }
 
-function pickSite(names: string[]): string {
-  if (site.value && names.includes(site.value)) return site.value
-  let saved = ''
-  try {
-    saved = localStorage.getItem(SITE_KEY) || localStorage.getItem('decompte-site') || ''
-  } catch {
-    saved = ''
-  }
-  if (saved && names.includes(saved)) return saved
-  return names[0] || ''
-}
-
 function isOpen(apartment: string): boolean {
   if (!accordion.value) return true
   return expanded.value[apartment] === true
@@ -204,19 +190,9 @@ watch(familyChoices, (choices) => {
   if (family.value !== 'tous' && !choices.includes(family.value)) family.value = 'tous'
 })
 
-watch(site, (name) => {
-  if (!name) return
-  try {
-    localStorage.setItem(SITE_KEY, name)
-  } catch {
-    /* navigation privée : le choix reste en mémoire le temps de la page */
-  }
-})
-
 onMounted(async () => {
   try {
     rows.value = await fetchJSON<Releve[]>('/api/releves')
-    site.value = pickSite(siteNames.value)
     nowMs.value = Date.now()
   } catch (err) {
     console.error(err)
@@ -235,13 +211,6 @@ onMounted(async () => {
   <div v-else class="flex flex-col gap-4">
     <div class="z-20 rounded-lg border border-neutral-200 bg-white p-3 shadow-sm md:sticky md:top-14 md:bg-white/95 md:backdrop-blur lg:top-0">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <label v-if="siteNames.length > 1" class="flex w-full flex-col gap-1 text-xs font-medium text-neutral-500 sm:w-52">
-          Immeuble
-          <select v-model="site" class="h-9 rounded-md border border-neutral-300 bg-white px-2 text-sm font-normal text-neutral-900">
-            <option v-for="name in siteNames" :key="name" :value="name">{{ name }}</option>
-          </select>
-        </label>
-
         <label class="relative min-w-0 flex-1">
           <span class="sr-only">Recherche</span>
           <svg class="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-neutral-400" viewBox="0 0 20 20" fill="none" aria-hidden="true">

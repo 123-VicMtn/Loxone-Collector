@@ -7,6 +7,7 @@
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
+import { useSiteActif } from '@shared/composables/useSiteActif'
 import { Line } from 'vue-chartjs'
 import type { ChartOptions } from 'chart.js'
 import { fetchMiniserverPower, fetchRange, loadAllSeries, type MiniserverPower } from '@shared/api/series'
@@ -30,14 +31,13 @@ import {
 } from './apercu/dayBalance'
 
 const allSeries = ref<Series[]>([])
-const site = ref('')
+const { site } = useSiteActif()
 const balance = ref<DayBalance | null>(null)
 const loading = ref(true)
 const powerLoading = ref(false)
 const powerError = ref('')
 const powerMissing = ref(0)
 
-const sites = computed(() => Array.from(new Set(allSeries.value.map((s) => s.miniserver))).sort())
 const power = ref<{ ts: number; solar: number; consumption: number }[]>([])
 const axisFrom = ref(0)
 const axisTo = ref(0)
@@ -194,21 +194,17 @@ async function refresh() {
 
 onMounted(async () => {
   allSeries.value = await loadAllSeries()
-  site.value = sites.value[0] || ''
+  if (site.value) void refresh()
+  else loading.value = false
 })
 
-watch(site, () => { void refresh() })
+watch(site, (name) => {
+  if (name && allSeries.value.length) void refresh()
+})
 </script>
 
 <template>
   <div>
-    <label v-if="sites.length > 1" class="mb-4 flex w-fit flex-col text-sm text-neutral-600">
-      Site
-      <select v-model="site" class="mt-1 rounded border border-neutral-300 px-2 py-1">
-        <option v-for="s in sites" :key="s" :value="s">{{ s }}</option>
-      </select>
-    </label>
-
     <p v-if="loading" class="text-sm text-neutral-500">Calcul depuis minuit…</p>
 
     <div v-else-if="balance" class="flex flex-col gap-4">

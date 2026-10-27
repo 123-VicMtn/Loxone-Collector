@@ -46,5 +46,5 @@ export function useCollecte() {
     if (timer) clearInterval(timer)
   })
 
-  return { collecte, enRetard, text }
+  return { collecte, indisponible, enRetard, text }
 }

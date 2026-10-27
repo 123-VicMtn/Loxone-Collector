@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import DashboardPage from './pages/dashboard/views/DashboardPage.vue'
 import AdminPage from './pages/admin/views/AdminPage.vue'
 import DecomptePage from './pages/decompte/views/DecomptePage.vue'
+import CommunicationPage from './pages/equipements/views/CommunicationPage.vue'
+import MaterielsPage from './pages/equipements/views/MaterielsPage.vue'
 import LoginPage from './pages/auth/LoginPage.vue'
 import { authState, checkAuth } from '@shared/auth'
 import { setUnauthorizedHandler } from '@shared/api/http'
@@ -10,6 +12,8 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: DashboardPage },
+    { path: '/equipements/communication', component: CommunicationPage },
+    { path: '/equipements/materiels', component: MaterielsPage },
     // Corrections de classification -- admin uniquement, un compte 'user'
     // est en lecture seule (voir CLAUDE.md, "Rôles utilisateurs" ;
     // le backend refuse déjà POST /api/series/<id>/classify en 403 pour

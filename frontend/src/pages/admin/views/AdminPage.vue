@@ -12,9 +12,11 @@ import { fetchResourceTypeLabels, fetchSeries } from '../api/admin'
 import type { EditableRow } from '../types/series'
 import { compareApartments } from '@shared/format'
 import { useCollecte } from '@shared/composables/useCollecte'
+import { useSiteActif } from '@shared/composables/useSiteActif'
 import ClassificationTable from '../components/ClassificationTable.vue'
 
 const { text: healthText } = useCollecte()
+const { site, loaded: siteLoaded } = useSiteActif()
 
 const rows = ref<EditableRow[]>([])
 const labels = ref<Record<string, string>>({})
@@ -22,9 +24,11 @@ const loading = ref(true)
 const errored = ref(false)
 const errorMessage = ref('')
 
+const shown = computed(() => rows.value.filter((r) => r.miniserver === site.value))
+
 const knownApartments = computed(() => {
   const set = new Set<string>()
-  for (const r of rows.value) if (r.apartment) set.add(r.apartment)
+  for (const r of shown.value) if (r.apartment) set.add(r.apartment)
   return Array.from(set).sort(compareApartments)
 })
 
@@ -59,9 +63,10 @@ onMounted(async () => {
         Le bouton ↺ repasse une ligne en devinette automatique.
       </p>
 
-      <p v-if="loading" class="text-sm text-neutral-500">Chargement…</p>
+      <p v-if="loading || !siteLoaded" class="text-sm text-neutral-500">Chargement…</p>
       <p v-else-if="errored" class="text-sm text-red-600">Impossible de charger les capteurs : {{ errorMessage }}</p>
-      <ClassificationTable v-else :rows="rows" :labels="labels" :known-apartments="knownApartments" />
+      <p v-else-if="!site" class="text-sm text-neutral-500">Aucun site n'est accessible avec ce compte.</p>
+      <ClassificationTable v-else :rows="shown" :labels="labels" :known-apartments="knownApartments" />
 
       <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
         {{ healthText }}

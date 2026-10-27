@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
  * Navigation de l'app, à gauche de toutes les pages sauf /login.
- * Sur grand écran elle reste affichée. En dessous de lg (1024 px) elle
- * devient un tiroir ouvert depuis la barre du haut. Classification
- * n'apparaît que pour un admin (la route est déjà refusée à un compte
- * 'user' par le garde de router.ts).
+ * Deux parties : Équipements (communication, matériels) et Outils
+ * (graphiques, décompte, classification). Sur grand écran elle reste
+ * affichée. En dessous de
+ * lg (1024 px) elle devient un tiroir. Classification n'apparaît que
+ * pour un admin.
  */
 
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -22,8 +23,13 @@ const DESKTOP_QUERY = '(min-width: 1024px)'
 const isDesktop = ref(typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches)
 let desktopMedia: MediaQueryList | null = null
 
-const links = computed(() => [
-  { to: '/', label: 'Dashboard' },
+const equipements = [
+  { to: '/equipements/communication', label: 'Communication' },
+  { to: '/equipements/materiels', label: 'Matériels' },
+]
+
+const outils = computed(() => [
+  { to: '/', label: 'Graphiques' },
   { to: '/decompte', label: 'Décompte' },
   ...(authState.role === 'admin' ? [{ to: '/admin', label: 'Classification' }] : []),
 ])
@@ -32,6 +38,13 @@ const drawerOpen = computed(() => open.value && !isDesktop.value)
 
 function isActive(to: string): boolean {
   return to === '/' ? route.path === '/' : route.path.startsWith(to)
+}
+
+function linkClass(to: string): string {
+  const base = 'block rounded-md px-3 py-2.5 text-sm font-medium'
+  return isActive(to)
+    ? `${base} bg-blue-50 text-blue-700`
+    : `${base} text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900`
 }
 
 function onDesktopChange(event: MediaQueryListEvent) {
@@ -127,21 +140,33 @@ onUnmounted(() => {
     </div>
 
     <nav class="flex-1 overflow-y-auto px-3 py-4">
-      <ul class="flex flex-col gap-1">
-        <li v-for="l in links" :key="l.to">
-          <router-link
-            :to="l.to"
-            :aria-current="isActive(l.to) ? 'page' : undefined"
-            :class="[
-              'block rounded-md px-3 py-2.5 text-sm font-medium',
-              isActive(l.to)
-                ? 'bg-blue-50 text-blue-700'
-                : 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900',
-            ]"
-            @click="open = false"
-          >{{ l.label }}</router-link>
-        </li>
-      </ul>
+      <section>
+        <h2 class="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">Équipements</h2>
+        <ul class="flex flex-col gap-1">
+          <li v-for="l in equipements" :key="l.to">
+            <router-link
+              :to="l.to"
+              :aria-current="isActive(l.to) ? 'page' : undefined"
+              :class="linkClass(l.to)"
+              @click="open = false"
+            >{{ l.label }}</router-link>
+          </li>
+        </ul>
+      </section>
+
+      <section class="mt-6">
+        <h2 class="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">Outils</h2>
+        <ul class="flex flex-col gap-1">
+          <li v-for="l in outils" :key="l.to">
+            <router-link
+              :to="l.to"
+              :aria-current="isActive(l.to) ? 'page' : undefined"
+              :class="linkClass(l.to)"
+              @click="open = false"
+            >{{ l.label }}</router-link>
+          </li>
+        </ul>
+      </section>
     </nav>
 
     <div class="shrink-0 border-t border-neutral-200 px-4 py-4">
