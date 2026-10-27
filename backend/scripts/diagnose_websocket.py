@@ -25,7 +25,11 @@ import time
 from pathlib import Path
 
 from loxone_collector.config import load_config
-from loxone_collector.loxone.client import LoxoneError, client_for, extract_measurable_points
+from loxone_collector.loxone.client import (
+    LoxoneError,
+    client_for,
+    extract_measurable_points,
+)
 from loxone_collector.loxone.websocket import LoxoneWsError, fetch_live_values
 
 

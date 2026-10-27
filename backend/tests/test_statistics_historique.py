@@ -14,8 +14,8 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-from loxone_collector.loxone.client import LoxoneAuthError, LoxoneError
 from loxone_collector.loxone import statistics as st
+from loxone_collector.loxone.client import LoxoneAuthError, LoxoneError
 
 CHEMIN = "/jdev/sps/getStatistic/uuid-1/raw/100/200/all/4/total"
 

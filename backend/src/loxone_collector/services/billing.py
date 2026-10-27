@@ -72,7 +72,6 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-
 from loxone_collector import db
 
 TIMEZONE = "Europe/Zurich"

@@ -10,7 +10,10 @@ dépendance de test dans ce projet à ce jour.
 """
 import unittest
 
-from loxone_collector.services.classification import extract_apartment, guess_resource_type
+from loxone_collector.services.classification import (
+    extract_apartment,
+    guess_resource_type,
+)
 
 
 class TestExtractApartment(unittest.TestCase):

@@ -4,7 +4,11 @@ et les contrôles qui ne sont pas des compteurs sont écartés."""
 import unittest
 
 from loxone_collector.config import MiniserverConfig
-from loxone_collector.loxone.client import client_for, endpoint_from_cloud_dns, extract_measurable_points
+from loxone_collector.loxone.client import (
+    client_for,
+    endpoint_from_cloud_dns,
+    extract_measurable_points,
+)
 
 
 def _meter():

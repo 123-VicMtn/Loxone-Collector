@@ -14,7 +14,6 @@ from loxone_collector.services.billing import (
     period_label,
 )
 
-
 EXPORT_HEADERS = [
     "Mois", "Zone", "Consommation totale (kWh)", "Solaire (kWh)", "Réseau (kWh)", "État",
 ]

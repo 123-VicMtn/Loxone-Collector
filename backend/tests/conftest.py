@@ -16,13 +16,12 @@ from unittest import mock
 import pytest
 from werkzeug.security import generate_password_hash
 
-from loxone_collector import app as app_module
-from loxone_collector.api import access
-from loxone_collector.services import statistics_sync
-from loxone_collector.api import auth
-from loxone_collector import db
 import site_reference as ref
+from loxone_collector import app as app_module
+from loxone_collector import db
+from loxone_collector.api import access, auth
 from loxone_collector.config import AppConfig, MiniserverConfig
+from loxone_collector.services import statistics_sync
 
 MOT_DE_PASSE = "secret123"
 

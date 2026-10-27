@@ -48,7 +48,7 @@ import struct
 import sys
 
 from loxone_collector.config import load_config
-from loxone_collector.loxone.client import LoxoneAuthError, LoxoneError, client_for
+from loxone_collector.loxone.client import LoxoneError, client_for
 
 
 def find_control(structure: dict, uuid: str) -> dict | None:

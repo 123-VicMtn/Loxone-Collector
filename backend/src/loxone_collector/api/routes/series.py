@@ -17,7 +17,12 @@ from loxone_collector.api.access import (
     read_conn,
     resolve_miniserver,
 )
-from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError, client_for
+from loxone_collector.loxone.client import (
+    LoxoneAuthError,
+    LoxoneClient,
+    LoxoneError,
+    client_for,
+)
 from loxone_collector.loxone.statistics import points_by_series
 from loxone_collector.services import billing
 

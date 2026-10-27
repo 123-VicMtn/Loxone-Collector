@@ -26,3 +26,18 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+extend-exclude = ["src/loxone_collector.egg-info"]
+
+[tool.ruff.lint]
+# Erreurs réelles (F), style de base (E, W), imports triés (I). Pas la
+# longueur de ligne : le code est écrit à ~100 colonnes, un reformatage
+# n'apporterait rien. Les affectations groupées (`a = 1; b = 2`) des tests
+# et des scripts d'audit, et les `l` de boucle, sont voulus.
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E702", "E741"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["loxone_collector", "site_reference"]

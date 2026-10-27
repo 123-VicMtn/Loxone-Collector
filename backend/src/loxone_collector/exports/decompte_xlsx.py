@@ -15,13 +15,6 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.hyperlink import Hyperlink
 from openpyxl.worksheet.page import PageMargins
 
-from loxone_collector.services.billing import (
-    TIMEZONE,
-    parse_period_key,
-    period_bounds,
-    period_label,
-    repartition_du_mois,
-)
 from loxone_collector.exports.decompte import (
     _BUANDERIE_HEADER,
     _INDEX_DECIMALES,
@@ -33,7 +26,13 @@ from loxone_collector.exports.decompte import (
     lignes_buanderie,
     lignes_compteurs,
 )
-
+from loxone_collector.services.billing import (
+    TIMEZONE,
+    parse_period_key,
+    period_bounds,
+    period_label,
+    repartition_du_mois,
+)
 
 # Mise en page du classeur téléchargé. Même famille visuelle que
 # scripts/export_appartement.py : le fichier doit s'ouvrir déjà lisible,

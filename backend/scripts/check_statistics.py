@@ -31,7 +31,12 @@ import json
 import sys
 
 from loxone_collector.config import load_config
-from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError, client_for
+from loxone_collector.loxone.client import (
+    LoxoneAuthError,
+    LoxoneClient,
+    LoxoneError,
+    client_for,
+)
 
 
 def find_stat_like_keys(obj, path="") -> list[tuple[str, object]]:

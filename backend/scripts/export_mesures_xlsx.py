@@ -44,9 +44,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from loxone_collector.services import billing
 from loxone_collector import db
 from loxone_collector.config import load_config
+from loxone_collector.services import billing
 
 TZ = ZoneInfo(billing.TIMEZONE)
 

@@ -24,10 +24,10 @@ from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 
+from loxone_collector import db
 from loxone_collector.exports import decompte as decompte_export
 from loxone_collector.exports import decompte_xlsx
 from loxone_collector.services import billing
-from loxone_collector import db
 
 
 def ts(year, month, day, hour=0, tz="Europe/Zurich"):

@@ -7,10 +7,10 @@ Fixtures dans conftest.py : « Ref » relevé jusqu'à NOW, « Autre » 2 h avan
 """
 from unittest import mock
 
+import site_reference as ref
+from loxone_collector import db
 from loxone_collector.api.routes import decompte as routes_decompte
 from loxone_collector.services import statistics_sync
-from loxone_collector import db
-import site_reference as ref
 
 
 def test_admin_voit_tous_les_sites_et_leur_retard(client_admin):

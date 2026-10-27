@@ -13,7 +13,11 @@ import logging
 
 from loxone_collector import db
 from loxone_collector.loxone.client import LoxoneAuthError, LoxoneError, client_for
-from loxone_collector.loxone.statistics import fetch_raw_history, find_stat_mapping, get_statistic_info
+from loxone_collector.loxone.statistics import (
+    fetch_raw_history,
+    find_stat_mapping,
+    get_statistic_info,
+)
 from loxone_collector.services import billing
 
 logger = logging.getLogger("miniserver_statistics")

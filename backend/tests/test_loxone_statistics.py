@@ -12,7 +12,6 @@ from loxone_collector.loxone.statistics import (
     points_by_series,
 )
 
-
 HOUR = 1_700_002_800  # multiple de 3600
 
 
