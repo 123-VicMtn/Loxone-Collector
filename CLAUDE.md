@@ -1145,6 +1145,16 @@ section 7, règle « un commit déplace, un autre corrige »).
   sections plus anciennes de ce fichier qui citent
   `billing.build_decompte_workbook`, `billing.export_csv_lignes`, etc.
   désignent désormais ces deux modules.
+- Fait ensuite : un seul module pour le protocole Statistics,
+  `loxone/statistics.py` (chemin, décodage, `getStatisticInfo`,
+  `fetch_raw_history`, agrégations). `services/statistics_sync.py` ne garde
+  que la logique du décompte. `fetch_raw_history` conserve son contrat
+  (figé par `tests/test_statistics_historique.py`) : coupure réseau →
+  « échec de connexion » → `sync_decompte` abandonne le site ; tout autre
+  HTTP, 401 compris → la série est sautée.
+- Fait ensuite : `loxone/client.py: client_for(ms_cfg, timeout=10.0)`,
+  seul point de construction d'un `LoxoneClient` (poller, route de
+  puissance, synchro du décompte à `timeout=30`, 5 scripts).
 - `ruff` est dans les extras `dev` ; pas encore de passe de lint ni de
   configuration (quelques imports inutiles déjà présents, ex.
   `services/repartition.py`).
