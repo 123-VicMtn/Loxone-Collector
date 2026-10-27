@@ -20,15 +20,17 @@ les raisons historiques de minimalisme (Pi 2 Go, SD card) ne s'appliquent
 plus, seule la simplicité de maintenance pour un développeur solo reste un
 critère valable.
 
-**Structure du dépôt (mise à jour 2026-09-24)** : tout le code Python
-backend (`app.py`, `db.py`, `config.py`, etc.), ses scripts CLI, ses tests,
-sa config et ses données vivent sous `backend/` (voir "Nettoyage de la
-structure du backend" plus bas). Le venv Python reste à la racine du repo.
+**Structure du dépôt (mise à jour 2026-10-27)** : le code Python est un
+paquet, `backend/src/loxone_collector/` (`app.py`, `db.py`, `config.py`,
+etc.), installé en mode éditable dans le venv (`pip install -e backend`) ;
+scripts, tests, config et données restent sous `backend/` (voir « Découpage
+du code », 2026-10-27, plus bas). Le venv Python reste à la racine du repo.
 `frontend/` (SPA Vue) est resté un dossier séparé, inchangé par ce
 nettoyage. **Partout dans ce fichier, une mention nue de `app.py`,
 `db.py`, `scripts/...` etc. (y compris dans les sections historiques
 datées ci-dessous, écrites avant ce déplacement) désigne le fichier sous
-`backend/`** -- pas la peine de préfixer chaque occurrence individuellement.
+`backend/`** (et, pour les modules, sous `backend/src/loxone_collector/`)
+-- pas la peine de préfixer chaque occurrence individuellement.
 
 ## Ce qui fonctionne aujourd'hui
 
@@ -1073,6 +1075,71 @@ serveur, nulle part dans les réponses de l'API.
   export du décompte, relevés. `/admin` (admin seulement) garde le message
   brut.
 
+## Découpage du code — 2026-10-27
+
+Démarré sur demande de l'utilisateur, en suivant
+`docs/analyse-maintenabilite-2026-10.md` (structure cible section 5, ordre
+section 7, règle « un commit déplace, un autre corrige »).
+
+- **Filet avant tout déplacement** : `tests/conftest.py` (base copiée par
+  test, app sans poller, heure figée, comptes admin/user),
+  `tests/site_reference.py` (site synthétique déterministe « Ref »),
+  `tests/test_routes.py` (chaque route : nominal, 401, 403, 400),
+  `tests/test_reference_decompte.py` (réponse de `/api/decompte`, CSV et
+  chaque onglet Excel comparés à `tests/snapshots/reference_decompte.json`).
+  Un déplacement ne doit jamais modifier cette référence ; après un
+  changement voulu du résultat : `UPDATE_SNAPSHOTS=1 python -m pytest
+  tests/test_reference_decompte.py`, puis relire le diff.
+- **Paquet** : `backend/src/loxone_collector/`, installé en éditable
+  (`backend/pyproject.toml`, mêmes versions que `requirements.txt`, extras
+  `websocket` et `dev`). Plus aucun `sys.path.insert`. `backend/app.py`
+  n'est plus qu'un lanceur (`python app.py config.yaml` et le service
+  systemd marchent comme avant) ; équivalent : `python -m
+  loxone_collector.app config.yaml`.
+- **Structure retenue** (décision de l'utilisateur, 2026-10-27 : couches
+  des gabarits Python courants, mais à la taille du projet, sans dossier
+  sans plus-value ; remplace la section 5.1 de l'analyse, qui est dans
+  `docs/`, non versionné) :
+
+  ```
+  src/loxone_collector/
+    app.py  config.py  db.py   create_app, configuration, tout le SQL
+    api/                       Flask : auth.py, access.py, routes/ (Blueprints)
+    services/                  billing, repartition, classification, statistics_sync
+    loxone/                    client (HTTP), websocket, statistics
+    exports/                   Excel et CSV du décompte (à sortir de billing)
+    workers/                   poller, synchro Statistics (à sortir d'app.py)
+  ```
+
+  Volontairement absents tant qu'ils n'apportent rien : `schemas/`,
+  `models/` (les dictionnaires actuels sont couverts par les tests),
+  `repositories/` (`db.py` reste un fichier), `core/` (n'aurait contenu
+  que `config.py`). Pas de FastAPI, Pydantic ni SQLAlchemy (Flask figé le
+  2026-09-23). Dépendances : `api` et `workers` → `services` → `db`,
+  `loxone`, `exports` ; rien ne remonte.
+- Fait le 2026-10-27 : `auth` → `api/auth.py` ; `billing`, `repartition`,
+  `classification` → `services/` ; `miniserver_statistics` →
+  `services/statistics_sync.py` ; `loxone_client`, `loxone_ws_client`,
+  `loxone_statistics` → `loxone/client.py`, `websocket.py`,
+  `statistics.py`. Les noms de loggers n'ont pas changé.
+- Fait ensuite : `app.py` découpé (940 → 80 lignes, il ne garde que
+  `create_app`, `main` et l'enregistrement des Blueprints).
+  `workers/poller.py` : poller, synchro Statistics, `state` (lu par
+  `/health`). `api/access.py` : `current_cfg`, `read_conn`,
+  `allowed_miniservers`, `admin_required`, `check_series_access`,
+  `resolve_miniserver`, et `maintenant()`, seule source de l'heure des
+  routes (les tests la figent). `api/routes/` : `auth`, `health`
+  (`/health`, `/api/collecte`), `series` (sites, séries, relevés,
+  puissance de l'aperçu), `decompte` (calcul, exports, tarifs), `admin`
+  (classification). Mêmes 20 URL ; les corps de fonction ne diffèrent que
+  par ces renommages (vérifié par comparaison d'AST).
+- `ruff` est dans les extras `dev` ; pas encore de passe de lint ni de
+  configuration (quelques imports inutiles déjà présents, ex.
+  `services/repartition.py`).
+- Le venv de cette machine a dû passer à pip 26 / setuptools 82 (pip 21 ne
+  sait pas installer en éditable depuis un `pyproject.toml`).
+- Les scripts restent dans `backend/scripts/` pour l'instant.
+
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
 **La Calbasse est le premier site avec une configuration Loxone
@@ -1197,6 +1264,7 @@ pour le détail) : les commandes ci-dessous supposent qu'on est entré dans
 # Setup backend (venv à la racine du repo, PAS dans backend/)
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
+pip install -e backend    # le paquet loxone_collector (src/), obligatoire
 cd backend
 cp config.example.yaml config.yaml && cp .env.example .env   # puis éditer
 # puis générer SECRET_KEY dans .env (voir .env.example) :
