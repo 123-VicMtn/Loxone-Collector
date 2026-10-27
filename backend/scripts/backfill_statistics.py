@@ -63,7 +63,7 @@ from loxone_collector.loxone.client import (
     LoxoneClient,
     extract_measurable_points,
 )
-from loxone_collector.services.statistics_sync import (
+from loxone_collector.loxone.statistics import (
     bucket_hourly,
     fetch_raw_history,
     find_stat_mapping,

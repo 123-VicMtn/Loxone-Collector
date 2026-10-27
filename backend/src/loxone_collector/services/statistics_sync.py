@@ -4,101 +4,23 @@ Lecture des Statistics Loxone pour les décomptes.
 Le poller ne voit que le live pendant qu'il tourne. Les Statistics, elles,
 sont enregistrées sur la carte SD du Miniserver même s'il est arrêté. Un
 décompte (page, export) se calcule sur ces index, jamais sur `readings`.
+Ici : quelles séries importer, et quand. Le protocole (requêtes, décodage)
+est dans loxone/statistics.py.
 """
 from __future__ import annotations
 
-import json
 import logging
-import struct
 
-import requests
-
-from loxone_collector.services import billing
 from loxone_collector import db
 from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError
+from loxone_collector.loxone.statistics import fetch_raw_history, find_stat_mapping, get_statistic_info
+from loxone_collector.services import billing
 
 logger = logging.getLogger("miniserver_statistics")
 
 # Un relevé de moins d'une heure avant « maintenant » (ou avant la fin de
 # la période demandée) est assez frais : on ne rappelle pas le Miniserver.
 FRAICHEUR_S = 3600
-
-
-def find_stat_mapping(control: dict, state_name: str) -> tuple[str, str] | None:
-    """(group_id, output) si ce state a un dataPoint statisticV2.
-
-    Le champ est à la racine du contrôle, pas sous details. Repli sur
-    details au cas où un autre firmware le rangerait là.
-    """
-    stat = control.get("statisticV2") or control.get("statistic") or {}
-    if not stat:
-        details = control.get("details") or {}
-        stat = details.get("statisticV2") or details.get("statistic") or {}
-    for group in stat.get("groups", []):
-        for dp in group.get("dataPoints", []):
-            if dp.get("output") == state_name:
-                return str(group.get("id")), state_name
-    return None
-
-
-def get_statistic_info(client: LoxoneClient, control_uuid: str) -> dict[str, int]:
-    """{group_id: activeSince} pour un contrôle."""
-    resp = client._get(f"/jdev/sps/getStatisticInfo/{control_uuid}")
-    try:
-        payload = resp.json()
-        raw_value = payload.get("LL", {}).get("value")
-        entries = json.loads(raw_value) if isinstance(raw_value, str) else (raw_value or [])
-    except (ValueError, TypeError, json.JSONDecodeError):
-        return {}
-    result = {}
-    for entry in entries:
-        gid = entry.get("id")
-        active_since = entry.get("activeSince")
-        if gid is not None and active_since is not None:
-            result[str(gid)] = int(active_since)
-    return result
-
-
-def fetch_raw_history(client: LoxoneClient, control_uuid: str, group_id: str,
-                      output_name: str, from_ts: int, to_ts: int) -> list[tuple[int, float]]:
-    """Historique brut d'un output : liste de (ts Unix UTC, valeur)."""
-    path = (f"/jdev/sps/getStatistic/{control_uuid}/raw/{from_ts}/{to_ts}/"
-            f"all/{group_id}/{output_name}")
-    try:
-        resp = client._session.get(
-            f"{client.base_url}{path}", auth=client._auth, timeout=60,
-            verify=client.verify_ssl if client.scheme == "https" else True,
-        )
-    except requests.RequestException as exc:
-        raise LoxoneError(f"échec de connexion pour {path}: {exc}") from exc
-    if resp.status_code != 200:
-        raise LoxoneError(f"HTTP {resp.status_code} pour {path}")
-    body = resp.content
-    record_size = 12  # Uint32 ts + Float64, un seul output
-    if len(body) % record_size != 0:
-        raise LoxoneError(
-            f"Taille de réponse inattendue ({len(body)} octets, pas un "
-            f"multiple de {record_size}) pour {path}"
-        )
-    records = []
-    for i in range(len(body) // record_size):
-        chunk = body[i * record_size:(i + 1) * record_size]
-        ts = struct.unpack_from("<I", chunk, 0)[0]
-        value = struct.unpack_from("<d", chunk, 4)[0]
-        records.append((ts, value))
-    return records
-
-
-def bucket_hourly(records: list[tuple[int, float]]) -> list[tuple[int, float, float, float, int]]:
-    """(bucket_ts, avg, min, max, n) par heure. Sert au backfill des
-    courbes du dashboard, pas au décompte."""
-    buckets: dict[int, list[float]] = {}
-    for ts, value in records:
-        buckets.setdefault((ts // 3600) * 3600, []).append(value)
-    return [
-        (bucket, sum(values) / len(values), min(values), max(values), len(values))
-        for bucket, values in buckets.items()
-    ]
 
 
 def series_du_decompte(series: list[dict], postes: bool = False) -> list[dict]:

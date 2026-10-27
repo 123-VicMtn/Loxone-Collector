@@ -2,12 +2,14 @@
 Lecture de l'historique Statistics d'un Miniserver Loxone.
 
 C'est l'historique que le Miniserver enregistre lui-même (carte SD), pas
-les mesures écrites par le poller. Le graphique de puissance de l'aperçu
-s'en sert pour afficher la journée même quand le collecteur est arrêté.
-Le backfill (`scripts/backfill_statistics.py`) réutilise le même décodage.
+les mesures écrites par le poller. Seul module qui parle ce protocole :
+le graphique de puissance de l'aperçu (`points_by_series`), le décompte
+(`services/statistics_sync.py`) et le backfill
+(`scripts/backfill_statistics.py`) passent tous par ici.
 """
 from __future__ import annotations
 
+import json
 import struct
 from concurrent.futures import ThreadPoolExecutor
 
@@ -41,13 +43,14 @@ def find_stat_mapping(control: dict, state_name: str) -> tuple[str, str] | None:
     return None
 
 
-def decode_statistic_body(body: bytes) -> list[tuple[int, float]]:
+def decode_statistic_body(body: bytes, chemin: str | None = None) -> list[tuple[int, float]]:
     """Décode la réponse binaire de getStatistic/.../raw/... pour un seul
-    output : suites (timestamp Unix UTC, valeur)."""
+    output : suites (timestamp Unix UTC, valeur). `chemin` complète le
+    message d'erreur."""
     if len(body) % RECORD_SIZE != 0:
         raise LoxoneError(
             f"Taille de réponse inattendue ({len(body)} octets, pas un "
-            f"multiple de {RECORD_SIZE})"
+            f"multiple de {RECORD_SIZE})" + (f" pour {chemin}" if chemin else "")
         )
     records = []
     for offset in range(0, len(body), RECORD_SIZE):
@@ -63,20 +66,44 @@ def statistic_path(control_uuid: str, group_id: str, output_name: str,
             f"all/{group_id}/{output_name}")
 
 
+def get_statistic_info(client: LoxoneClient, control_uuid: str) -> dict[str, int]:
+    """{group_id: activeSince} pour un contrôle."""
+    resp = client._get(f"/jdev/sps/getStatisticInfo/{control_uuid}")
+    try:
+        payload = resp.json()
+        raw_value = payload.get("LL", {}).get("value")
+        entries = json.loads(raw_value) if isinstance(raw_value, str) else (raw_value or [])
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return {}
+    result = {}
+    for entry in entries:
+        gid = entry.get("id")
+        active_since = entry.get("activeSince")
+        if gid is not None and active_since is not None:
+            result[str(gid)] = int(active_since)
+    return result
+
+
 def fetch_raw_history(client: LoxoneClient, control_uuid: str, group_id: str,
                       output_name: str, from_ts: int, to_ts: int) -> list[tuple[int, float]]:
     """Historique brut d'un output, via la session du client (appels
-    séquentiels : le backfill)."""
+    séquentiels : décompte, backfill).
+
+    Une coupure réseau lève une LoxoneError dont le texte contient « échec
+    de connexion » : `sync_decompte` s'en sert pour abandonner le site
+    plutôt que la seule série. Un HTTP autre que 200, refus d'auth compris,
+    reste une LoxoneError simple : la série est seulement sautée."""
     path = statistic_path(control_uuid, group_id, output_name, from_ts, to_ts)
-    resp = client._session.get(
-        f"{client.base_url}{path}", auth=client._auth, timeout=60,
-        verify=client.verify_ssl if client.scheme == "https" else True,
-    )
-    if resp.status_code == 401:
-        raise LoxoneAuthError(f"authentification refusée pour {path}")
+    try:
+        resp = client._session.get(
+            f"{client.base_url}{path}", auth=client._auth, timeout=60,
+            verify=client.verify_ssl if client.scheme == "https" else True,
+        )
+    except requests.RequestException as exc:
+        raise LoxoneError(f"échec de connexion pour {path}: {exc}") from exc
     if resp.status_code != 200:
         raise LoxoneError(f"HTTP {resp.status_code} pour {path}")
-    return decode_statistic_body(resp.content)
+    return decode_statistic_body(resp.content, path)
 
 
 def _fetch_once(client: LoxoneClient, control_uuid: str, group_id: str,
@@ -115,6 +142,18 @@ def align_hourly(records: list[tuple[int, float]], from_ts: int,
     return [
         (bucket, sum(values) / len(values))
         for bucket, values in sorted(buckets.items())
+    ]
+
+
+def bucket_hourly(records: list[tuple[int, float]]) -> list[tuple[int, float, float, float, int]]:
+    """(bucket_ts, avg, min, max, n) par heure. Sert au backfill des
+    courbes du dashboard, pas au décompte."""
+    buckets: dict[int, list[float]] = {}
+    for ts, value in records:
+        buckets.setdefault((ts // 3600) * 3600, []).append(value)
+    return [
+        (bucket, sum(values) / len(values), min(values), max(values), len(values))
+        for bucket, values in buckets.items()
     ]
 
 
