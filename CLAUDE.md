@@ -1059,8 +1059,8 @@ Horizon est resté muet 11 jours (16-27.10) sans que rien ne le signale.
   `useHealthFooter` (qui lisait `/health` et montrait à tout compte les
   noms et erreurs de **tous** les sites). Bandeau
   `shared/components/CollecteBanner.vue` en haut du dashboard (« Horizon ne
-  remonte plus de données depuis le 16.10, 17:24. ») ; pied de page du
-  dashboard et de `/decompte` sur `/api/collecte` (dernier relevé par site).
+  remonte plus de données depuis le 16.10, 17:24. »). Le détail du dernier
+  relevé de chaque site est sur la page Communication.
 - `tests/test_collecte.py` : premiers tests de route (client de test
   Flask, base temporaire, comptes admin et user).
 

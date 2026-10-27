@@ -32,7 +32,7 @@ const TABS: { key: TabKey; label: string }[] = [
 
 const activeTab = ref<TabKey>('apercu')
 const advancedPrompt = ref(false)
-const { text: healthText, enRetard } = useCollecte()
+const { enRetard } = useCollecte()
 const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection()
 
 function selectTab(key: TabKey) {
@@ -81,9 +81,6 @@ function confirmAdvanced() {
         <ExplorerTab :selected="selected" @clear="clearSelection" />
       </section>
 
-      <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
-        {{ healthText }}
-      </footer>
     </main>
 
     <div

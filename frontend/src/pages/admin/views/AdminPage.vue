@@ -11,11 +11,9 @@ import { computed, onMounted, ref } from 'vue'
 import { fetchResourceTypeLabels, fetchSeries } from '../api/admin'
 import type { EditableRow } from '../types/series'
 import { compareApartments } from '@shared/format'
-import { useCollecte } from '@shared/composables/useCollecte'
 import { useSiteActif } from '@shared/composables/useSiteActif'
 import ClassificationTable from '../components/ClassificationTable.vue'
 
-const { text: healthText } = useCollecte()
 const { site, loaded: siteLoaded } = useSiteActif()
 
 const rows = ref<EditableRow[]>([])
@@ -67,10 +65,6 @@ onMounted(async () => {
       <p v-else-if="errored" class="text-sm text-red-600">Impossible de charger les capteurs : {{ errorMessage }}</p>
       <p v-else-if="!site" class="text-sm text-neutral-500">Aucun site n'est accessible avec ce compte.</p>
       <ClassificationTable v-else :rows="shown" :labels="labels" :known-apartments="knownApartments" />
-
-      <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
-        {{ healthText }}
-      </footer>
     </main>
   </div>
 </template>

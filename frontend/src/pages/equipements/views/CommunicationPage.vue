@@ -8,7 +8,7 @@ import { useCollecte } from '@shared/composables/useCollecte'
 import { useSiteActif } from '@shared/composables/useSiteActif'
 import { fmtDateTimeShort } from '@shared/format'
 
-const { collecte, indisponible, text: healthText } = useCollecte()
+const { collecte, indisponible } = useCollecte()
 const { site } = useSiteActif()
 </script>
 
@@ -50,9 +50,6 @@ const { site } = useSiteActif()
         </li>
       </ul>
 
-      <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
-        {{ healthText }}
-      </footer>
     </main>
   </div>
 </template>

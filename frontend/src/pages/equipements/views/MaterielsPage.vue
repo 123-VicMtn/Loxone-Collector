@@ -1,10 +1,7 @@
 <script setup lang="ts">
 /** Liste des compteurs du site affiché (mémorisé, partagé avec les autres pages). */
 
-import { useCollecte } from '@shared/composables/useCollecte'
 import RelevesTab from '../../dashboard/tabs/RelevesTab.vue'
-
-const { text: healthText } = useCollecte()
 </script>
 
 <template>
@@ -15,9 +12,6 @@ const { text: healthText } = useCollecte()
         Dernier index de chaque compteur du site choisi.
       </p>
       <RelevesTab />
-      <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
-        {{ healthText }}
-      </footer>
     </main>
   </div>
 </template>

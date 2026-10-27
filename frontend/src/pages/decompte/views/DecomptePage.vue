@@ -10,7 +10,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { downloadDecompte, fetchDecompte } from '../api/decompte'
 import type { DecomptePayload, Period, RepartitionInfo } from '../types/decompte'
 import { fmtDay, fmtPeriodBounds } from '../utils/format'
-import { useCollecte } from '@shared/composables/useCollecte'
 import { useSiteActif } from '@shared/composables/useSiteActif'
 
 import Card from '../components/Card.vue'
@@ -22,7 +21,6 @@ import SolaireChart from '../components/SolaireChart.vue'
 
 const SITE_STORAGE_KEY = 'decompte-site'
 
-const { text: healthText } = useCollecte()
 const { site: siteActif, loadSites } = useSiteActif()
 
 const currentSite = ref('')
@@ -337,10 +335,6 @@ watch(siteActif, (name) => {
 
     <p v-else-if="errored" class="text-sm text-red-600">{{ loadingMessage }}</p>
     </div>
-
-    <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
-      {{ healthText }}
-    </footer>
 
     <div
       v-if="confirmFormat"
