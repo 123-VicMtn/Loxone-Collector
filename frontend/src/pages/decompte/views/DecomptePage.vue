@@ -207,14 +207,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-6xl space-y-6 px-4 py-8">
-    <header class="border-b border-neutral-200 pb-6">
-      <h1 class="text-2xl font-bold text-neutral-900">Décompte de charges</h1>
-      <p class="mt-1 text-sm text-neutral-500">
-        Consommation de chaque zone répartie en part réseau et part solaire
-        autoconsommée — heure locale Europe/Zurich.
-      </p>
-    </header>
+  <div class="w-full px-4 py-6">
+    <main class="min-w-0 w-full">
+    <h1 class="mb-4 text-xl font-bold text-neutral-900">Décompte de charges</h1>
+    <p class="mb-6 text-sm text-neutral-500">
+      Consommation de chaque zone répartie en part réseau et part solaire
+      autoconsommée — heure locale Europe/Zurich.
+    </p>
+
+    <div class="space-y-6">
 
     <label v-if="sites.length > 1" class="flex w-fit flex-col text-sm text-neutral-600">
       Site
@@ -340,6 +341,11 @@ onMounted(async () => {
     </template>
 
     <p v-else-if="errored" class="text-sm text-red-600">{{ loadingMessage }}</p>
+    </div>
+
+    <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
+      {{ healthText }}
+    </footer>
 
     <div
       v-if="confirmFormat"
@@ -375,9 +381,6 @@ onMounted(async () => {
         </div>
       </div>
     </div>
-
-    <footer class="whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
-      {{ healthText }}
-    </footer>
+    </main>
   </div>
 </template>

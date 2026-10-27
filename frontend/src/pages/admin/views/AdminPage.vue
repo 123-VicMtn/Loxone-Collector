@@ -11,7 +11,10 @@ import { computed, onMounted, ref } from 'vue'
 import { fetchResourceTypeLabels, fetchSeries } from '../api/admin'
 import type { EditableRow } from '../types/series'
 import { compareApartments } from '@shared/format'
+import { useCollecte } from '@shared/composables/useCollecte'
 import ClassificationTable from '../components/ClassificationTable.vue'
+
+const { text: healthText } = useCollecte()
 
 const rows = ref<EditableRow[]>([])
 const labels = ref<Record<string, string>>({})
@@ -45,20 +48,24 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-6xl space-y-6 px-4 py-8">
-    <header class="border-b border-neutral-200 pb-6">
-      <h1 class="text-2xl font-bold text-neutral-900">Classification des capteurs</h1>
-      <p class="mt-1 text-sm text-neutral-500">
+  <div class="w-full px-4 py-6">
+    <main class="min-w-0 w-full">
+      <h1 class="mb-4 text-xl font-bold text-neutral-900">Classification des capteurs</h1>
+      <p class="mb-6 text-sm text-neutral-500">
         Appartement et type de ressource sont devinés automatiquement (préfixe
         APPxx dans le nom, mots-clés pour le type). Corrige les lignes qui ne
         sont pas bonnes : une fois enregistrée, une correction n'est plus jamais
         écrasée automatiquement (icône <span class="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">manuel</span>).
         Le bouton ↺ repasse une ligne en devinette automatique.
       </p>
-    </header>
 
-    <p v-if="loading" class="text-sm text-neutral-500">Chargement…</p>
-    <p v-else-if="errored" class="text-sm text-red-600">Impossible de charger les capteurs : {{ errorMessage }}</p>
-    <ClassificationTable v-else :rows="rows" :labels="labels" :known-apartments="knownApartments" />
+      <p v-if="loading" class="text-sm text-neutral-500">Chargement…</p>
+      <p v-else-if="errored" class="text-sm text-red-600">Impossible de charger les capteurs : {{ errorMessage }}</p>
+      <ClassificationTable v-else :rows="rows" :labels="labels" :known-apartments="knownApartments" />
+
+      <footer class="mt-8 whitespace-pre-line border-t border-neutral-200 pt-4 text-xs text-neutral-400">
+        {{ healthText }}
+      </footer>
+    </main>
   </div>
 </template>
