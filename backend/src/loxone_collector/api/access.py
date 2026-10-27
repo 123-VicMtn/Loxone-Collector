@@ -90,9 +90,13 @@ def resolve_miniserver(name: str | None) -> str:
         if not allowed:
             abort(403, "aucun site accessible pour ce compte")
         return allowed[0]
-    if name not in configured:
-        abort(400, f"miniserver invalide: {name!r}. Valeurs possibles: {configured}")
-    if name not in allowed:
-        abort(403, f"accès refusé au site {name!r}")
-    return name
+    if name in allowed:
+        return name
+    # Un compte `user` reçoit la même réponse pour un site inexistant et un
+    # site non accordé : sinon, en essayant des noms, il saurait lesquels
+    # existent (et donc qui sont les autres clients). L'admin, qui voit
+    # tous les sites, garde la distinction utile pour une faute de frappe.
+    if current_user.is_admin and name not in configured:
+        abort(400, f"site inconnu : {name!r}")
+    abort(403, f"accès refusé au site {name!r}")
 

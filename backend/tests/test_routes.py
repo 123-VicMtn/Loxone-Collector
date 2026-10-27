@@ -8,9 +8,13 @@ comportement actuel avant le découpage d'app.py en Blueprints
 Le compte `client` n'a accès qu'au site « Ref » ; « Autre » existe mais ne
 lui est pas accordé (fixtures dans conftest.py).
 """
+from unittest import mock
+
 import pytest
 
 import site_reference as ref
+from loxone_collector import db
+from loxone_collector.api import errors
 
 IDS = ref.ids_par_cle()
 SERIE_REF = IDS["APP1:c"]
@@ -181,10 +185,18 @@ def test_puissance_sans_serie(client_user):
     "/api/decompte/export.xlsx?mois=2026-10",
     "/api/tarifs",
 ])
-def test_decompte_site_non_accorde_403_site_inconnu_400(client_user, url):
+def test_decompte_site_non_accorde_ou_inconnu_meme_reponse(client_user, client_admin, url):
+    # Un user ne doit pas pouvoir distinguer un site inexistant d'un site
+    # d'un autre client ; l'admin, si (faute de frappe).
     sep = "&" if "?" in url else "?"
-    assert client_user.get(f"{url}{sep}miniserver={ref.AUTRE}").status_code == 403
-    assert client_user.get(f"{url}{sep}miniserver=Inconnu").status_code == 400
+    for site in (ref.AUTRE, "Inconnu"):
+        res = client_user.get(f"{url}{sep}miniserver={site}")
+        assert res.status_code == 403
+        assert res.get_json() == {"error": f"accès refusé au site {site!r}"}
+    res = client_admin.get(f"{url}{sep}miniserver=Inconnu")
+    assert res.status_code == 400
+    assert res.get_json() == {"error": "site inconnu : 'Inconnu'"}
+    assert ref.SITE not in str(res.get_json())
 
 
 def test_decompte_site_par_defaut(client_user):
@@ -257,3 +269,25 @@ def test_classification_admin_seulement(client_user, client_admin):
     assert client_admin.post(url, json={"reset": True}).get_json() == {"ok": True}
     serie = next(s for s in client_admin.get("/api/series").get_json() if s["series_id"] == SERIE_REF)
     assert serie["apartment_manual"] == 0
+
+
+# --- Erreurs en JSON ------------------------------------------------------------
+
+def test_erreur_de_parametre_en_json(client_user):
+    res = client_user.get(f"/api/series/{SERIE_REF}/daily?days=x")
+    assert res.status_code == 400
+    assert res.get_json() == {"error": "days doit être un entier"}
+
+
+def test_route_inconnue_et_methode_en_json(client_user):
+    res = client_user.get("/api/nexiste-pas")
+    assert (res.status_code, res.get_json()) == (404, {"error": "ressource introuvable"})
+    res = client_user.put("/api/series")
+    assert (res.status_code, res.get_json()) == (405, {"error": "méthode non autorisée"})
+
+
+def test_erreur_imprevue_sans_detail(client_user):
+    with mock.patch.object(db, "list_series", side_effect=RuntimeError("/srv/secret.db verrouillée")):
+        res = client_user.get("/api/series")
+    assert res.status_code == 500
+    assert res.get_json() == {"error": errors.MESSAGE_ERREUR_INTERNE}

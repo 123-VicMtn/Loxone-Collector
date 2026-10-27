@@ -27,6 +27,7 @@ from flask import Flask
 
 from loxone_collector import db
 from loxone_collector.api import auth
+from loxone_collector.api.errors import register_error_handlers
 from loxone_collector.api.routes import admin as routes_admin
 from loxone_collector.api.routes import auth as routes_auth
 from loxone_collector.api.routes import decompte as routes_decompte
@@ -44,6 +45,7 @@ logger = logging.getLogger("app")
 app = Flask(__name__)
 for _bp in (routes_auth.bp, routes_health.bp, routes_series.bp, routes_decompte.bp, routes_admin.bp):
     app.register_blueprint(_bp)
+register_error_handlers(app)
 
 
 def create_app(config_path: str = "config.yaml") -> Flask:
