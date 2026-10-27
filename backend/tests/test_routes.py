@@ -250,6 +250,15 @@ def test_tarifs_lecture_user_ecriture_admin(client_user, client_admin):
     assert client_admin.delete(f"/api/tarifs/{tarif_id}?miniserver={ref.SITE}").get_json() == []
 
 
+def test_suppression_dun_tarif_limitee_a_son_site(client_admin):
+    tarif_autre = client_admin.post("/api/tarifs", json={**TARIF, "miniserver": ref.AUTRE}).get_json()[0]
+    res = client_admin.delete(f"/api/tarifs/{tarif_autre['id']}?miniserver={ref.SITE}")
+    assert (res.status_code, res.get_json()) == (404, {"error": "tarif introuvable pour ce site"})
+    assert [t["id"] for t in client_admin.get(f"/api/tarifs?miniserver={ref.AUTRE}").get_json()] == [tarif_autre["id"]]
+    res = client_admin.delete(f"/api/tarifs/{tarif_autre['id']}?miniserver={ref.AUTRE}")
+    assert res.get_json() == []
+
+
 @pytest.mark.parametrize("modif", [
     {"valid_from": "01.01.2026"},
     {"prix_reseau": "cher"},

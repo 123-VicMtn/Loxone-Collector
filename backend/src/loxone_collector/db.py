@@ -620,9 +620,14 @@ def upsert_tarif(conn: sqlite3.Connection, miniserver: str, valid_from: str,
     conn.commit()
 
 
-def delete_tarif(conn: sqlite3.Connection, tarif_id: int) -> None:
-    conn.execute("DELETE FROM tarifs WHERE id = ?", (tarif_id,))
+def delete_tarif(conn: sqlite3.Connection, miniserver: str, tarif_id: int) -> bool:
+    """Supprime le tarif `tarif_id` seulement s'il appartient à ce site.
+    Retourne False si aucun tarif de ce site ne porte cet identifiant."""
+    cur = conn.execute(
+        "DELETE FROM tarifs WHERE id = ? AND miniserver = ?", (tarif_id, miniserver),
+    )
     conn.commit()
+    return cur.rowcount > 0
 
 
 def get_user_by_username(conn: sqlite3.Connection, username: str) -> dict | None:

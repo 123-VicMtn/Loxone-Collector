@@ -227,6 +227,9 @@ def api_tarifs():
 def api_tarif_delete(tarif_id: int):
     ms_name = resolve_miniserver(request.args.get("miniserver"))
     with closing(read_conn()) as conn:
-        db.delete_tarif(conn, tarif_id)
+        # Avant, la suppression ne regardait que l'identifiant : le tarif
+        # d'un autre site partait, quel que soit `miniserver`.
+        if not db.delete_tarif(conn, ms_name, tarif_id):
+            abort(404, "tarif introuvable pour ce site")
         return jsonify(db.list_tarifs(conn, ms_name))
 
