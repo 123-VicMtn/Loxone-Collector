@@ -49,9 +49,11 @@ datées ci-dessous, écrites avant ce déplacement) désigne le fichier sous
   TypeScript + Tailwind autonome** (`frontend/`, un seul build, `vue-router`
   en mode history pour les 3 routes `/`, `/admin`, `/decompte`), qui tourne
   sur sa propre origine/hébergement et ne parle au backend que via HTTP.
-  Une barre de navigation commune (`shared/components/AppNavbar.vue`,
+  Une barre latérale commune (`shared/components/AppSidebar.vue`,
   montée dans `App.vue`, absente de `/login`) : Dashboard, Décompte,
-  Classification (admin seulement), et le compte connecté.
+  Classification (admin seulement), et le compte connecté en bas.
+  Fixe à partir de 1024 px ; en dessous, tiroir ouvert depuis une barre
+  du haut.
   Dashboard (`/`) : **Aperçu** (bilan depuis minuit + courbe) et
   **Relevés** (dernier index de chaque compteur). **Mode avancé**
   (l'ancien Explorer, confirmation avant d'entrer ; seule vue qui affiche
@@ -1133,6 +1135,16 @@ section 7, règle « un commit déplace, un autre corrige »).
   puissance de l'aperçu), `decompte` (calcul, exports, tarifs), `admin`
   (classification). Mêmes 20 URL ; les corps de fonction ne diffèrent que
   par ces renommages (vérifié par comparaison d'AST).
+- Fait ensuite : la mise en forme sort de `services/billing.py` (2 218 →
+  1 083 lignes, il ne garde que le calcul). `exports/decompte.py` : lignes
+  des tableaux (`export_lignes`, `lignes_compteurs`, `lignes_buanderie`,
+  `etat_zone`) et CSV (`export_csv_lignes`). `exports/decompte_xlsx.py` :
+  classeur (`build_decompte_workbook`, `_notes_classeur`, styles, onglets).
+  Dépendances à sens unique : `exports` → `services/billing`, jamais
+  l'inverse. Les 137 définitions sont identiques octet pour octet. Les
+  sections plus anciennes de ce fichier qui citent
+  `billing.build_decompte_workbook`, `billing.export_csv_lignes`, etc.
+  désignent désormais ces deux modules.
 - `ruff` est dans les extras `dev` ; pas encore de passe de lint ni de
   configuration (quelques imports inutiles déjà présents, ex.
   `services/repartition.py`).
@@ -1237,6 +1249,16 @@ le 14.10) :
   d'Arlopi. Premier mois complet : **novembre 2026**.
 - Arlopy, Horizon et Sequoia : zones et compteurs de bâtiment identiques
   avant et après ces règles.
+
+## Barre latérale — 2026-10-27
+
+La barre du haut (`AppNavbar.vue`) est une barre latérale
+(`shared/components/AppSidebar.vue`). À partir de 1024 px elle reste
+affichée et le contenu est décalé d'autant. En dessous, une barre avec
+le bouton menu ouvre un tiroir (fermeture au clic dehors, à Échap, ou
+en changeant de page). `/login` n'a pas cette barre. Le fond de page
+est forcé clair (`color-scheme: light` dans `style.css`) : l'app n'a
+pas de thème sombre.
 
 ## Prochaine étape prévue
 
