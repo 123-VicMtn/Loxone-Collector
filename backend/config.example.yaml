@@ -33,6 +33,10 @@ maintenance_hour_utc: 3
 # été ouverts. 0 = désactivé.
 statistics_sync_hours: 6
 
+# Un site sans nouveau relevé depuis N minutes est signalé dans le
+# dashboard et par /health (status "degrade").
+stale_alert_minutes: 60
+
 # Filtrage des points suivis. Seuls les compteurs (Meter) sont collectés.
 # À l'intérieur d'un compteur, le poller ne garde que actual / total /
 # totalNeg (voir loxone_client.BILLABLE_STATES) : le découpage par dates

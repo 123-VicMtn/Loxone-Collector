@@ -80,6 +80,9 @@ class AppConfig:
     # (électricité, chauffage, eau chaude, buanderie) jusqu'à maintenant.
     # 0 = désactivé (config de démo : le miniserver n'existe pas).
     statistics_sync_hours: int = 6
+    # Un site sans nouveau relevé depuis N minutes est signalé (dashboard,
+    # /health). Horizon est resté muet 11 jours sans que rien ne le dise.
+    stale_alert_minutes: int = 60
     include_types: list[str] = field(default_factory=lambda: ["Meter", "EFM"])
     exclude_types: list[str] = field(default_factory=list)
     exclude_rooms: list[str] = field(default_factory=list)

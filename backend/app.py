@@ -394,10 +394,38 @@ def api_resource_types():
     return jsonify(_cfg().resource_type_labels)
 
 
+def _etat_collecte(sites: list[str], now: int, avec_erreur: bool) -> list[dict]:
+    """Dernier relevé de chaque site, lu en base (pas dans `_state`, vidé à
+    chaque redémarrage), et retard au-delà de `stale_alert_minutes`.
+    `derniere_erreur` (message du dernier poll) n'est donné qu'à un admin :
+    il peut contenir l'adresse du Miniserver."""
+    seuil_s = _cfg().stale_alert_minutes * 60
+    with closing(_read_conn()) as conn:
+        derniers = db.last_reading_by_miniserver(conn)
+    out = []
+    for name in sites:
+        dernier = derniers.get(name)
+        etat = {
+            "miniserver": name,
+            "dernier_releve_ts": dernier,
+            "en_retard": dernier is None or now - dernier > seuil_s,
+        }
+        if avec_erreur:
+            etat["derniere_erreur"] = _state["last_error"].get(name)
+        out.append(etat)
+    return out
+
+
 @app.route("/health")
 def health():
+    """Public, pour une supervision externe : `status` passe à "degrade"
+    dès qu'un site ne remonte plus (voir _etat_collecte). La réponse reste
+    un 200 : l'API, elle, fonctionne."""
+    collecte = _etat_collecte([ms.name for ms in _cfg().miniservers], int(time.time()), False)
     return jsonify(
         {
+            "status": "degrade" if any(s["en_retard"] for s in collecte) else "ok",
+            "collecte": collecte,
             "started_at": _state["started_at"],
             "last_poll_ts": _state["last_poll_ts"],
             "last_poll_ok": _state["last_poll_ok"],
@@ -405,6 +433,17 @@ def health():
             "series_count": _state["series_count"],
         }
     )
+
+
+@app.route("/api/collecte")
+@login_required
+def api_collecte():
+    """État de la collecte des sites accessibles au compte (bandeau du
+    dashboard) : dernier relevé et retard."""
+    return jsonify({
+        "seuil_minutes": _cfg().stale_alert_minutes,
+        "sites": _etat_collecte(_allowed_miniservers(), int(time.time()), current_user.is_admin),
+    })
 
 
 @app.route("/api/series")
