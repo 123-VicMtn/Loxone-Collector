@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** "Nom d'utilisateur · Déconnexion", affiché dans la barre de navigation. */
+/** Compte connecté et déconnexion, en bas de la barre latérale. */
 
 import { useRouter } from 'vue-router'
 import { authState, logout } from '../auth'
@@ -13,8 +13,9 @@ async function onLogout() {
 </script>
 
 <template>
-  <div v-if="authState.username" class="flex items-center gap-2 text-sm text-neutral-500">
-    <span>{{ authState.username }}<span v-if="authState.role === 'user'" class="text-neutral-400"> (lecture seule)</span></span>
+  <div v-if="authState.username" class="flex min-w-0 flex-col items-start gap-1 text-sm text-neutral-500">
+    <span class="max-w-full truncate font-medium text-neutral-800">{{ authState.username }}</span>
+    <span v-if="authState.role === 'user'" class="text-xs text-neutral-400">Lecture seule</span>
     <button type="button" class="text-blue-600 hover:underline" @click="onLogout">Déconnexion</button>
   </div>
 </template>

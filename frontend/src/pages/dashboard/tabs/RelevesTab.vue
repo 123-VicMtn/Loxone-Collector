@@ -233,7 +233,7 @@ onMounted(async () => {
   <p v-else-if="!rows.length" class="rounded-lg border border-dashed border-neutral-300 px-4 py-8 text-center text-sm text-neutral-500">Aucun relevé pour le moment.</p>
 
   <div v-else class="flex flex-col gap-4">
-    <div class="z-20 rounded-lg border border-neutral-200 bg-white p-3 shadow-sm md:sticky md:top-0 md:bg-white/95 md:backdrop-blur">
+    <div class="z-20 rounded-lg border border-neutral-200 bg-white p-3 shadow-sm md:sticky md:top-14 md:bg-white/95 md:backdrop-blur lg:top-0">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
         <label v-if="siteNames.length > 1" class="flex w-full flex-col gap-1 text-xs font-medium text-neutral-500 sm:w-52">
           Immeuble

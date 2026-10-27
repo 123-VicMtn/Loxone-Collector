@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+/* L'app est claire (pas de thème sombre). Sans ça, un navigateur en
+   mode sombre peint le canvas en noir derrière le fond transparent. */
+html {
+  color-scheme: light;
+  background-color: #fff;
+}

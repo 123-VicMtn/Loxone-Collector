@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * Page / : onglets Aperçu et Relevés. La navigation entre pages est dans
- * la barre du haut (shared/components/AppNavbar.vue).
+ * la barre latérale (shared/components/AppSidebar.vue).
  *
  * Mode avancé (Explorer) reste dans le code mais masqué : voir
  * SHOW_ADVANCED_TAB et la note du 2026-10-02 dans CLAUDE.md. La sélection
