@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 from loxone_collector.config import load_config
-from loxone_collector.loxone.client import LoxoneClient, extract_measurable_points
+from loxone_collector.loxone.client import client_for, extract_measurable_points
 
 
 async def main_async():
@@ -35,10 +35,7 @@ async def main_async():
     cfg = load_config(config_path)
     ms = next((m for m in cfg.miniservers if m.name == ms_name), cfg.miniservers[0])
 
-    client = LoxoneClient(
-        name=ms.name, host=ms.host, username=ms.username, password=ms.password,
-        port=ms.port, scheme=ms.scheme, verify_ssl=ms.verify_ssl,
-    )
+    client = client_for(ms)
     structure = client.fetch_structure()
     points = extract_measurable_points(
         structure, include_types=cfg.include_types,

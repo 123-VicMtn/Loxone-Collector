@@ -14,7 +14,12 @@ from pathlib import Path
 
 from loxone_collector import db
 from loxone_collector.config import AppConfig
-from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError, extract_measurable_points
+from loxone_collector.loxone.client import (
+    LoxoneAuthError,
+    LoxoneError,
+    client_for,
+    extract_measurable_points,
+)
 from loxone_collector.loxone.websocket import LoxoneWsError, fetch_live_values
 from loxone_collector.services import classification, statistics_sync
 
@@ -36,16 +41,7 @@ STATISTICS_SYNC_DELAI_S = 120
 
 def poll_once(cfg: AppConfig, conn) -> None:
     for ms_cfg in cfg.miniservers:
-        client = LoxoneClient(
-            name=ms_cfg.name,
-            host=ms_cfg.host,
-            username=ms_cfg.username,
-            password=ms_cfg.password,
-            port=ms_cfg.port,
-            scheme=ms_cfg.scheme,
-            verify_ssl=ms_cfg.verify_ssl,
-            read_delay_seconds=ms_cfg.read_delay_seconds,
-        )
+        client = client_for(ms_cfg)
         try:
             structure = client.fetch_structure()
             points = extract_measurable_points(

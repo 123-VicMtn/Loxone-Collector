@@ -31,7 +31,7 @@ import json
 import sys
 
 from loxone_collector.config import load_config
-from loxone_collector.loxone.client import LoxoneClient, LoxoneAuthError, LoxoneError
+from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError, client_for
 
 
 def find_stat_like_keys(obj, path="") -> list[tuple[str, object]]:
@@ -79,10 +79,7 @@ def main():
         print(f"Miniserver '{ms_name}' introuvable dans {config_path}.")
         sys.exit(1)
 
-    client = LoxoneClient(
-        name=ms.name, host=ms.host, username=ms.username, password=ms.password,
-        port=ms.port, scheme=ms.scheme, verify_ssl=ms.verify_ssl,
-    )
+    client = client_for(ms)
 
     print(f"Miniserver '{ms.name}' -> {ms.scheme}://{ms.host}:{ms.port}\n")
 

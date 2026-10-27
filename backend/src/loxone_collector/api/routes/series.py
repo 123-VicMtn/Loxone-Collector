@@ -17,7 +17,7 @@ from loxone_collector.api.access import (
     read_conn,
     resolve_miniserver,
 )
-from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError
+from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError, client_for
 from loxone_collector.loxone.statistics import points_by_series
 from loxone_collector.services import billing
 
@@ -131,15 +131,7 @@ def api_series_data(series_id: str):
 
 def _client_for(name: str) -> LoxoneClient:
     ms = next(m for m in current_cfg().miniservers if m.name == name)
-    return LoxoneClient(
-        name=ms.name,
-        host=ms.host,
-        username=ms.username,
-        password=ms.password,
-        port=ms.port,
-        scheme=ms.scheme,
-        verify_ssl=ms.verify_ssl,
-    )
+    return client_for(ms)
 
 
 @bp.route("/api/apercu/puissance", methods=["POST"])

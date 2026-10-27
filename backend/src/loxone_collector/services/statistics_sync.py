@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 from loxone_collector import db
-from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError
+from loxone_collector.loxone.client import LoxoneAuthError, LoxoneError, client_for
 from loxone_collector.loxone.statistics import fetch_raw_history, find_stat_mapping, get_statistic_info
 from loxone_collector.services import billing
 
@@ -124,10 +124,7 @@ def sync_decompte(cfg, conn, ms_name: str, series: list[dict], now_ts: int,
         return {"ok": False, "erreur": f"miniserver inconnu: {ms_name}",
                 "series": 0, "points": 0}
 
-    client = LoxoneClient(
-        name=ms.name, host=ms.host, username=ms.username, password=ms.password,
-        port=ms.port, scheme=ms.scheme, verify_ssl=ms.verify_ssl, timeout=30,
-    )
+    client = client_for(ms, timeout=30)
     points = 0
     fetched = 0
     sans_stats: list[str] = []

@@ -60,7 +60,7 @@ from loxone_collector.config import load_config
 from loxone_collector.loxone.client import (
     LoxoneAuthError,
     LoxoneError,
-    LoxoneClient,
+    client_for,
     extract_measurable_points,
 )
 from loxone_collector.loxone.statistics import (
@@ -94,10 +94,7 @@ def main():
         print(f"Miniserver '{args.miniserver_name}' introuvable dans {args.config_path}.")
         sys.exit(1)
 
-    client = LoxoneClient(
-        name=ms.name, host=ms.host, username=ms.username, password=ms.password,
-        port=ms.port, scheme=ms.scheme, verify_ssl=ms.verify_ssl,
-    )
+    client = client_for(ms)
 
     print(f"Miniserver '{ms.name}' -> {ms.scheme}://{ms.host}:{ms.port}")
     print(f"Mode : {'DRY-RUN (rien ne sera écrit en base)' if args.dry_run else 'ÉCRITURE RÉELLE'}\n")

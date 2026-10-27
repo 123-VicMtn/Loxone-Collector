@@ -28,6 +28,8 @@ from typing import Any, Iterable
 import requests
 from requests.auth import HTTPBasicAuth
 
+from loxone_collector.config import MiniserverConfig
+
 logger = logging.getLogger("loxone_client")
 
 # Le port externe d'un Miniserver derrière le Cloud DNS Loxone change
@@ -450,3 +452,19 @@ class LoxoneClient:
 
     def close(self) -> None:
         self._session.close()
+
+
+def client_for(ms_cfg: MiniserverConfig, timeout: float = 10.0) -> LoxoneClient:
+    """Client du miniserver `ms_cfg` (config.yaml). Seul point de
+    construction d'un LoxoneClient : poller, routes, synchro et scripts."""
+    return LoxoneClient(
+        name=ms_cfg.name,
+        host=ms_cfg.host,
+        username=ms_cfg.username,
+        password=ms_cfg.password,
+        port=ms_cfg.port,
+        scheme=ms_cfg.scheme,
+        timeout=timeout,
+        verify_ssl=ms_cfg.verify_ssl,
+        read_delay_seconds=ms_cfg.read_delay_seconds,
+    )

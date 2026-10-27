@@ -3,7 +3,8 @@ consommation facturable : actual, total, totalNeg. Les compteurs glissants
 et les contrôles qui ne sont pas des compteurs sont écartés."""
 import unittest
 
-from loxone_collector.loxone.client import endpoint_from_cloud_dns, extract_measurable_points
+from loxone_collector.config import MiniserverConfig
+from loxone_collector.loxone.client import client_for, endpoint_from_cloud_dns, extract_measurable_points
 
 
 def _meter():
@@ -108,6 +109,21 @@ class TestBillableStates(unittest.TestCase):
         self.assertEqual(host, "168-119-185-175.504f94d0e6da.dyndns.loxonecloud.com")
         self.assertEqual(port, 53581)
         self.assertIsNone(endpoint_from_cloud_dns({}, "504f94d0e6da"))
+
+
+class TestClientFor(unittest.TestCase):
+    """Seul point de construction du client : chaque champ de la config
+    doit arriver jusqu'au client, le timeout reste au choix de l'appelant."""
+
+    def test_reprend_la_config(self):
+        ms = MiniserverConfig(name="Ref", host="10.0.0.2", username="u", password="p",
+                              port=8080, scheme="https", verify_ssl=False,
+                              read_delay_seconds=1.5)
+        client = client_for(ms)
+        self.assertEqual((client.name, client.base_url), ("Ref", "https://10.0.0.2:8080"))
+        self.assertEqual((client.timeout, client.verify_ssl, client.read_delay_seconds), (10.0, False, 1.5))
+        self.assertEqual((client._auth.username, client._auth.password), ("u", "p"))
+        self.assertEqual(client_for(ms, timeout=30).timeout, 30)
 
 
 if __name__ == "__main__":

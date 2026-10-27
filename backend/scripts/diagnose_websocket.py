@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 from loxone_collector.config import load_config
-from loxone_collector.loxone.client import LoxoneClient, LoxoneError, extract_measurable_points
+from loxone_collector.loxone.client import LoxoneError, client_for, extract_measurable_points
 from loxone_collector.loxone.websocket import LoxoneWsError, fetch_live_values
 
 
@@ -51,10 +51,7 @@ def main():
         # 1) Structure via HTTP simple (fonctionne normalement même à
         #    distance) -> donne la liste des points attendus.
         print("\n  [1] Récupération de la structure (HTTP, /data/LoxAPP3.json)...")
-        client = LoxoneClient(
-            name=ms.name, host=ms.host, username=ms.username, password=ms.password,
-            port=ms.port, scheme=ms.scheme, verify_ssl=ms.verify_ssl,
-        )
+        client = client_for(ms)
         try:
             structure = client.fetch_structure()
             points = extract_measurable_points(
