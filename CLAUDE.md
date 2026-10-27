@@ -555,6 +555,18 @@ plusieurs endroits du fichier se contredire sur ce qui reste à faire.
   périmètre du décompte électrique actuel, à signaler seulement si le
   chauffage doit être facturé un jour.
 
+### Fonctionnalité demandée pour plus tard : liaison de compteurs
+
+Demande de l'utilisateur (2026-10-27), « dans un deuxième temps » : un
+moyen, dans l'interface, de **lier des compteurs** (déclarer qu'un
+compteur est un sous-compteur d'un autre) et donc de contrôler ce qui
+remonte comme ligne du décompte et ce qui est dilué dans un autre
+compteur. Cas d'origine : la PAC de La Calbasse dans le Commun ; règles
+codées en dur qu'elle remplacerait : `PAC déjà mesuré` / `Boiler ecs
+mesuré aussi ?` de Sequoia, `DOUBLON_RE`, `PAC_BATIMENT_RE`,
+`RESERVES_ZONES`. Probablement une table en base (comme les
+classifications manuelles), éditable depuis `/admin`. Pas commencé.
+
 ### Déploiement (explicitement différé -- "garde Caddy pour plus tard")
 
 Tout regroupé dans `docs/plan-installation-auth-frontend-docker.md`, à
@@ -613,9 +625,15 @@ fonctionnement d'abord, revenir sur la structure ensuite.
   Sequoia seront corrigés dans Loxone Config. Après chaque renommage,
   revoir les règles du code qui portent sur les anciens noms (la liste
   est dans cette section).
-- **La Calbasse, `APP47 Réseau`** : +1 147 kWh le 2026-10-26 alors que
-  les autres `APPxx Réseau` restent quasi à zéro. Probablement mal
-  configuré dans Loxone Config.
+- **La Calbasse, bloc de répartition solaire** : `APPxx Réseau` /
+  `Solaire` font un saut le 2026-10-26 vers 16 h (`App 47 Réseau`
+  +10 551 kWh, `App 37 Solaire` +4 986 kWh en octobre). À signaler à
+  l'installateur ; le décompte recalcule à partir de `APPxx`.
+- **Horizon en panne depuis le 16.10.2026** : plus joignable par le
+  cloud Loxone (voir « Verdict de répartition par mois », 2026-10-26).
+  Intervention prévue le 2026-10-27. Ensuite : vérifier le poll et
+  combler le trou avec `scripts/backfill_statistics.py --since 2026-10-16`.
+- **Sequoia, RCP de nouveau fausse depuis le 07.10.2026** (même section).
 
 ### Nettoyage mineur, non bloquant
 
@@ -1012,8 +1030,11 @@ correction de l'installateur (09.09.2026) condamnaient aussi les suivants
   dépôt : un tel renommage ne doit plus se reproduire. `MS-PPE-Calbasse`
   (ancienne config, 2 contrôles communs sur 40, 5 h de données le 01.10)
   reste en base, non migré vers `La Calbasse`. `Horizon` n'avait aucune
-  série sous son nouveau nom (l'ancien s'arrête le 16.10) : vérifier le
-  poll.
+  série sous son nouveau nom (l'ancien s'arrête le 16.10) : le
+  Miniserver n'est plus joignable par le cloud Loxone (2026-10-27 :
+  `dns.loxonecloud.com` répond `Code 482`, `PortOpen false`, connexion
+  refusée ; les trois autres sites répondent 200). À voir sur place ou
+  avec l'installateur (Internet du bâtiment, Remote Connect).
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
@@ -1081,14 +1102,46 @@ site concerné sera renommé :
   `resolve_postes`, `CONTROLE_EXCLUDE_RE`, `ZONE_LABEL_OVERRIDES`, les
   `RULES` de `scripts/export_appartement.py`, et le motif d'appartement
   de `classification.py` (qui reconnaît déjà `APPxx` et `Commun`).
-  **`/decompte` et l'export n'ont pas encore été vérifiés sur La
-  Calbasse** : le même problème (chauffage, PAC) peut s'y trouver.
+
+**`/decompte` sur La Calbasse, vérifié le 2026-10-27** (Statistics depuis
+le 14.10) :
+
+- `billing` ne reconnaissait aucun compteur de bâtiment : bilan
+  incalculable. `BATIMENT_PRODUCTION_RE` prend `Compteur PV (total)`
+  (libellé exact : les `Compteur PV PPE / garages / Production` d'Horizon
+  ne sont pas la production), `BATIMENT_RESEAU_RE` `Compteur Intro`.
+- **La PAC est une ligne du décompte, comme les Communs**
+  (`billing.PAC_BATIMENT_RE`, zone `PAC`, avec `PAC Réseau` / `PAC
+  Solaire`). Sans elle, ses kWh (60 % du bâtiment) n'étaient facturés nulle
+  part et le bilan ne bouclait pas. Avec elle, octobre boucle à +2,6 %.
+  « PAC déjà mesuré » de Sequoia (dans les Communs) reste hors zone.
+  **Sous réserve** (décision de l'utilisateur, 2026-10-27) : selon lui la
+  PAC est un sous-compteur du Commun, mais les données disent le contraire
+  (octobre : PAC 1 328 kWh, Commun 171 kWh ; un sous-compteur ne peut pas
+  dépasser son compteur parent). La ligne reste affichée et comptée, avec
+  une note « Sous réserve » sous le tableau de `/decompte` et dans les
+  notes du classeur (`billing.RESERVES_ZONES`, `payload["reserves"]`).
+  À trancher par un contrôle de l'installation physique.
+- Chauffage et eau chaude : un compteur par lot, bien lus par
+  `resolve_postes` ; `CONTROLE_EXCLUDE_RE` écarte déjà `APPxx Chauffage`.
+- Les `APPxx Réseau` / `Solaire` du Miniserver sont faux : saut le
+  26.10 vers 16 h sur tous les lots (`App 37 Solaire` +4 986 kWh, `App 47
+  Réseau` +10 551 kWh pour 20 et 45 kWh consommés). L'audit les rejette,
+  octobre est en répartition calculée sur `APPxx`.
+- Octobre ne donne aucun kWh par zone : pas de relevé avant le 1er
+  (« pas de relevé avant le début de la période »), comme le mois de pose
+  d'Arlopi. Premier mois complet : **novembre 2026**.
+- Arlopy, Horizon et Sequoia : zones et compteurs de bâtiment identiques
+  avant et après ces règles.
 
 ## Prochaine étape prévue
 
-Le décompte RCP est branché. Prochain point concret : vérifier
-`/decompte` et l'export sur La Calbasse (convention de nommage,
-2026-10-26), puis suivre le renommage des autres sites. La suite du
+Le décompte RCP est branché, La Calbasse comprise (2026-10-27).
+Prochain point concret : suivre le renommage des autres sites dans
+Loxone Config et le retour d'Horizon (intervention du 2026-10-27).
+En attente : seuil `SEUIL_ECART_SOLAIRE_PCT` (batterie de Sequoia),
+installation physique de la PAC de La Calbasse, puis la liaison de
+compteurs dans l'interface (backlog). La suite du
 backlog, seulement si on la relance : compteurs de chauffage figés (hors périmètre électrique), ou le
 déploiement (Caddy, fallback SPA). Relancer `app.py` pour que l'API serve
 ce calcul (`use_reloader=False`).
