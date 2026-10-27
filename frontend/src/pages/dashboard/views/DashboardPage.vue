@@ -10,7 +10,8 @@
  */
 
 import { ref } from 'vue'
-import { useHealthFooter } from '@shared/composables/useHealthFooter'
+import { useCollecte } from '@shared/composables/useCollecte'
+import CollecteBanner from '@shared/components/CollecteBanner.vue'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
 import RelevesTab from '../tabs/RelevesTab.vue'
@@ -32,7 +33,7 @@ const TABS: { key: TabKey; label: string }[] = [
 
 const activeTab = ref<TabKey>('apercu')
 const advancedPrompt = ref(false)
-const { text: healthText } = useHealthFooter()
+const { text: healthText, enRetard } = useCollecte()
 const { selected, isSelected, onToggle, clearSelection } = useExplorerSelection()
 
 function selectTab(key: TabKey) {
@@ -58,6 +59,7 @@ function confirmAdvanced() {
 
     <main class="min-w-0 w-full flex-1">
       <h1 class="mb-4 text-xl font-bold text-neutral-900">Dashboard</h1>
+      <CollecteBanner :sites="enRetard" />
       <div class="mb-4 flex gap-1 border-b border-neutral-200" role="tablist">
         <button
           v-for="t in TABS"

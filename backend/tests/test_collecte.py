@@ -12,6 +12,7 @@ import time
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest import mock
 
 from werkzeug.security import generate_password_hash
 
@@ -29,7 +30,11 @@ def _miniserver(name):
     return MiniserverConfig(name=name, host="localhost", username="u", password="p")
 
 
-class TestCollecte(unittest.TestCase):
+class _AppDeTest:
+    """Base temporaire, trois sites (Vif, Muet, Neuf), un admin et un
+    user qui n'a accès qu'à Muet. Pas un TestCase : chaque classe de tests
+    l'hérite avec unittest.TestCase."""
+
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
@@ -72,6 +77,8 @@ class TestCollecte(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         return client
 
+
+class TestCollecte(_AppDeTest, unittest.TestCase):
     def test_admin_voit_tous_les_sites_et_leur_retard(self):
         data = self._client("admin").get("/api/collecte").get_json()
         self.assertEqual(data["seuil_minutes"], 60)
@@ -82,12 +89,11 @@ class TestCollecte(unittest.TestCase):
         # Site configuré mais jamais relevé : en retard, sans date.
         self.assertTrue(sites["Neuf"]["en_retard"])
         self.assertIsNone(sites["Neuf"]["dernier_releve_ts"])
-        self.assertIn("derniere_erreur", sites["Vif"])
+        self.assertNotIn("derniere_erreur", sites["Vif"])
 
-    def test_user_ne_voit_que_ses_sites_sans_les_erreurs(self):
+    def test_user_ne_voit_que_ses_sites(self):
         data = self._client("client").get("/api/collecte").get_json()
         self.assertEqual([s["miniserver"] for s in data["sites"]], ["Muet"])
-        self.assertNotIn("derniere_erreur", data["sites"][0])
 
     def test_collecte_demande_une_session(self):
         res = self.flask_app.test_client().get("/api/collecte")
@@ -102,6 +108,28 @@ class TestCollecte(unittest.TestCase):
             {s["miniserver"]: s["en_retard"] for s in data["collecte"]},
             {"Vif": False, "Muet": True, "Neuf": True},
         )
+        # Public : pas les messages d'erreur des polls.
+        self.assertNotIn("last_error", data)
+
+
+class TestErreurStatistiques(_AppDeTest, unittest.TestCase):
+    """Miniserver injoignable pendant /api/decompte : l'utilisateur lit une
+    phrase, jamais l'exception (adresse, port, pile réseau)."""
+
+    ERREUR = "[Muet] échec de connexion à https://10.0.0.1:443/jdev/sps/getStatistic: refused"
+
+    def _decompte(self, username):
+        retour = {"ok": False, "erreur": self.ERREUR, "series": 0, "points": 0}
+        with mock.patch.object(app_module.miniserver_statistics, "sync_decompte", return_value=retour):
+            res = self._client(username).get("/api/decompte?miniserver=Muet")
+        self.assertEqual(res.status_code, 200)
+        return res.get_json()
+
+    def test_message_court_sans_detail_technique(self):
+        for compte in ("client", "admin"):
+            data = self._decompte(compte)
+            self.assertEqual(data["statistiques_erreur"], app_module.MESSAGE_STATISTIQUES_INJOIGNABLES)
+            self.assertNotIn("10.0.0.1", str(data))
 
 
 class TestDernierReleve(unittest.TestCase):

@@ -394,11 +394,10 @@ def api_resource_types():
     return jsonify(_cfg().resource_type_labels)
 
 
-def _etat_collecte(sites: list[str], now: int, avec_erreur: bool) -> list[dict]:
+def _etat_collecte(sites: list[str], now: int) -> list[dict]:
     """Dernier relevé de chaque site, lu en base (pas dans `_state`, vidé à
     chaque redémarrage), et retard au-delà de `stale_alert_minutes`.
-    `derniere_erreur` (message du dernier poll) n'est donné qu'à un admin :
-    il peut contenir l'adresse du Miniserver."""
+    Jamais le message d'erreur du poll : il est dans le log du serveur."""
     seuil_s = _cfg().stale_alert_minutes * 60
     with closing(_read_conn()) as conn:
         derniers = db.last_reading_by_miniserver(conn)
@@ -410,8 +409,6 @@ def _etat_collecte(sites: list[str], now: int, avec_erreur: bool) -> list[dict]:
             "dernier_releve_ts": dernier,
             "en_retard": dernier is None or now - dernier > seuil_s,
         }
-        if avec_erreur:
-            etat["derniere_erreur"] = _state["last_error"].get(name)
         out.append(etat)
     return out
 
@@ -420,8 +417,9 @@ def _etat_collecte(sites: list[str], now: int, avec_erreur: bool) -> list[dict]:
 def health():
     """Public, pour une supervision externe : `status` passe à "degrade"
     dès qu'un site ne remonte plus (voir _etat_collecte). La réponse reste
-    un 200 : l'API, elle, fonctionne."""
-    collecte = _etat_collecte([ms.name for ms in _cfg().miniservers], int(time.time()), False)
+    un 200 : l'API, elle, fonctionne. Pas de message d'erreur des polls
+    (adresse du Miniserver) : il est dans le log du serveur."""
+    collecte = _etat_collecte([ms.name for ms in _cfg().miniservers], int(time.time()))
     return jsonify(
         {
             "status": "degrade" if any(s["en_retard"] for s in collecte) else "ok",
@@ -429,7 +427,6 @@ def health():
             "started_at": _state["started_at"],
             "last_poll_ts": _state["last_poll_ts"],
             "last_poll_ok": _state["last_poll_ok"],
-            "last_error": _state["last_error"],
             "series_count": _state["series_count"],
         }
     )
@@ -442,7 +439,7 @@ def api_collecte():
     dashboard) : dernier relevé et retard."""
     return jsonify({
         "seuil_minutes": _cfg().stale_alert_minutes,
-        "sites": _etat_collecte(_allowed_miniservers(), int(time.time()), current_user.is_admin),
+        "sites": _etat_collecte(_allowed_miniservers(), int(time.time())),
     })
 
 
@@ -707,6 +704,14 @@ def _resolve_miniserver(name: str | None) -> str:
     return name
 
 
+# Message affiché quand les Statistics du Miniserver n'ont pas pu être
+# relues. Le message technique (adresse, exception) reste dans le log
+# (miniserver_statistics), jamais dans la réponse.
+MESSAGE_STATISTIQUES_INJOIGNABLES = (
+    "Miniserver injoignable : les derniers jours peuvent manquer."
+)
+
+
 def _decompte_payload(ms_name: str, now: int, mois: str | None = None) -> dict:
     """Décompte complet d'un site. `from` / `to` (clés YYYY-MM) bornent
     les mois ; sans eux, tous les mois couverts par les données.
@@ -744,7 +749,9 @@ def _decompte_payload(ms_name: str, now: int, mois: str | None = None) -> dict:
 
         def finaliser(payload: dict) -> dict:
             payload["miniserver"] = ms_name
-            payload["statistiques_erreur"] = sync_info.get("erreur")
+            payload["statistiques_erreur"] = (
+                MESSAGE_STATISTIQUES_INJOIGNABLES if sync_info.get("erreur") else None
+            )
             if periode_export:
                 payload["postes"] = {mois: billing.compute_postes(
                     conn, billing.resolve_postes(series), periode_export, now,

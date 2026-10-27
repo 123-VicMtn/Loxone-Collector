@@ -10,6 +10,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { login } from '@shared/auth'
+import { ApiError } from '@shared/api/http'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,7 +28,9 @@ async function onSubmit() {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     router.push(redirect)
   } catch (err) {
-    error.value = (err as Error).message || 'Identifiants invalides'
+    error.value = err instanceof ApiError && err.status === 401
+      ? 'Identifiant ou mot de passe incorrect.'
+      : 'Connexion impossible pour le moment. Réessayez dans quelques minutes.'
   } finally {
     loading.value = false
   }

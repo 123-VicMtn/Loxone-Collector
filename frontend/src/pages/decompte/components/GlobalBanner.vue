@@ -20,9 +20,8 @@ const moisIncomplet = computed(() => {
 </script>
 
 <template>
-  <div v-if="payload.statistiques_erreur" class="mb-3 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900">
-    Les statistiques du Miniserver n'ont pas pu être relues.
-    {{ payload.statistiques_erreur }}
+  <div v-if="payload.statistiques_erreur" class="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+    <span class="font-semibold">Relevés pas à jour.</span> {{ payload.statistiques_erreur }}
   </div>
   <div v-if="moisIncomplet" class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
     Des relevés manquent sur {{ moisIncomplet.label }}.

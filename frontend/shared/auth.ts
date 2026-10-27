@@ -61,9 +61,9 @@ export async function checkAuth(): Promise<boolean> {
   }
 }
 
-/** Lève une Error (message du backend) sur identifiants refusés -- à
- * afficher par le formulaire, jamais interceptée par le handler 401
- * global (voir shared/api/http.ts). */
+/** Lève une ApiError (status 401) sur identifiants refusés -- le
+ * formulaire choisit son message d'après `status`, jamais interceptée par
+ * le handler 401 global (voir shared/api/http.ts). */
 export async function login(username: string, password: string): Promise<void> {
   const data = await postJSON<MePayload>(
     '/api/login',

@@ -20,6 +20,20 @@
 
 let onUnauthorized: (() => void) | null = null
 
+/** Erreur d'appel à l'API. `message` est technique (URL, code, corps de la
+ * réponse) : à garder pour la console ou un admin. Une page destinée à un
+ * utilisateur choisit son propre texte, au besoin d'après `status`
+ * (0 = serveur injoignable). */
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn
 }
@@ -35,7 +49,7 @@ function handleUnauthorized(res: Response, opts: FetchOpts) {
 export async function fetchJSON<T>(url: string, opts: FetchOpts = {}): Promise<T> {
   const res = await fetch(url)
   handleUnauthorized(res, opts)
-  if (!res.ok) throw new Error(`Erreur API ${url}: ${res.status}`)
+  if (!res.ok) throw new ApiError(`Erreur API ${url}: ${res.status}`, res.status)
   return res.json() as Promise<T>
 }
 
@@ -46,7 +60,7 @@ export async function postJSON<T>(url: string, body: unknown, opts: FetchOpts = 
     body: JSON.stringify(body),
   })
   handleUnauthorized(res, opts)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw new ApiError(await res.text(), res.status)
   return res.json() as Promise<T>
 }
 
@@ -55,7 +69,7 @@ export async function postJSON<T>(url: string, body: unknown, opts: FetchOpts = 
 export async function downloadFile(url: string, fallbackName: string): Promise<void> {
   const res = await fetch(url)
   handleUnauthorized(res, {})
-  if (!res.ok) throw new Error(`Erreur API ${url}: ${res.status}`)
+  if (!res.ok) throw new ApiError(`Erreur API ${url}: ${res.status}`, res.status)
   const blob = await res.blob()
   const quoted = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)
   const name = quoted?.[1] || fallbackName
@@ -69,6 +83,6 @@ export async function downloadFile(url: string, fallbackName: string): Promise<v
 export async function deleteJSON<T>(url: string, opts: FetchOpts = {}): Promise<T> {
   const res = await fetch(url, { method: 'DELETE' })
   handleUnauthorized(res, opts)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw new ApiError(await res.text(), res.status)
   return res.json() as Promise<T>
 }

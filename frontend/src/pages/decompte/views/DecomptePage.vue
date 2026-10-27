@@ -10,7 +10,7 @@ import { computed, onMounted, ref } from 'vue'
 import { downloadDecompte, fetchDecompte, fetchMiniservers } from '../api/decompte'
 import type { DecomptePayload, Period, RepartitionInfo } from '../types/decompte'
 import { fmtDay, fmtPeriodBounds } from '../utils/format'
-import { useHealthFooter } from '@shared/composables/useHealthFooter'
+import { useCollecte } from '@shared/composables/useCollecte'
 
 import Card from '../components/Card.vue'
 import GlobalBanner from '../components/GlobalBanner.vue'
@@ -21,7 +21,7 @@ import SolaireChart from '../components/SolaireChart.vue'
 
 const SITE_STORAGE_KEY = 'decompte-site'
 
-const { text: healthText } = useHealthFooter()
+const { text: healthText } = useCollecte()
 
 const sites = ref<string[]>([])
 const currentSite = ref('')
@@ -40,6 +40,10 @@ interface ReleveManquant {
 }
 
 const loading = ref(true)
+/** Texte montré à l'utilisateur ; le détail technique part dans la console. */
+const MESSAGE_INDISPONIBLE =
+  'Le décompte n\'a pas pu être chargé. Réessayez dans quelques minutes ; ' +
+  'si le problème persiste, contactez l\'administrateur.'
 const loadingMessage = ref('Chargement du décompte…')
 const errored = ref(false)
 const empty = ref(false)
@@ -126,9 +130,7 @@ async function loadSite(site: string) {
     if (!data.periodes.length || !data.zones.length) {
       loading.value = false
       empty.value = true
-      loadingMessage.value =
-        'Aucune donnée exploitable pour un décompte sur ce site : il faut au moins ' +
-        'une zone avec des compteurs cumulatifs (state « total ») en base.'
+      loadingMessage.value = 'Pas encore de relevés pour établir un décompte sur ce site.'
       return
     }
 
@@ -143,7 +145,8 @@ async function loadSite(site: string) {
   } catch (err) {
     loading.value = false
     errored.value = true
-    loadingMessage.value = `Impossible de charger le décompte : ${(err as Error).message}`
+    console.error(err)
+    loadingMessage.value = MESSAGE_INDISPONIBLE
   }
 }
 
@@ -169,7 +172,8 @@ async function runDownload(format: 'xlsx' | 'csv') {
   try {
     await downloadDecompte(format, currentSite.value, periodeKey.value)
   } catch (err) {
-    downloadError.value = `Téléchargement impossible : ${(err as Error).message}`
+    console.error(err)
+    downloadError.value = 'Le fichier n\'a pas pu être préparé. Réessayez dans quelques minutes.'
   } finally {
     downloading.value = false
   }
@@ -187,7 +191,7 @@ onMounted(async () => {
     if (!list.length) {
       loading.value = false
       errored.value = true
-      loadingMessage.value = 'Aucun site (miniserver) configuré.'
+      loadingMessage.value = 'Aucun site n\'est accessible avec ce compte.'
       return
     }
     const saved = localStorage.getItem(SITE_STORAGE_KEY)
@@ -196,7 +200,8 @@ onMounted(async () => {
   } catch (err) {
     loading.value = false
     errored.value = true
-    loadingMessage.value = `Impossible de charger la liste des sites : ${(err as Error).message}`
+    console.error(err)
+    loadingMessage.value = MESSAGE_INDISPONIBLE
   }
 })
 </script>

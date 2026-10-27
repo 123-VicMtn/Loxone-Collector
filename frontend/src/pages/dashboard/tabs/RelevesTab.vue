@@ -219,7 +219,8 @@ onMounted(async () => {
     site.value = pickSite(siteNames.value)
     nowMs.value = Date.now()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Impossible de charger les relevés.'
+    console.error(err)
+    error.value = 'Les relevés n\'ont pas pu être chargés. Réessayez dans quelques minutes.'
   } finally {
     loading.value = false
   }
