@@ -76,6 +76,10 @@ class AppConfig:
     raw_retention_days: int = 30
     hourly_retention_days: int = 0
     maintenance_hour_utc: int = 3
+    # Toutes les N heures, complète les index Statistics du décompte
+    # (électricité, chauffage, eau chaude, buanderie) jusqu'à maintenant.
+    # 0 = désactivé (config de démo : le miniserver n'existe pas).
+    statistics_sync_hours: int = 6
     include_types: list[str] = field(default_factory=lambda: ["Meter", "EFM"])
     exclude_types: list[str] = field(default_factory=list)
     exclude_rooms: list[str] = field(default_factory=list)

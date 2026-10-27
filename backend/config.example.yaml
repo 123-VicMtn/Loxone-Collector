@@ -27,6 +27,12 @@ hourly_retention_days: 0
 # période creuse.
 maintenance_hour_utc: 3
 
+# Toutes les N heures, complète les index Statistics du Miniserver
+# utilisés par le décompte (électricité, chauffage, eau chaude,
+# buanderie), pour que /decompte et l'export soient à jour sans avoir
+# été ouverts. 0 = désactivé.
+statistics_sync_hours: 6
+
 # Filtrage des points suivis. Seuls les compteurs (Meter) sont collectés.
 # À l'intérieur d'un compteur, le poller ne garde que actual / total /
 # totalNeg (voir loxone_client.BILLABLE_STATES) : le découpage par dates

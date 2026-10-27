@@ -17,6 +17,8 @@ db_path: "data/demo.db"
 raw_retention_days: 3
 hourly_retention_days: 0
 maintenance_hour_utc: 3
+# Pas de synchro Statistics : le miniserver de démo n'existe pas.
+statistics_sync_hours: 0
 include_types: ["Meter", "EFM"]
 exclude_types: []
 exclude_rooms: []

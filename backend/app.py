@@ -67,6 +67,9 @@ RANGE_PRESETS = {
     "1y": 365 * 86400,
 }
 
+# Délai avant la première synchro Statistics après le démarrage.
+STATISTICS_SYNC_DELAI_S = 120
+
 
 # --------------------------------------------------------------------------
 # Poller (tâche de fond)
@@ -202,9 +205,44 @@ def poller_loop(cfg: AppConfig) -> None:
         time.sleep(sleep_for)
 
 
+def sync_statistics_once(cfg: AppConfig, conn) -> None:
+    """Complète jusqu'à maintenant les index Statistics de chaque site.
+    Sans elle, ils n'avançaient qu'à l'ouverture de /decompte ou à un export,
+    et seulement jusqu'à la fin du mois demandé (Sequoia : électricité
+    arrêtée au 02.10.2026, alors que le collecteur tournait)."""
+    for ms_cfg in cfg.miniservers:
+        series = [s for s in db.list_series(conn) if s["miniserver"] == ms_cfg.name]
+        if not series:
+            continue
+        try:
+            res = miniserver_statistics.sync_decompte(
+                cfg, conn, ms_cfg.name, series, int(time.time()), postes=True,
+            )
+        except Exception:  # pragma: no cover - filet de sécurité du thread de fond
+            logger.exception("Erreur pendant la synchro Statistics de %s", ms_cfg.name)
+            continue
+        if res["ok"]:
+            logger.info("Synchro Statistics %s : %d série(s), %d point(s).",
+                        ms_cfg.name, res["series"], res["points"])
+
+
+def statistics_sync_loop(cfg: AppConfig) -> None:
+    # Laisse le premier cycle du poller passer avant de solliciter les
+    # Miniservers une seconde fois.
+    time.sleep(STATISTICS_SYNC_DELAI_S)
+    conn = db.get_connection(cfg.db_path)
+    while True:
+        sync_statistics_once(cfg, conn)
+        time.sleep(cfg.statistics_sync_hours * 3600)
+
+
 def start_background_poller(cfg: AppConfig) -> None:
     t = threading.Thread(target=poller_loop, args=(cfg,), daemon=True, name="loxone-poller")
     t.start()
+    if cfg.statistics_sync_hours > 0:
+        threading.Thread(
+            target=statistics_sync_loop, args=(cfg,), daemon=True, name="statistics-sync",
+        ).start()
 
 
 # --------------------------------------------------------------------------
