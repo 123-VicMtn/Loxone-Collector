@@ -7,8 +7,8 @@ Fixtures dans conftest.py : « Ref » relevé jusqu'à NOW, « Autre » 2 h avan
 """
 from unittest import mock
 
-import app as app_module
-import db
+from loxone_collector import app as app_module
+from loxone_collector import db
 import site_reference as ref
 
 
@@ -36,7 +36,7 @@ def test_site_jamais_releve_en_retard(app_test, client_admin):
 def test_message_statistiques_court_sans_detail_technique(client_user, client_admin):
     erreur = "[Ref] échec de connexion à https://10.0.0.1:443/jdev/sps/getStatistic: refused"
     retour = {"ok": False, "erreur": erreur, "series": 0, "points": 0}
-    with mock.patch.object(app_module.miniserver_statistics, "sync_decompte", return_value=retour):
+    with mock.patch.object(app_module.statistics_sync, "sync_decompte", return_value=retour):
         for client in (client_user, client_admin):
             data = client.get(f"/api/decompte?miniserver={ref.SITE}").get_json()
             assert data["statistiques_erreur"] == app_module.MESSAGE_STATISTIQUES_INJOIGNABLES

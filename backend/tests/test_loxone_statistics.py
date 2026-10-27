@@ -1,14 +1,10 @@
 """La courbe de puissance de l'aperçu se décode depuis Statistics, pas
 depuis les mesures du collecteur."""
 import struct
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from loxone_statistics import (  # noqa: E402
+from loxone_collector.loxone.statistics import (
     StatisticUnavailable,
     align_hourly,
     decode_statistic_body,
@@ -82,7 +78,7 @@ class TestPoints(unittest.TestCase):
             calls.append((control_uuid, group_id, output, from_ts, to_ts))
             return [(HOUR + 10, 1.0), (HOUR + 20, 3.0)]
 
-        with patch("loxone_statistics._fetch_once", fake):
+        with patch("loxone_collector.loxone.statistics._fetch_once", fake):
             points, missing = points_by_series(
                 None, structure, rows, HOUR, HOUR + 7200, workers=1,
             )
@@ -98,7 +94,7 @@ class TestPoints(unittest.TestCase):
             "state_name": "actual",
             "label": "Compteur muet",
         }]
-        with patch("loxone_statistics._fetch_once") as fetch:
+        with patch("loxone_collector.loxone.statistics._fetch_once") as fetch:
             points, missing = points_by_series(None, structure, rows, HOUR, HOUR + 3600)
         fetch.assert_not_called()
         self.assertEqual(points["s"], [])
@@ -119,7 +115,7 @@ class TestPoints(unittest.TestCase):
                 raise StatisticUnavailable("HTTP 404")
             return [(HOUR + 5, 4.0)]
 
-        with patch("loxone_statistics._fetch_once", fake):
+        with patch("loxone_collector.loxone.statistics._fetch_once", fake):
             points, missing = points_by_series(
                 None, structure, rows, HOUR, HOUR + 3600, workers=2,
             )

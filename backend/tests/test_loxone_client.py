@@ -1,13 +1,9 @@
 """Le poller ne garde que les états qui servent à visualiser une
 consommation facturable : actual, total, totalNeg. Les compteurs glissants
 et les contrôles qui ne sont pas des compteurs sont écartés."""
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from loxone_client import endpoint_from_cloud_dns, extract_measurable_points
+from loxone_collector.loxone.client import endpoint_from_cloud_dns, extract_measurable_points
 
 
 def _meter():

@@ -8,13 +8,9 @@ section "Dashboard énergie", pour le contexte.
 Utilise unittest (stdlib) plutôt qu'un framework externe -- pas de
 dépendance de test dans ce projet à ce jour.
 """
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from classification import extract_apartment, guess_resource_type
+from loxone_collector.services.classification import extract_apartment, guess_resource_type
 
 
 class TestExtractApartment(unittest.TestCase):

@@ -18,18 +18,14 @@ Utilise unittest (stdlib), comme test_classification.py.
 """
 import io
 import sqlite3
-import sys
 import unittest
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import billing
-import db
+from loxone_collector.services import billing
+from loxone_collector import db
 
 
 def ts(year, month, day, hour=0, tz="Europe/Zurich"):

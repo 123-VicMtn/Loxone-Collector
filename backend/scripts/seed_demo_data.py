@@ -39,12 +39,9 @@ import math
 import random
 import sys
 import time
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import db  # noqa: E402
-from config import load_config  # noqa: E402
+from loxone_collector import db
+from loxone_collector.config import load_config
 
 random.seed(42)  # résultats reproductibles d'un lancement à l'autre
 

@@ -36,21 +36,18 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import re
-import sys
 import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-import billing
-import db
-import repartition
-from config import load_config
+from loxone_collector.services import billing
+from loxone_collector import db
+from loxone_collector.services import repartition
+from loxone_collector.config import load_config
 
 TZ = ZoneInfo(billing.TIMEZONE)
 

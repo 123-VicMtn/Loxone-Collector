@@ -9,22 +9,18 @@ Fixtures communes des tests de route et de caractérisation.
 - `client_admin`, `client_user` (accès au seul site « Ref »), `client_anonyme`.
 """
 import shutil
-import sys
 from contextlib import closing
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 from werkzeug.security import generate_password_hash
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import app as app_module  # noqa: E402
-import auth  # noqa: E402
-import db  # noqa: E402
-import site_reference as ref  # noqa: E402
-from config import AppConfig, MiniserverConfig  # noqa: E402
+from loxone_collector import app as app_module
+from loxone_collector.api import auth
+from loxone_collector import db
+import site_reference as ref
+from loxone_collector.config import AppConfig, MiniserverConfig
 
 MOT_DE_PASSE = "secret123"
 
@@ -66,7 +62,7 @@ def app_test(base_reference, tmp_path):
 
     sync_ok = {"ok": True, "erreur": None, "series": 0, "points": 0}
     horloge = SimpleNamespace(time=lambda: float(ref.NOW), sleep=lambda s: None)
-    with mock.patch.object(app_module.miniserver_statistics, "sync_decompte", return_value=sync_ok), \
+    with mock.patch.object(app_module.statistics_sync, "sync_decompte", return_value=sync_ok), \
             mock.patch.object(app_module, "time", horloge):
         yield flask_app
 

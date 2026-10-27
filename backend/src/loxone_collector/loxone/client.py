@@ -1,6 +1,6 @@
 """
-loxone_client.py
------------------
+loxone/client.py
+----------------
 Client minimal pour l'API locale HTTP d'un Loxone Miniserver.
 
 Repose sur l'API "Loxone HTTP Command API" documentée par Loxone :

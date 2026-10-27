@@ -11,12 +11,9 @@ Exemple de cron (1er du mois à 4h) :
     0 4 1 * * /home/pi/loxone-collector/.venv/bin/python /home/pi/loxone-collector/scripts/vacuum_db.py
 """
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import db  # noqa: E402
-from config import load_config  # noqa: E402
+from loxone_collector import db
+from loxone_collector.config import load_config
 
 
 def main():

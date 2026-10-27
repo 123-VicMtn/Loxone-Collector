@@ -36,22 +36,19 @@ import argparse
 import csv
 import datetime as dt
 import re
-import sys
 import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-import billing
-import db
-import miniserver_statistics
-import repartition
-from config import load_config
+from loxone_collector.services import billing
+from loxone_collector import db
+from loxone_collector.services import statistics_sync
+from loxone_collector.services import repartition
+from loxone_collector.config import load_config
 
 TZ = ZoneInfo(billing.TIMEZONE)
 
@@ -1250,7 +1247,7 @@ def main() -> None:
     # --tous, ça évite aussi de recalculer la part solaire horaire 22 fois.
     zones = billing.resolve_zones(series_site)
     batiment = billing.resolve_batiment(series_site)
-    sync_info = miniserver_statistics.sync_decompte(
+    sync_info = statistics_sync.sync_decompte(
         cfg, conn, ms_name, series_site, now_ts,
         periods[0]["start"], periods[-1]["end"], toutes_les_series=True,
     )

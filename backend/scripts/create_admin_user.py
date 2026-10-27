@@ -25,16 +25,12 @@ from __future__ import annotations  # nécessaire pour "dict | None" etc. sous P
 import argparse
 import getpass
 import sqlite3
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from werkzeug.security import generate_password_hash
 
-from werkzeug.security import generate_password_hash  # noqa: E402
-
-import db  # noqa: E402
-from config import load_config  # noqa: E402
+from loxone_collector import db
+from loxone_collector.config import load_config
 
 # Méthode explicite plutôt que le défaut Werkzeug (scrypt) : scrypt exige
 # hashlib compilé contre OpenSSL, absent sur un Python lié à LibreSSL (macOS

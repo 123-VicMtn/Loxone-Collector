@@ -18,16 +18,12 @@ Ce qui vaut d'être verrouillé ici :
 Utilise unittest (stdlib), comme les autres tests du dépôt.
 """
 import sqlite3
-import sys
 import unittest
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import db
-import repartition
+from loxone_collector import db
+from loxone_collector.services import repartition
 
 
 def ts(year, month, day, hour=0):

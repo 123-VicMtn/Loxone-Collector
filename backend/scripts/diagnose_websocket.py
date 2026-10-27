@@ -24,11 +24,9 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from config import load_config  # noqa: E402
-from loxone_client import LoxoneClient, LoxoneError, extract_measurable_points  # noqa: E402
-from loxone_ws_client import LoxoneWsError, fetch_live_values  # noqa: E402
+from loxone_collector.config import load_config
+from loxone_collector.loxone.client import LoxoneClient, LoxoneError, extract_measurable_points
+from loxone_collector.loxone.websocket import LoxoneWsError, fetch_live_values
 
 
 def main():

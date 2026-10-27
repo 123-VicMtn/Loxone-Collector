@@ -29,12 +29,9 @@ si l'installation est grande et que tu veux d'abord un aperçu rapide.
 """
 import json
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from config import load_config  # noqa: E402
-from loxone_client import LoxoneClient, LoxoneAuthError, LoxoneError  # noqa: E402
+from loxone_collector.config import load_config
+from loxone_collector.loxone.client import LoxoneClient, LoxoneAuthError, LoxoneError
 
 
 def find_stat_like_keys(obj, path="") -> list[tuple[str, object]]:

@@ -1,6 +1,6 @@
 """
-loxone_ws_client.py
---------------------
+loxone/websocket.py
+-------------------
 Client "protocole sécurisé" pour un Miniserver Loxone, utilisé quand l'API
 HTTP simple (`loxone_client.py`) ne suffit pas pour lire les valeurs live.
 

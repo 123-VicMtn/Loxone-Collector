@@ -54,19 +54,16 @@ import argparse
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import db  # noqa: E402
-from config import load_config  # noqa: E402
-from loxone_client import (  # noqa: E402
+from loxone_collector import db
+from loxone_collector.config import load_config
+from loxone_collector.loxone.client import (
     LoxoneAuthError,
     LoxoneError,
     LoxoneClient,
     extract_measurable_points,
 )
-from miniserver_statistics import (  # noqa: E402
+from loxone_collector.services.statistics_sync import (
     bucket_hourly,
     fetch_raw_history,
     find_stat_mapping,

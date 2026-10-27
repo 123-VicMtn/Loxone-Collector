@@ -15,14 +15,11 @@ Usage :
     python scripts/diagnose_auth.py [chemin_config.yaml]
 """
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import requests
+from requests.auth import HTTPBasicAuth
 
-import requests  # noqa: E402
-from requests.auth import HTTPBasicAuth  # noqa: E402
-
-from config import load_config  # noqa: E402
+from loxone_collector.config import load_config
 
 
 def main():

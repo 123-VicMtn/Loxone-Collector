@@ -20,7 +20,7 @@ import math
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import db
+from loxone_collector import db
 
 TZ = ZoneInfo("Europe/Zurich")
 SITE = "Ref"

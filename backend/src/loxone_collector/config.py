@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from classification import (
+from loxone_collector.services.classification import (
     DEFAULT_APARTMENT_PATTERN,
     DEFAULT_RESOURCE_TYPE_LABELS,
     DEFAULT_RESOURCE_TYPE_RULES,

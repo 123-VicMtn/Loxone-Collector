@@ -26,7 +26,7 @@ from flask import jsonify
 from flask_login import LoginManager, UserMixin
 from werkzeug.security import check_password_hash
 
-import db
+from loxone_collector import db
 
 login_manager = LoginManager()
 

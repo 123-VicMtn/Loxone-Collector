@@ -17,12 +17,9 @@ Exemple :
     python scripts/remove_miniserver.py config.external.yaml maison_externe
 """
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import db  # noqa: E402
-from config import load_config  # noqa: E402
+from loxone_collector import db
+from loxone_collector.config import load_config
 
 
 def main():

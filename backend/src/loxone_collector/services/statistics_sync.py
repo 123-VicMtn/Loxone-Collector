@@ -13,9 +13,9 @@ import struct
 
 import requests
 
-import billing
-import db
-from loxone_client import LoxoneAuthError, LoxoneClient, LoxoneError
+from loxone_collector.services import billing
+from loxone_collector import db
+from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError
 
 logger = logging.getLogger("miniserver_statistics")
 

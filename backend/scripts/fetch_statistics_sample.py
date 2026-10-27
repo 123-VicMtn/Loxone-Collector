@@ -46,12 +46,9 @@ from __future__ import annotations  # nécessaire pour "dict | None" etc. sous P
 
 import struct
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from config import load_config  # noqa: E402
-from loxone_client import LoxoneClient, LoxoneAuthError, LoxoneError  # noqa: E402
+from loxone_collector.config import load_config
+from loxone_collector.loxone.client import LoxoneClient, LoxoneAuthError, LoxoneError
 
 
 def find_control(structure: dict, uuid: str) -> dict | None:

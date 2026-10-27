@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from loxone_client import LoxoneAuthError, LoxoneClient, LoxoneError
+from loxone_collector.loxone.client import LoxoneAuthError, LoxoneClient, LoxoneError
 
 RECORD_SIZE = 12  # Uint32 timestamp + Float64, un seul output demandé
 
