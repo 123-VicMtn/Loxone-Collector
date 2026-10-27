@@ -1,0 +1,2173 @@
+{
+ "csv 2026-09": [
+  "Électricité",
+  "Mois;Zone;Consommation totale (kWh);Solaire (kWh);Réseau (kWh);Buanderie (kWh);État",
+  "Septembre 2026;App 1;332,60;128,45;204,15;18,00;facturable",
+  "Septembre 2026;App 2;460,20;197,14;263,06;12,00;facturable",
+  "Septembre 2026;Communs;179,75;77,07;102,68;;facturable",
+  "Septembre 2026;Total immeuble;972,55;402,66;569,89;30,00;",
+  "",
+  "Chauffage",
+  "Mois;Zone;Compteur;Index début (kWh th);Index fin (kWh th);Énergie (kWh th);État",
+  "Septembre 2026;App 1;Chauffage App 1;2200,300;2308,150;107,85;facturable",
+  "Septembre 2026;App 2;Chauffage App 2;2600,500;2780,250;179,75;facturable",
+  "Septembre 2026;Total immeuble;;;;287,60;",
+  "",
+  "Eau chaude",
+  "Mois;Zone;Compteur;Index début (m³);Index fin (m³);Volume (m³);État",
+  "Septembre 2026;App 1;Eau chaude App 1;2300,002;2301,022;1,020;facturable",
+  "Septembre 2026;App 2;Eau chaude App 2;2700,002;2701,022;1,020;facturable",
+  "Septembre 2026;Total immeuble;;;;2,040;",
+  "",
+  "Buanderie",
+  "Mois;Zone;Cycles;Énergie (kWh);État",
+  "Septembre 2026;App 1;15;18,00;facturable",
+  "Septembre 2026;App 2;10;12,00;facturable",
+  "Septembre 2026;Total immeuble;25;30,00;"
+ ],
+ "csv 2026-10": [
+  "Électricité",
+  "Mois;Zone;Consommation totale (kWh);Solaire (kWh);Réseau (kWh);Buanderie (kWh);État",
+  "Octobre 2026;App 1;344,10;117,94;226,16;18,00;facturable",
+  "Octobre 2026;App 2;;;;12,00;données incomplètes",
+  "Octobre 2026;Communs;186,00;71,80;114,20;;facturable",
+  "Octobre 2026;Total immeuble;530,10;189,74;340,36;30,00;",
+  "",
+  "Chauffage",
+  "Mois;Zone;Compteur;Index début (kWh th);Index fin (kWh th);Énergie (kWh th);État",
+  "Octobre 2026;App 1;Chauffage App 1;2308,300;2754,700;446,40;facturable",
+  "Octobre 2026;App 2;Chauffage App 2;2780,500;3524,500;744,00;facturable",
+  "Octobre 2026;Total immeuble;;;;1190,40;",
+  "",
+  "Eau chaude",
+  "Mois;Zone;Compteur;Index début (m³);Index fin (m³);Volume (m³);État",
+  "Octobre 2026;App 1;Eau chaude App 1;2301,022;2302,076;1,054;facturable",
+  "Octobre 2026;App 2;Eau chaude App 2;2701,022;2702,076;1,054;facturable",
+  "Octobre 2026;Total immeuble;;;;2,108;",
+  "",
+  "Buanderie",
+  "Mois;Zone;Cycles;Énergie (kWh);État",
+  "Octobre 2026;App 1;15;18,00;facturable",
+  "Octobre 2026;App 2;10;12,00;facturable",
+  "Octobre 2026;Total immeuble;25;30,00;"
+ ],
+ "decompte": {
+  "batiment": {
+   "periodes": {
+    "2026-08": {
+     "achat_reseau": null,
+     "autoconsommation": null,
+     "consommation_totale": null,
+     "en_cours": false,
+     "injection": null,
+     "production": {
+      "alertes": [
+       "pas de relevé avant le début de la période"
+      ],
+      "kwh": null,
+      "releve_debut": null,
+      "releve_debut_ts": null,
+      "releve_fin": 1000.0,
+      "releve_fin_ts": 1788210000
+     },
+     "taux_autoconsommation": null,
+     "taux_autoproduction": null,
+     "zones_incompletes": true
+    },
+    "2026-09": {
+     "achat_reseau": 569.8899999999999,
+     "autoconsommation": 402.6600000000001,
+     "consommation_totale": 972.55,
+     "en_cours": false,
+     "injection": 394.91999999999985,
+     "production": {
+      "alertes": [],
+      "kwh": 797.5799999999999,
+      "releve_debut": 1000.0,
+      "releve_debut_ts": 1788213600,
+      "releve_fin": 1797.58,
+      "releve_fin_ts": 1790802000
+     },
+     "taux_autoconsommation": 50.485217783796,
+     "taux_autoproduction": 41.40249858619095,
+     "zones_incompletes": false
+    },
+    "2026-10": {
+     "achat_reseau": 340.36,
+     "autoconsommation": 189.74,
+     "consommation_totale": 530.1,
+     "en_cours": false,
+     "injection": 281.2120000000002,
+     "production": {
+      "alertes": [],
+      "kwh": 470.9520000000002,
+      "releve_debut": 1797.58,
+      "releve_debut_ts": 1790805600,
+      "releve_fin": 2268.532,
+      "releve_fin_ts": 1793484000
+     },
+     "taux_autoconsommation": 40.28860690686098,
+     "taux_autoproduction": 35.79324655725335,
+     "zones_incompletes": true
+    },
+    "2026-11": {
+     "achat_reseau": 2.4999999999997726,
+     "autoconsommation": 0.0,
+     "consommation_totale": 2.4999999999997726,
+     "en_cours": true,
+     "injection": 0.0,
+     "production": {
+      "alertes": [
+       "relevé de fin vieux de 4 j (trou de collecte)"
+      ],
+      "kwh": 0.0,
+      "releve_debut": 2268.532,
+      "releve_debut_ts": 1793487600,
+      "releve_fin": 2268.532,
+      "releve_fin_ts": 1793494800
+     },
+     "taux_autoconsommation": null,
+     "taux_autoproduction": 0.0,
+     "zones_incompletes": false
+    }
+   },
+   "sources": {
+    "production": {
+     "label": "Production (total)",
+     "series_id": "Ref:prod:total",
+     "unit": "kWh"
+    },
+    "productions": [
+     {
+      "label": "Production (total)",
+      "series_id": "Ref:prod:total",
+      "unit": "kWh"
+     }
+    ],
+    "reseau_export": {
+     "label": "Réseau (totalNeg)",
+     "series_id": "Ref:exp:totalNeg",
+     "unit": "kWh"
+    },
+    "reseau_import": {
+     "label": "Réseau (total)",
+     "series_id": "Ref:imp:total",
+     "unit": "kWh"
+    }
+   }
+  },
+  "generated_at": 1793876400,
+  "miniserver": "Ref",
+  "periodes": [
+   {
+    "end": 1788213600,
+    "key": "2026-08",
+    "label": "Août 2026",
+    "label_court": "août. 26",
+    "month": 8,
+    "start": 1785535200,
+    "year": 2026
+   },
+   {
+    "end": 1790805600,
+    "key": "2026-09",
+    "label": "Septembre 2026",
+    "label_court": "sept. 26",
+    "month": 9,
+    "start": 1788213600,
+    "year": 2026
+   },
+   {
+    "end": 1793487600,
+    "key": "2026-10",
+    "label": "Octobre 2026",
+    "label_court": "octo. 26",
+    "month": 10,
+    "start": 1790805600,
+    "year": 2026
+   },
+   {
+    "end": 1796079600,
+    "key": "2026-11",
+    "label": "Novembre 2026",
+    "label_court": "nove. 26",
+    "month": 11,
+    "start": 1793487600,
+    "year": 2026
+   }
+  ],
+  "repartition": {
+   "2026-08": {
+    "confiance_verifiee": true,
+    "raisons": [],
+    "source": "loxone"
+   },
+   "2026-09": {
+    "confiance_verifiee": true,
+    "raisons": [],
+    "source": "loxone"
+   },
+   "2026-10": {
+    "confiance_verifiee": true,
+    "raisons": [
+     "204 heure(s) sur 204 sans import du bâtiment voient malgré tout les compteurs réseau des zones augmenter (97 kWh impossibles, 9.7 % de la consommation ; seuil 5 %)",
+     "solaire attribué aux zones 471 kWh pour 374 kWh réellement autoconsommés (production − injection), écart +26.0 % ; seuil 5 %"
+    ],
+    "source": "calculee"
+   },
+   "2026-11": {
+    "confiance_verifiee": true,
+    "raisons": [],
+    "source": "loxone"
+   }
+  },
+  "reserves": [],
+  "statistiques_erreur": null,
+  "tarifs": [],
+  "timezone": "Europe/Zurich",
+  "zones": [
+   {
+    "ambigus": {
+     "controle": [],
+     "reseau": [],
+     "solaire": []
+    },
+    "label": "App 1",
+    "periodes": {
+     "2026-08": {
+      "alertes": [
+       "réseau : pas de relevé avant le début de la période",
+       "solaire : pas de relevé avant le début de la période"
+      ],
+      "controle": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 1300.7,
+       "releve_fin_ts": 1788210000
+      },
+      "en_cours": false,
+      "facturable": false,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 1400.7,
+       "releve_fin_ts": 1788210000
+      },
+      "solaire": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 1500.0,
+       "releve_fin_ts": 1788210000
+      },
+      "tarif": null,
+      "taux_autoproduction": null,
+      "total": null
+     },
+     "2026-09": {
+      "alertes": [],
+      "controle": {
+       "alertes": [],
+       "kwh": 332.60000000000014,
+       "releve_debut": 1301.1,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 1633.7,
+       "releve_fin_ts": 1790802000
+      },
+      "en_cours": false,
+      "facturable": true,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [],
+       "kwh": 204.14800000000014,
+       "releve_debut": 1401.1,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 1605.248,
+       "releve_fin_ts": 1790802000
+      },
+      "solaire": {
+       "alertes": [],
+       "kwh": 128.452,
+       "releve_debut": 1500.0,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 1628.452,
+       "releve_fin_ts": 1790802000
+      },
+      "tarif": null,
+      "taux_autoproduction": 38.620565243535765,
+      "total": 332.60000000000014
+     },
+     "2026-10": {
+      "alertes": [],
+      "controle": {
+       "alertes": [],
+       "kwh": 344.10000000000014,
+       "releve_debut": 1634.1,
+       "releve_debut_ts": 1790805600,
+       "releve_fin": 1978.2,
+       "releve_fin_ts": 1793484000
+      },
+      "en_cours": false,
+      "facturable": true,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [],
+       "kwh": 226.16000000000003,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": null,
+       "releve_fin_ts": null
+      },
+      "solaire": {
+       "alertes": [],
+       "kwh": 117.94,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": null,
+       "releve_fin_ts": null
+      },
+      "tarif": null,
+      "taux_autoproduction": 34.27492008137169,
+      "total": 344.1
+     },
+     "2026-11": {
+      "alertes": [
+       "mois en cours, chiffres non définitifs",
+       "réseau : relevé de fin vieux de 4 j (trou de collecte)",
+       "solaire : relevé de fin vieux de 4 j (trou de collecte)"
+      ],
+      "controle": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 0.8000000000001819,
+       "releve_debut": 1978.6,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 1979.4,
+       "releve_fin_ts": 1793494800
+      },
+      "en_cours": true,
+      "facturable": false,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 0.7999999999999545,
+       "releve_debut": 1862.632,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 1863.432,
+       "releve_fin_ts": 1793494800
+      },
+      "solaire": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 0.0,
+       "releve_debut": 1777.085,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 1777.085,
+       "releve_fin_ts": 1793494800
+      },
+      "tarif": null,
+      "taux_autoproduction": 0.0,
+      "total": 0.7999999999999545
+     }
+    },
+    "sources": {
+     "controle": {
+      "label": "Appartement 1 (total)",
+      "series_id": "Ref:APP1-c:total",
+      "unit": "kWh"
+     },
+     "reseau": {
+      "label": "App 1 Grid (total)",
+      "series_id": "Ref:APP1-g:total",
+      "unit": "kWh"
+     },
+     "solaire": {
+      "label": "App 1 Solaire (total)",
+      "series_id": "Ref:APP1-s:total",
+      "unit": "kWh"
+     }
+    },
+    "zone": "APP1"
+   },
+   {
+    "ambigus": {
+     "controle": [],
+     "reseau": [],
+     "solaire": []
+    },
+    "label": "App 2",
+    "periodes": {
+     "2026-08": {
+      "alertes": [
+       "réseau : pas de relevé avant le début de la période",
+       "solaire : pas de relevé avant le début de la période"
+      ],
+      "controle": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 1600.8,
+       "releve_fin_ts": 1788210000
+      },
+      "en_cours": false,
+      "facturable": false,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 1700.8,
+       "releve_fin_ts": 1788210000
+      },
+      "solaire": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 1800.0,
+       "releve_fin_ts": 1788210000
+      },
+      "tarif": null,
+      "taux_autoproduction": null,
+      "total": null
+     },
+     "2026-09": {
+      "alertes": [],
+      "controle": {
+       "alertes": [],
+       "kwh": 460.1999999999998,
+       "releve_debut": 1601.4,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 2061.6,
+       "releve_fin_ts": 1790802000
+      },
+      "en_cours": false,
+      "facturable": true,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [],
+       "kwh": 263.0619999999999,
+       "releve_debut": 1701.4,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 1964.462,
+       "releve_fin_ts": 1790802000
+      },
+      "solaire": {
+       "alertes": [],
+       "kwh": 197.13799999999992,
+       "releve_debut": 1800.0,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 1997.138,
+       "releve_fin_ts": 1790802000
+      },
+      "tarif": null,
+      "taux_autoproduction": 42.83746197305519,
+      "total": 460.1999999999998
+     },
+     "2026-10": {
+      "alertes": [
+       "compteur : 1 rupture(s) de compteur dans la période -> consommation non calculable"
+      ],
+      "controle": {
+       "alertes": [
+        "1 rupture(s) de compteur dans la période -> consommation non calculable"
+       ],
+       "kwh": null,
+       "releve_debut": 2062.2,
+       "releve_debut_ts": 1790805600,
+       "releve_fin": 178.6,
+       "releve_fin_ts": 1793484000,
+       "ruptures": [
+        {
+         "apres": 25.6,
+         "avant": 2359.2,
+         "date_ts": 1792540800
+        }
+       ]
+      },
+      "en_cours": false,
+      "facturable": false,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": null,
+       "releve_fin_ts": null
+      },
+      "solaire": {
+       "alertes": [],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": null,
+       "releve_fin_ts": null
+      },
+      "tarif": null,
+      "taux_autoproduction": null,
+      "total": null
+     },
+     "2026-11": {
+      "alertes": [
+       "mois en cours, chiffres non définitifs",
+       "réseau : relevé de fin vieux de 4 j (trou de collecte)",
+       "solaire : relevé de fin vieux de 4 j (trou de collecte)"
+      ],
+      "controle": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 1.200000000000017,
+       "releve_debut": 179.2,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 180.4,
+       "releve_fin_ts": 1793494800
+      },
+      "en_cours": true,
+      "facturable": false,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 1.199999999999818,
+       "releve_debut": 2305.731,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 2306.931,
+       "releve_fin_ts": 1793494800
+      },
+      "solaire": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 0.0,
+       "releve_debut": 2228.462,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 2228.462,
+       "releve_fin_ts": 1793494800
+      },
+      "tarif": null,
+      "taux_autoproduction": 0.0,
+      "total": 1.199999999999818
+     }
+    },
+    "sources": {
+     "controle": {
+      "label": "Appartement 2 (total)",
+      "series_id": "Ref:APP2-c:total",
+      "unit": "kWh"
+     },
+     "reseau": {
+      "label": "App 2 Grid (total)",
+      "series_id": "Ref:APP2-g:total",
+      "unit": "kWh"
+     },
+     "solaire": {
+      "label": "App 2 Solaire (total)",
+      "series_id": "Ref:APP2-s:total",
+      "unit": "kWh"
+     }
+    },
+    "zone": "APP2"
+   },
+   {
+    "ambigus": {
+     "controle": [],
+     "reseau": [],
+     "solaire": []
+    },
+    "label": "Communs",
+    "periodes": {
+     "2026-08": {
+      "alertes": [
+       "réseau : pas de relevé avant le début de la période",
+       "solaire : pas de relevé avant le début de la période"
+      ],
+      "controle": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 1900.25,
+       "releve_fin_ts": 1788210000
+      },
+      "en_cours": false,
+      "facturable": false,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 2000.25,
+       "releve_fin_ts": 1788210000
+      },
+      "solaire": {
+       "alertes": [
+        "pas de relevé avant le début de la période"
+       ],
+       "kwh": null,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": 2100.0,
+       "releve_fin_ts": 1788210000
+      },
+      "tarif": null,
+      "taux_autoproduction": null,
+      "total": null
+     },
+     "2026-09": {
+      "alertes": [],
+      "controle": {
+       "alertes": [],
+       "kwh": 179.75,
+       "releve_debut": 1900.5,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 2080.25,
+       "releve_fin_ts": 1790802000
+      },
+      "en_cours": false,
+      "facturable": true,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [],
+       "kwh": 102.67999999999984,
+       "releve_debut": 2000.5,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 2103.18,
+       "releve_fin_ts": 1790802000
+      },
+      "solaire": {
+       "alertes": [],
+       "kwh": 77.07000000000016,
+       "releve_debut": 2100.0,
+       "releve_debut_ts": 1788213600,
+       "releve_fin": 2177.07,
+       "releve_fin_ts": 1790802000
+      },
+      "tarif": null,
+      "taux_autoproduction": 42.876216968011214,
+      "total": 179.75
+     },
+     "2026-10": {
+      "alertes": [],
+      "controle": {
+       "alertes": [],
+       "kwh": 186.0,
+       "releve_debut": 2080.5,
+       "releve_debut_ts": 1790805600,
+       "releve_fin": 2266.5,
+       "releve_fin_ts": 1793484000
+      },
+      "en_cours": false,
+      "facturable": true,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [],
+       "kwh": 114.2,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": null,
+       "releve_fin_ts": null
+      },
+      "solaire": {
+       "alertes": [],
+       "kwh": 71.8,
+       "releve_debut": null,
+       "releve_debut_ts": null,
+       "releve_fin": null,
+       "releve_fin_ts": null
+      },
+      "tarif": null,
+      "taux_autoproduction": 38.60215053763441,
+      "total": 186.0
+     },
+     "2026-11": {
+      "alertes": [
+       "mois en cours, chiffres non définitifs",
+       "réseau : relevé de fin vieux de 4 j (trou de collecte)",
+       "solaire : relevé de fin vieux de 4 j (trou de collecte)"
+      ],
+      "controle": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 0.5,
+       "releve_debut": 2266.75,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 2267.25,
+       "releve_fin_ts": 1793494800
+      },
+      "en_cours": true,
+      "facturable": false,
+      "montants": {
+       "detail_reseau": null,
+       "detail_solaire": null,
+       "ht": null,
+       "ttc": null,
+       "tva": null
+      },
+      "reseau": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 0.5,
+       "releve_debut": 2236.883,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 2237.383,
+       "releve_fin_ts": 1793494800
+      },
+      "solaire": {
+       "alertes": [
+        "relevé de fin vieux de 4 j (trou de collecte)"
+       ],
+       "kwh": 0.0,
+       "releve_debut": 2268.066,
+       "releve_debut_ts": 1793487600,
+       "releve_fin": 2268.066,
+       "releve_fin_ts": 1793494800
+      },
+      "tarif": null,
+      "taux_autoproduction": 0.0,
+      "total": 0.5
+     }
+    },
+    "sources": {
+     "controle": {
+      "label": "Commun (total)",
+      "series_id": "Ref:COMMUN-c:total",
+      "unit": "kWh"
+     },
+     "reseau": {
+      "label": "Communs Grid (total)",
+      "series_id": "Ref:COMMUN-g:total",
+      "unit": "kWh"
+     },
+     "solaire": {
+      "label": "Communs Solaire (total)",
+      "series_id": "Ref:COMMUN-s:total",
+      "unit": "kWh"
+     }
+    },
+    "zone": "COMMUN"
+   }
+  ]
+ },
+ "xlsx 2026-09": {
+  "Buanderie": [
+   [
+    "Buanderie — Ref",
+    null,
+    null,
+    null
+   ],
+   [
+    "Septembre 2026  ·  01.09.2026 → 30.09.2026 (heure de Suisse)",
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Cycles",
+    "Énergie (kWh)",
+    "État"
+   ],
+   [
+    "App 1",
+    15,
+    18,
+    "facturable"
+   ],
+   [
+    "App 2",
+    10,
+    12,
+    "facturable"
+   ],
+   [
+    "Total immeuble",
+    25,
+    30,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Énergie (CEnergieAppXX) et nombre de cycles (CNrMachineAppXX) de la buanderie commune, attribués à chaque appartement par badge.",
+    null,
+    null,
+    null
+   ],
+   [
+    "Cette énergie passe par le compteur des Communs : elle n'est pas dans la consommation électrique du lot, et n'est pas déduite des Communs.",
+    null,
+    null,
+    null
+   ]
+  ],
+  "Chauffage": [
+   [
+    "Chauffage — Ref",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Septembre 2026  ·  01.09.2026 → 30.09.2026 (heure de Suisse)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix chauffage HT (CHF/kWh th)",
+    null,
+    "Montant TTC = énergie × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité, un prix ou une TVA vide ne donne pas de montant.",
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "TVA (%)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Compteur",
+    "Index début (kWh th)",
+    "Index fin (kWh th)",
+    "Énergie (kWh th)",
+    "Montant TTC (CHF)",
+    "État"
+   ],
+   [
+    "App 1",
+    "Chauffage App 1",
+    2200.3,
+    2308.15,
+    107.85,
+    "=IF(OR(E8=\"\",$B$4=\"\",$B$5=\"\"),\"\",E8*$B$4*(1+$B$5/100))",
+    "facturable"
+   ],
+   [
+    "App 2",
+    "Chauffage App 2",
+    2600.5,
+    2780.25,
+    179.75,
+    "=IF(OR(E9=\"\",$B$4=\"\",$B$5=\"\"),\"\",E9*$B$4*(1+$B$5/100))",
+    "facturable"
+   ],
+   [
+    "Total immeuble",
+    null,
+    null,
+    null,
+    287.6,
+    "=IF(COUNT(F8:F9)=0,\"\",SUM(F8:F9))",
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Énergie de chauffage = index de fin − index de début du compteur de chaleur. Le volume circulé n'est pas repris.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ],
+  "Eau chaude": [
+   [
+    "Eau chaude — Ref",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Septembre 2026  ·  01.09.2026 → 30.09.2026 (heure de Suisse)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix eau chaude HT (CHF/m³)",
+    null,
+    "Montant TTC = volume × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité, un prix ou une TVA vide ne donne pas de montant.",
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "TVA (%)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Compteur",
+    "Index début (m³)",
+    "Index fin (m³)",
+    "Volume (m³)",
+    "Montant TTC (CHF)",
+    "État"
+   ],
+   [
+    "App 1",
+    "Eau chaude App 1",
+    2300.002,
+    2301.022,
+    1.02,
+    "=IF(OR(E8=\"\",$B$4=\"\",$B$5=\"\"),\"\",E8*$B$4*(1+$B$5/100))",
+    "facturable"
+   ],
+   [
+    "App 2",
+    "Eau chaude App 2",
+    2700.002,
+    2701.022,
+    1.02,
+    "=IF(OR(E9=\"\",$B$4=\"\",$B$5=\"\"),\"\",E9*$B$4*(1+$B$5/100))",
+    "facturable"
+   ],
+   [
+    "Total immeuble",
+    null,
+    null,
+    null,
+    2.04,
+    "=IF(COUNT(F8:F9)=0,\"\",SUM(F8:F9))",
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Volume d'eau chaude sanitaire = index de fin − index de début. L'eau froide n'est pas reprise.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ],
+  "Frais supplémentaires": [
+   [
+    "Frais supplémentaires — Ref",
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Septembre 2026  ·  01.09.2026 → 30.09.2026 (heure de Suisse)",
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Location des compteurs (CHF)",
+    "Frais exceptionnels (CHF)",
+    "Autres frais (CHF)",
+    "Total frais (CHF)",
+    "Remarque"
+   ],
+   [
+    "App 1",
+    null,
+    null,
+    null,
+    "=IF(COUNT(B5:D5)=0,\"\",SUM(B5:D5))",
+    null
+   ],
+   [
+    "App 2",
+    null,
+    null,
+    null,
+    "=IF(COUNT(B6:D6)=0,\"\",SUM(B6:D6))",
+    null
+   ],
+   [
+    "Communs",
+    null,
+    null,
+    null,
+    "=IF(COUNT(B7:D7)=0,\"\",SUM(B7:D7))",
+    null
+   ],
+   [
+    "Total immeuble",
+    "=IF(COUNT(B5:B7)=0,\"\",SUM(B5:B7))",
+    "=IF(COUNT(C5:C7)=0,\"\",SUM(C5:C7))",
+    "=IF(COUNT(D5:D7)=0,\"\",SUM(D5:D7))",
+    "=IF(COUNT(E5:E7)=0,\"\",SUM(E5:E7))",
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Tableau à remplir : les cases jaunes sont vides à la génération. Reporter les montants à facturer en CHF, TVA comprise.",
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Le nom de chaque zone renvoie à sa ligne dans l'onglet Électricité. Le total de la ligne et celui de l'immeuble se calculent seuls.",
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ],
+  "Relevés": {
+   "debut": [
+    [
+     "Relevés de compteurs — Ref",
+     null,
+     null,
+     null
+    ],
+    [
+     "Septembre 2026  ·  01.09.2026 → 30.09.2026 (heure de Suisse). Une ligne par point horaire enregistré dans les statistiques du Miniserver, pour le compteur de chaque appartement.",
+     null,
+     null,
+     null
+    ],
+    [
+     null,
+     null,
+     null,
+     null
+    ],
+    [
+     "Zone",
+     "Compteur",
+     "Date",
+     "Index"
+    ],
+    [
+     "App 1",
+     "App 1 Grid (total)",
+     "01.09.2026 à 00:00",
+     1401.1
+    ]
+   ],
+   "lignes": 4324,
+   "sha256": "3160f6b7a60c05de3f9dab66e8bf3c875eee153c9c7f0f1e0b77be0a6f27c569"
+  },
+  "Électricité": [
+   [
+    "Décompte de charges — Ref",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Septembre 2026  ·  01.09.2026 → 30.09.2026 (heure de Suisse)  ·  généré le 05.11.2026 à 12:00",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix réseau HT (CHF/kWh)",
+    null,
+    "Aucun tarif enregistré pour ce mois. Les montants sont TTC : kWh × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité vide ne donne pas de montant.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix solaire HT (CHF/kWh)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "TVA (%)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Consommation totale (kWh)",
+    "Solaire (kWh)",
+    "Réseau (kWh)",
+    "Buanderie (kWh)",
+    "Réseau TTC (CHF)",
+    "Solaire TTC (CHF)",
+    "Total TTC (CHF)",
+    "État"
+   ],
+   [
+    "App 1",
+    332.6,
+    128.45,
+    204.15,
+    18,
+    "=IF(OR(D9=\"\",$B$4=\"\",$B$6=\"\"),\"\",D9*$B$4*(1+$B$6/100))",
+    "=IF(OR(C9=\"\",$B$5=\"\",$B$6=\"\"),\"\",C9*$B$5*(1+$B$6/100))",
+    "=IF(OR(F9=\"\",G9=\"\"),\"\",F9+G9)",
+    "facturable"
+   ],
+   [
+    "App 2",
+    460.2,
+    197.14,
+    263.06,
+    12,
+    "=IF(OR(D10=\"\",$B$4=\"\",$B$6=\"\"),\"\",D10*$B$4*(1+$B$6/100))",
+    "=IF(OR(C10=\"\",$B$5=\"\",$B$6=\"\"),\"\",C10*$B$5*(1+$B$6/100))",
+    "=IF(OR(F10=\"\",G10=\"\"),\"\",F10+G10)",
+    "facturable"
+   ],
+   [
+    "Communs",
+    179.75,
+    77.07,
+    102.68,
+    null,
+    "=IF(OR(D11=\"\",$B$4=\"\",$B$6=\"\"),\"\",D11*$B$4*(1+$B$6/100))",
+    "=IF(OR(C11=\"\",$B$5=\"\",$B$6=\"\"),\"\",C11*$B$5*(1+$B$6/100))",
+    "=IF(OR(F11=\"\",G11=\"\"),\"\",F11+G11)",
+    "facturable"
+   ],
+   [
+    "Total immeuble",
+    972.55,
+    402.66,
+    569.89,
+    30,
+    "=IF(COUNT(F9:F11)=0,\"\",SUM(F9:F11))",
+    "=IF(COUNT(G9:G11)=0,\"\",SUM(G9:G11))",
+    "=IF(COUNT(H9:H11)=0,\"\",SUM(H9:H11))",
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Taux d'autoproduction : 41 % — part de la consommation couverte par le solaire autoconsommé.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Chaque zone est scindée en kWh achetés au réseau et kWh solaires autoconsommés. La consommation totale est leur somme.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "La colonne Buanderie est l'électricité de la buanderie commune attribuée au lot (CEnergieAppXX). Elle passe par le compteur des Communs : elle n'est ni dans la consommation totale du lot, ni dans les montants, ni déduite des Communs. Détail dans l'onglet Buanderie.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Ces parts sont les mesures du Miniserver.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Le total porte sur toutes les zones. Filtrer le tableau ne change pas ce total.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ]
+ },
+ "xlsx 2026-10": {
+  "Buanderie": [
+   [
+    "Buanderie — Ref",
+    null,
+    null,
+    null
+   ],
+   [
+    "Octobre 2026  ·  01.10.2026 → 31.10.2026 (heure de Suisse)",
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Cycles",
+    "Énergie (kWh)",
+    "État"
+   ],
+   [
+    "App 1",
+    15,
+    18,
+    "facturable"
+   ],
+   [
+    "App 2",
+    10,
+    12,
+    "facturable"
+   ],
+   [
+    "Total immeuble",
+    25,
+    30,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Énergie (CEnergieAppXX) et nombre de cycles (CNrMachineAppXX) de la buanderie commune, attribués à chaque appartement par badge.",
+    null,
+    null,
+    null
+   ],
+   [
+    "Cette énergie passe par le compteur des Communs : elle n'est pas dans la consommation électrique du lot, et n'est pas déduite des Communs.",
+    null,
+    null,
+    null
+   ]
+  ],
+  "Chauffage": [
+   [
+    "Chauffage — Ref",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Octobre 2026  ·  01.10.2026 → 31.10.2026 (heure de Suisse)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix chauffage HT (CHF/kWh th)",
+    null,
+    "Montant TTC = énergie × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité, un prix ou une TVA vide ne donne pas de montant.",
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "TVA (%)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Compteur",
+    "Index début (kWh th)",
+    "Index fin (kWh th)",
+    "Énergie (kWh th)",
+    "Montant TTC (CHF)",
+    "État"
+   ],
+   [
+    "App 1",
+    "Chauffage App 1",
+    2308.3,
+    2754.7,
+    446.4,
+    "=IF(OR(E8=\"\",$B$4=\"\",$B$5=\"\"),\"\",E8*$B$4*(1+$B$5/100))",
+    "facturable"
+   ],
+   [
+    "App 2",
+    "Chauffage App 2",
+    2780.5,
+    3524.5,
+    744,
+    "=IF(OR(E9=\"\",$B$4=\"\",$B$5=\"\"),\"\",E9*$B$4*(1+$B$5/100))",
+    "facturable"
+   ],
+   [
+    "Total immeuble",
+    null,
+    null,
+    null,
+    1190.4,
+    "=IF(COUNT(F8:F9)=0,\"\",SUM(F8:F9))",
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Énergie de chauffage = index de fin − index de début du compteur de chaleur. Le volume circulé n'est pas repris.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ],
+  "Eau chaude": [
+   [
+    "Eau chaude — Ref",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Octobre 2026  ·  01.10.2026 → 31.10.2026 (heure de Suisse)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix eau chaude HT (CHF/m³)",
+    null,
+    "Montant TTC = volume × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité, un prix ou une TVA vide ne donne pas de montant.",
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "TVA (%)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Compteur",
+    "Index début (m³)",
+    "Index fin (m³)",
+    "Volume (m³)",
+    "Montant TTC (CHF)",
+    "État"
+   ],
+   [
+    "App 1",
+    "Eau chaude App 1",
+    2301.022,
+    2302.076,
+    1.054,
+    "=IF(OR(E8=\"\",$B$4=\"\",$B$5=\"\"),\"\",E8*$B$4*(1+$B$5/100))",
+    "facturable"
+   ],
+   [
+    "App 2",
+    "Eau chaude App 2",
+    2701.022,
+    2702.076,
+    1.054,
+    "=IF(OR(E9=\"\",$B$4=\"\",$B$5=\"\"),\"\",E9*$B$4*(1+$B$5/100))",
+    "facturable"
+   ],
+   [
+    "Total immeuble",
+    null,
+    null,
+    null,
+    2.108,
+    "=IF(COUNT(F8:F9)=0,\"\",SUM(F8:F9))",
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Volume d'eau chaude sanitaire = index de fin − index de début. L'eau froide n'est pas reprise.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ],
+  "Frais supplémentaires": [
+   [
+    "Frais supplémentaires — Ref",
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Octobre 2026  ·  01.10.2026 → 31.10.2026 (heure de Suisse)",
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Location des compteurs (CHF)",
+    "Frais exceptionnels (CHF)",
+    "Autres frais (CHF)",
+    "Total frais (CHF)",
+    "Remarque"
+   ],
+   [
+    "App 1",
+    null,
+    null,
+    null,
+    "=IF(COUNT(B5:D5)=0,\"\",SUM(B5:D5))",
+    null
+   ],
+   [
+    "App 2",
+    null,
+    null,
+    null,
+    "=IF(COUNT(B6:D6)=0,\"\",SUM(B6:D6))",
+    null
+   ],
+   [
+    "Communs",
+    null,
+    null,
+    null,
+    "=IF(COUNT(B7:D7)=0,\"\",SUM(B7:D7))",
+    null
+   ],
+   [
+    "Total immeuble",
+    "=IF(COUNT(B5:B7)=0,\"\",SUM(B5:B7))",
+    "=IF(COUNT(C5:C7)=0,\"\",SUM(C5:C7))",
+    "=IF(COUNT(D5:D7)=0,\"\",SUM(D5:D7))",
+    "=IF(COUNT(E5:E7)=0,\"\",SUM(E5:E7))",
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Tableau à remplir : les cases jaunes sont vides à la génération. Reporter les montants à facturer en CHF, TVA comprise.",
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Le nom de chaque zone renvoie à sa ligne dans l'onglet Électricité. Le total de la ligne et celui de l'immeuble se calculent seuls.",
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ],
+  "Relevés": {
+   "debut": [
+    [
+     "Relevés de compteurs — Ref",
+     null,
+     null,
+     null
+    ],
+    [
+     "Octobre 2026  ·  01.10.2026 → 31.10.2026 (heure de Suisse). Une ligne par point horaire enregistré dans les statistiques du Miniserver, pour le compteur de chaque appartement.",
+     null,
+     null,
+     null
+    ],
+    [
+     null,
+     null,
+     null,
+     null
+    ],
+    [
+     "Zone",
+     "Compteur",
+     "Date",
+     "Index"
+    ],
+    [
+     "App 1",
+     "Appartement 1 (total)",
+     "01.10.2026 à 00:00",
+     1634.1
+    ]
+   ],
+   "lignes": 2239,
+   "sha256": "cde8be16cf1a7a4095c75c3bf533f3b063e4c1be74b383274477a7704a451f22"
+  },
+  "Électricité": [
+   [
+    "Décompte de charges — Ref",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Octobre 2026  ·  01.10.2026 → 31.10.2026 (heure de Suisse)  ·  généré le 05.11.2026 à 12:00",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix réseau HT (CHF/kWh)",
+    null,
+    "Aucun tarif enregistré pour ce mois. Les montants sont TTC : kWh × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité vide ne donne pas de montant.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix solaire HT (CHF/kWh)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "TVA (%)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Consommation totale (kWh)",
+    "Solaire (kWh)",
+    "Réseau (kWh)",
+    "Buanderie (kWh)",
+    "Réseau TTC (CHF)",
+    "Solaire TTC (CHF)",
+    "Total TTC (CHF)",
+    "État"
+   ],
+   [
+    "App 1",
+    344.1,
+    117.94,
+    226.16,
+    18,
+    "=IF(OR(D9=\"\",$B$4=\"\",$B$6=\"\"),\"\",D9*$B$4*(1+$B$6/100))",
+    "=IF(OR(C9=\"\",$B$5=\"\",$B$6=\"\"),\"\",C9*$B$5*(1+$B$6/100))",
+    "=IF(OR(F9=\"\",G9=\"\"),\"\",F9+G9)",
+    "facturable"
+   ],
+   [
+    "App 2",
+    null,
+    null,
+    null,
+    12,
+    "=IF(OR(D10=\"\",$B$4=\"\",$B$6=\"\"),\"\",D10*$B$4*(1+$B$6/100))",
+    "=IF(OR(C10=\"\",$B$5=\"\",$B$6=\"\"),\"\",C10*$B$5*(1+$B$6/100))",
+    "=IF(OR(F10=\"\",G10=\"\"),\"\",F10+G10)",
+    "données incomplètes"
+   ],
+   [
+    "Communs",
+    186,
+    71.8,
+    114.2,
+    null,
+    "=IF(OR(D11=\"\",$B$4=\"\",$B$6=\"\"),\"\",D11*$B$4*(1+$B$6/100))",
+    "=IF(OR(C11=\"\",$B$5=\"\",$B$6=\"\"),\"\",C11*$B$5*(1+$B$6/100))",
+    "=IF(OR(F11=\"\",G11=\"\"),\"\",F11+G11)",
+    "facturable"
+   ],
+   [
+    "Total immeuble",
+    530.1,
+    189.74,
+    340.36,
+    30,
+    "=IF(COUNT(F9:F11)=0,\"\",SUM(F9:F11))",
+    "=IF(COUNT(G9:G11)=0,\"\",SUM(G9:G11))",
+    "=IF(COUNT(H9:H11)=0,\"\",SUM(H9:H11))",
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Taux d'autoproduction : 36 % — part de la consommation couverte par le solaire autoconsommé.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Chaque zone est scindée en kWh achetés au réseau et kWh solaires autoconsommés. La consommation totale est leur somme.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "La colonne Buanderie est l'électricité de la buanderie commune attribuée au lot (CEnergieAppXX). Elle passe par le compteur des Communs : elle n'est ni dans la consommation totale du lot, ni dans les montants, ni déduite des Communs. Détail dans l'onglet Buanderie.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Ces parts sont calculées. La consommation vient du compteur du lot, répartie selon le mix du bâtiment (production moins réinjection). Les séries Grid et Solaire du Miniserver ne sont pas utilisées.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Le total porte sur toutes les zones. Filtrer le tableau ne change pas ce total.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Relevés incomplets",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "App 2 : compteur : 1 rupture(s) de compteur dans la période -> consommation non calculable",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ]
+ }
+}
