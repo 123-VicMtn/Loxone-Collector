@@ -1036,6 +1036,43 @@ correction de l'installateur (09.09.2026) condamnaient aussi les suivants
   refusée ; les trois autres sites répondent 200). À voir sur place ou
   avec l'installateur (Internet du bâtiment, Remote Connect).
 
+## Alerte de collecte — 2026-10-27
+
+Horizon est resté muet 11 jours (16-27.10) sans que rien ne le signale.
+
+- `GET /api/collecte` (connecté) : pour chaque site accessible au compte,
+  `dernier_releve_ts` (lu en base par `db.last_reading_by_miniserver`, pas
+  dans `_state`, vidé au redémarrage) et `en_retard` au-delà de
+  `stale_alert_minutes` (config, défaut 60).
+- `/health` (public) : `status` `"ok"` / `"degrade"` et le même détail par
+  site, toujours en 200, pour une supervision externe. **Plus de
+  `last_error`** : il pouvait contenir l'adresse d'un Miniserver.
+- Frontend : `shared/composables/useCollecte.ts` remplace
+  `useHealthFooter` (qui lisait `/health` et montrait à tout compte les
+  noms et erreurs de **tous** les sites). Bandeau
+  `shared/components/CollecteBanner.vue` en haut du dashboard (« Horizon ne
+  remonte plus de données depuis le 16.10, 17:24. ») ; pied de page du
+  dashboard et de `/decompte` sur `/api/collecte` (dernier relevé par site).
+- `tests/test_collecte.py` : premiers tests de route (client de test
+  Flask, base temporaire, comptes admin et user).
+
+**Aucune erreur système dans l'interface, admin compris** (demande de
+l'utilisateur, 2026-10-27 : les end-users ne doivent pas voir les erreurs
+techniques ; un dépliant « détail technique » pour l'admin a été jugé
+inutile, retiré le jour même). Le message technique reste dans le log du
+serveur, nulle part dans les réponses de l'API.
+
+- `/api/decompte` : `statistiques_erreur` est une phrase fixe et courte
+  (`app.MESSAGE_STATISTIQUES_INJOIGNABLES`, « Miniserver injoignable : les
+  derniers jours peuvent manquer. »). `/api/collecte` ne renvoie aucun
+  message d'erreur de poll.
+- Frontend : `shared/api/http.ts` lève une `ApiError` (`status`) ; son
+  `message` est technique, à garder pour `console.error`. Les pages
+  affichent leur propre texte : connexion (« Identifiant ou mot de passe
+  incorrect. » sur 401 ; avant, le JSON brut du backend), chargement et
+  export du décompte, relevés. `/admin` (admin seulement) garde le message
+  brut.
+
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
 **La Calbasse est le premier site avec une configuration Loxone
