@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from loxone_collector.services.classification import est_hors_decompte
+
 # Séries à écarter quand on cherche le compteur de contrôle d'une zone : le
 # chauffage et l'eau chaude sont des compteurs distincts (périmètres
 # séparés), et "Grid"/"Solaire"/"Sol" sont les compteurs EFM de facturation.
@@ -83,6 +85,14 @@ RESERVES_ZONES = {
 # heures dans la fenêtre — sinon le bilan n'a aucune production et le
 # décompte reste sur les séries Grid/Solaire.
 SOLAIRE_BATIMENT_RE = re.compile(r"(?i)^solaire \(total\)$")
+
+
+def series_du_decompte(series: list[dict]) -> list[dict]:
+    """Séries qui peuvent entrer dans un décompte : toutes, sauf les
+    compteurs de la catégorie Loxone « hors-décompte » (valeurs calculées,
+    sous-compteurs déjà comptés ailleurs). À appliquer avant toute
+    résolution de zones, de bâtiment ou de postes."""
+    return [s for s in series if not est_hors_decompte(s.get("category"))]
 
 
 def series_total(series: list[dict]) -> list[dict]:

@@ -8,6 +8,7 @@ comportement actuel avant le découpage d'app.py en Blueprints
 Le compte `client` n'a accès qu'au site « Ref » ; « Autre » existe mais ne
 lui est pas accordé (fixtures dans conftest.py).
 """
+from contextlib import closing
 from unittest import mock
 
 import pytest
@@ -187,6 +188,21 @@ def test_decompte_site_non_accorde_ou_inconnu_meme_reponse(client_user, client_a
     assert res.status_code == 400
     assert res.get_json() == {"error": "site inconnu : 'Inconnu'"}
     assert ref.SITE not in str(res.get_json())
+
+
+def test_compteur_hors_decompte(app_test, client_user):
+    """Un compteur de la catégorie Loxone « hors-décompte » est signalé par
+    /api/series et n'alimente plus aucune colonne du décompte."""
+    with closing(db.get_connection(app_test.config["LOXONE_CFG"].db_path)) as conn:
+        conn.execute("UPDATE series_meta SET category = 'Hors décompte' WHERE series_id = ?", (SERIE_REF,))
+        conn.commit()
+    series = {s["series_id"]: s for s in client_user.get("/api/series").get_json()}
+    assert series[SERIE_REF]["hors_decompte"] is True
+    assert series[IDS["APP1:g"]]["hors_decompte"] is False
+
+    data = client_user.get(f"/api/decompte?miniserver={ref.SITE}&from=2026-10&to=2026-10").get_json()
+    app1 = next(z for z in data["zones"] if z["label"] == "App 1")
+    assert app1["periodes"]["2026-10"]["controle"]["alertes"] == ["aucune série trouvée pour cette colonne"]
 
 
 def test_decompte_site_par_defaut(client_user):

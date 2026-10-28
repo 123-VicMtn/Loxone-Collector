@@ -201,7 +201,7 @@ def _verrou(ms_name: str) -> threading.Lock:
 def synchroniser_site(cfg, conn, ms_name: str, now_ts: int) -> dict:
     """Importe les Statistics du décompte d'un site (électricité, chauffage,
     eau chaude, buanderie) jusqu'à `now_ts` et retient le résultat."""
-    series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
+    series = billing.series_du_decompte([s for s in db.list_series(conn) if s["miniserver"] == ms_name])
     if not series:
         return {"ok": True, "erreur": None, "series": 0, "points": 0}
     with _verrou(ms_name):

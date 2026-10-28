@@ -1300,6 +1300,42 @@ la raison d'Arlopy change (« bilan bouclé sur 3 mois sur 18 »). La
 protection porte sur l'avenir : un hiver de plus pouvait ramener le
 total d'Arlopy sous 15 %.
 
+## Catégorie Loxone « hors-décompte » — 2026-10-28
+
+Demande de l'utilisateur : pouvoir écarter depuis Loxone Config un
+compteur qui ne mesure rien de facturable, sans règle de nom dans le code.
+Cas d'origine : **« Communs sans PAC »** de Sequoia, ajouté le 16.10 par
+l'installateur. C'est une valeur calculée (Communs − PAC : 52,09 − 23,15 =
+28,94 kWh sur une semaine). L'aperçu du jour l'additionnait aux Communs, et
+son doublon supprimé au bout de 3 minutes (contrôle `2175e050`) bloquait la
+tuile Consommation (« relevés incomplets »).
+
+- Convention : catégorie Loxone **`hors-décompte`**. Elle est lue dans
+  `LoxAPP3.json`, stockée dans `series_meta.category` et relue à chaque
+  poll ; l'identifiant de la série ne change pas.
+- `classification.est_hors_decompte(category)` : comparaison sans casse,
+  accents, espaces ni tirets, à deux fautes de frappe près
+  (`HORS_DECOMPTE_TOLERANCE`, distance de Levenshtein). « Hors décompte »,
+  « HorsDecompte », « hors-decomtpe » passent ; « Décompte » non.
+- `billing.series_du_decompte(series)` retire ces séries avant toute
+  résolution : routes du décompte (`_series_du_site`), synchro Statistics,
+  `audit_repartition.py`, `export_mesures_xlsx.py`. `GET /api/series`
+  renvoie `hors_decompte` par série ; l'aperçu du jour les ignore. La page
+  Matériels et `/admin` les montrent toujours.
+- **Pas pour un compteur en panne** : il doit rester signalé (alerte de
+  collecte, données incomplètes).
+- Vérifié sur la copie de prod avec la catégorie posée sur « Communs sans
+  PAC » : décompte identique sur les quatre sites (seule la mention
+  d'ambiguïté des Communs de Sequoia disparaît) ; aperçu de Sequoia du
+  2026-10-28 : consommation 101,1 kWh au lieu de « — ».
+- **Reste à faire par l'utilisateur dans Loxone Config** : poser la
+  catégorie (Sequoia : `Communs sans PAC`, `PAC déjà mesuré`, `Boiler ecs
+  mesuré aussi ?`, `M1`-`M6 Zähler`). Ensuite seulement, retirer du code les
+  règles de nom devenues inutiles (`déjà mesuré`, `mesuré aussi`, `zähler`
+  dans `dayBalance.ts`). Les compteurs supprimés de Loxone (absents de la
+  structure, `updated_at` en retard sur leur site) ne sont pas encore
+  écartés : proposé, pas fait.
+
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
 **La Calbasse est le premier site avec une configuration Loxone
@@ -1325,6 +1361,7 @@ suffixe d'état) :
 | Bâtiment | `Compteur PV` | Energie | kWh | production solaire |
 | Bâtiment | `PAC` (+ `PAC Réseau` / `PAC Solaire`) | Energie | kWh | pompe à chaleur, hors lots et hors Communs |
 | Bâtiment | `Boiler` | Chauffage | kWhth | production de chaleur (pas de l'électricité) |
+| Tout niveau | (nom libre) | `hors-décompte` | | valeur calculée ou sous-compteur déjà compté ailleurs : jamais compté (depuis le 2026-10-28) |
 
 - Pièce Loxone d'un lot : `APPxx <nom de l'occupant>`. Compteurs du
   bâtiment dans `Local Électrique` / `Local chauffage`. Moniteur de flux

@@ -137,7 +137,7 @@ async function refresh() {
   if (!site.value) return
   const token = ++refreshToken
   loading.value = true
-  const series = allSeries.value.filter((s) => s.miniserver === site.value)
+  const series = allSeries.value.filter((s) => s.miniserver === site.value && !s.hors_decompte)
   const [from, to] = todayBounds()
   axisFrom.value = from
   axisTo.value = to

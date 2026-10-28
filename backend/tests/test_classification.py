@@ -11,6 +11,7 @@ dépendance de test dans ce projet à ce jour.
 import unittest
 
 from loxone_collector.services.classification import (
+    est_hors_decompte,
     extract_apartment,
     guess_resource_type,
 )
@@ -64,6 +65,22 @@ class TestGuessResourceType(unittest.TestCase):
 
     def test_no_match_no_meter_returns_autre(self):
         self.assertEqual(guess_resource_type("Éclairage salon", control_type="LightControllerV2"), "autre")
+
+class TestEstHorsDecompte(unittest.TestCase):
+    """Catégorie Loxone « hors-décompte » (2026-10-28), avec une marge pour
+    les fautes de frappe faites dans Loxone Config."""
+
+    def test_ecritures_acceptees(self):
+        for categorie in ("hors-décompte", "Hors décompte", "HorsDecompte", "HORS_DECOMPTE",
+                          "Hors décomptes", "hors-decomtpe", "hors decompe"):
+            with self.subTest(categorie=categorie):
+                self.assertTrue(est_hors_decompte(categorie))
+
+    def test_autres_categories(self):
+        for categorie in (None, "", "Energie", "Décompte", "Chauffage", "Eau chaude",
+                          "Lessive", "Répartition Solaire", "RCP Répartition"):
+            with self.subTest(categorie=categorie):
+                self.assertFalse(est_hors_decompte(categorie))
 
 
 if __name__ == "__main__":

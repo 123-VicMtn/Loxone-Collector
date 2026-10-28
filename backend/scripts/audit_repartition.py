@@ -556,7 +556,7 @@ def main() -> None:
 
     conn = db.get_connection(cfg.db_path)
     now_ts = int(time.time())
-    series = [s for s in db.list_series(conn) if s["miniserver"] == site]
+    series = billing.series_du_decompte([s for s in db.list_series(conn) if s["miniserver"] == site])
     for s in series:
         _UUID_CACHE[s["series_id"]] = s.get("control_uuid") or ""
 

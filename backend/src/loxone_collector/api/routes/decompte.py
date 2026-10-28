@@ -43,6 +43,12 @@ def _statistiques_erreur(ms_name: str) -> str | None:
     return MESSAGE_STATISTIQUES_INJOIGNABLES if dernier and not dernier["ok"] else None
 
 
+def _series_du_site(conn, ms_name: str) -> list[dict]:
+    """Séries du site qui peuvent entrer dans le décompte (sans les
+    compteurs « hors-décompte »)."""
+    return billing.series_du_decompte([s for s in db.list_series(conn) if s["miniserver"] == ms_name])
+
+
 def _decompte_payload(ms_name: str, now: int) -> dict:
     """Décompte complet d'un site. `from` / `to` (clés YYYY-MM) bornent
     les mois ; sans eux, tous les mois couverts par les données.
@@ -51,7 +57,7 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
     synchro de fond et par POST /api/decompte/actualiser, jamais ici (avant
     le 2026-10-28, chaque affichage attendait le Miniserver)."""
     with closing(read_conn()) as conn:
-        series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
+        series = _series_du_site(conn, ms_name)
         tarifs = db.list_tarifs(conn, ms_name)
         try:
             for cle in ("from", "to"):
@@ -133,7 +139,7 @@ def api_decompte_actualiser():
             "miniserver": ms_name,
             "statistiques_erreur": None if res["ok"] else MESSAGE_STATISTIQUES_INJOIGNABLES,
             "statistiques_jusqu_au": statistics_sync.index_jusqu_au(
-                conn, [s for s in db.list_series(conn) if s["miniserver"] == ms_name],
+                conn, _series_du_site(conn, ms_name),
             ),
         })
 
@@ -181,7 +187,7 @@ def _export_payload(ms_name: str, now: int, start: int, end: int, cle: str,
     se lisent d'un bout à l'autre de la période (index de fin − index de
     début)."""
     with closing(read_conn()) as conn:
-        series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
+        series = _series_du_site(conn, ms_name)
         tarifs = db.list_tarifs(conn, ms_name)
         zones = billing.resolve_zones(series)
         rng = billing.available_range(conn, zones, billing.resolve_batiment(series))

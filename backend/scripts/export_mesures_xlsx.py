@@ -521,7 +521,7 @@ def main() -> None:
     conn = db.get_connection(cfg.db_path)
     now_ts = int(time.time())
 
-    series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
+    series = billing.series_du_decompte([s for s in db.list_series(conn) if s["miniserver"] == ms_name])
     zones = billing.resolve_zones(series)
     batiment_src = billing.resolve_batiment(series)
 

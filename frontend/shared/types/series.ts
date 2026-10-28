@@ -15,6 +15,9 @@ export interface Series {
   apartment_manual: 0 | 1
   resource_type: string | null
   resource_type_manual: 0 | 1
+  /** Catégorie Loxone « hors-décompte » (valeur calculée, sous-compteur
+   * déjà compté ailleurs) : jamais dans une somme. */
+  hors_decompte: boolean
 }
 
 /** Forme exacte renvoyée par GET /api/series/<id>/range (et réutilisée en

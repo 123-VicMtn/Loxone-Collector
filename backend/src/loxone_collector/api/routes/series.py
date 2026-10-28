@@ -25,6 +25,7 @@ from loxone_collector.loxone.client import (
 )
 from loxone_collector.loxone.statistics import points_by_series
 from loxone_collector.services import billing
+from loxone_collector.services.classification import est_hors_decompte
 
 logger = logging.getLogger("app")
 
@@ -70,6 +71,8 @@ def api_series():
     allowed = set(allowed_miniservers())
     with closing(read_conn()) as conn:
         series = [s for s in db.list_series(conn) if s["miniserver"] in allowed]
+    for s in series:
+        s["hors_decompte"] = est_hors_decompte(s["category"])
     return jsonify(series)
 
 

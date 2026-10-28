@@ -23,6 +23,7 @@ et n'est plus jamais écrasée par ce module.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 # Motif par défaut : capture "APP" suivi de chiffres, avec ou sans espace
 # (ex: "APP01", "App 12", "app3"), insensible à la casse -- plus quelques
@@ -128,3 +129,48 @@ def resource_type_label(rtype: str, labels: dict[str, str] | None = None) -> str
     if not rtype:
         return "Non classé"
     return labels.get(rtype, rtype)
+
+
+# Catégorie Loxone des compteurs qui ne mesurent rien de facturable :
+# valeurs calculées (« Communs sans PAC » de Sequoia = Communs − PAC),
+# sous-compteurs déjà inclus dans un autre compteur. Convention décidée
+# avec l'utilisateur le 2026-10-28 : la catégorie est relue à chaque poll
+# et ne change pas l'identifiant de la série, l'historique est gardé.
+# Un compteur en panne n'en fait pas partie : il doit rester signalé.
+CATEGORIE_HORS_DECOMPTE = "hors-décompte"
+
+# Comparée sans casse, accents, espaces ni tirets, à deux fautes de frappe
+# près (« Hors décompte », « HorsDecompte », « hors-decomtpe »,
+# « Hors décomptes »).
+HORS_DECOMPTE_TOLERANCE = 2
+
+
+def _cle_categorie(texte: str) -> str:
+    sans_accents = unicodedata.normalize("NFKD", texte)
+    return "".join(c for c in sans_accents.lower() if "a" <= c <= "z")
+
+
+def _distance(a: str, b: str) -> int:
+    """Distance de Levenshtein : lettres ajoutées, retirées ou changées.
+    Une interversion de deux lettres compte pour deux."""
+    precedente = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        courante = [i]
+        for j, cb in enumerate(b, 1):
+            courante.append(min(
+                precedente[j] + 1,
+                courante[j - 1] + 1,
+                precedente[j - 1] + (ca != cb),
+            ))
+        precedente = courante
+    return precedente[-1]
+
+
+_CLE_HORS_DECOMPTE = _cle_categorie(CATEGORIE_HORS_DECOMPTE)
+
+
+def est_hors_decompte(category: str | None) -> bool:
+    """La catégorie Loxone d'un compteur le met-elle hors décompte ?"""
+    if not category:
+        return False
+    return _distance(_cle_categorie(category), _CLE_HORS_DECOMPTE) <= HORS_DECOMPTE_TOLERANCE
