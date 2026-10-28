@@ -114,4 +114,6 @@ export interface DecomptePayload {
   reserves: string[]
   /** Renseigné si les Statistics du Miniserver n'ont pas pu être relues. */
   statistiques_erreur?: string | null
+  /** Plus récent index Statistics importé (epoch) : « relevés à jour au … ». */
+  statistiques_jusqu_au?: number | null
 }

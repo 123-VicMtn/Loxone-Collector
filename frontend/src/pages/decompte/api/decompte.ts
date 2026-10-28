@@ -20,6 +20,13 @@ export async function fetchDecompte(opts: {
   return fetchJSON<DecomptePayload>(`/api/decompte${qs ? '?' + qs : ''}`)
 }
 
+/** Relit tout de suite les Statistics du site sur le Miniserver (la page ne
+ * lit que la base, alimentée chaque heure par la synchro de fond). Recharger
+ * ensuite le décompte. */
+export async function actualiserDecompte(miniserver: string): Promise<void> {
+  await postJSON<unknown>('/api/decompte/actualiser', { miniserver })
+}
+
 export async function fetchTarifs(miniserver: string): Promise<Tarif[]> {
   const params = new URLSearchParams()
   if (miniserver) params.set('miniserver', miniserver)

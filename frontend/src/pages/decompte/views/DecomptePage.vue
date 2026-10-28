@@ -4,12 +4,16 @@
  * disponibles : changer de mois dans le calendrier ne re-interroge pas le
  * serveur. Le mois en cours est déjà borné au dernier relevé connu
  * (billing.reading_delta lit le dernier point avant la fin de période).
+ *
+ * Le serveur ne lit que sa base (synchro des Statistics chaque heure) ;
+ * « Actualiser » la fait relire tout de suite pour ce site.
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
-import { downloadDecompte, fetchDecompte } from '../api/decompte'
+import { actualiserDecompte, downloadDecompte, fetchDecompte } from '../api/decompte'
 import type { DecomptePayload, Period, RepartitionInfo } from '../types/decompte'
 import { fmtDay, fmtPeriodBounds } from '../utils/format'
+import { fmtDateTimeShort } from '@shared/format'
 import { useSiteActif } from '@shared/composables/useSiteActif'
 
 import Card from '../components/Card.vue'
@@ -31,6 +35,14 @@ const periodeKey = ref('')
 const downloading = ref(false)
 const downloadError = ref('')
 const confirmFormat = ref<'xlsx' | 'csv' | null>(null)
+
+const actualisation = ref(false)
+const actualisationErreur = ref('')
+
+const aJourAu = computed(() => {
+  const ts = payload.value?.statistiques_jusqu_au
+  return ts ? fmtDateTimeShort(ts) : '—'
+})
 
 interface ReleveManquant {
   zone: string
@@ -149,6 +161,30 @@ async function loadSite(site: string) {
   }
 }
 
+/** Relit les Statistics du site puis recharge le décompte, sans repasser
+ * par l'écran de chargement ni changer le mois choisi. Si le Miniserver ne
+ * répond pas, le bandeau « Relevés pas à jour » le dit (statistiques_erreur). */
+async function actualiser() {
+  const site = currentSite.value
+  if (!site || actualisation.value) return
+  actualisation.value = true
+  actualisationErreur.value = ''
+  try {
+    await actualiserDecompte(site)
+    const data = await fetchDecompte({ miniserver: site })
+    if (site !== currentSite.value) return
+    payload.value = data
+    if (!data.periodes.some((p) => p.key === periodeKey.value) && data.periodes.length) {
+      periodeKey.value = data.periodes[data.periodes.length - 1].key
+    }
+  } catch (err) {
+    console.error(err)
+    actualisationErreur.value = 'L\'actualisation n\'a pas abouti. Réessayez dans quelques minutes.'
+  } finally {
+    actualisation.value = false
+  }
+}
+
 async function download(format: 'xlsx' | 'csv') {
   if (!currentSite.value || !periodeKey.value) return
   if (relevesManquants.value.length) {
@@ -243,7 +279,20 @@ watch(siteActif, (name) => {
             Période couverte
             <span class="mt-1 py-1 font-medium text-neutral-900">{{ periodeCouverture }}</span>
           </div>
+          <div class="flex flex-col text-sm text-neutral-600 sm:ml-auto">
+            Relevés à jour au
+            <span class="mt-1 flex items-center gap-2 py-1">
+              <span class="font-medium text-neutral-900">{{ aJourAu }}</span>
+              <button
+                type="button"
+                class="rounded border border-neutral-300 px-2 py-0.5 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+                :disabled="actualisation"
+                @click="actualiser"
+              >{{ actualisation ? 'Actualisation…' : 'Actualiser' }}</button>
+            </span>
+          </div>
         </div>
+        <p v-if="actualisationErreur" class="mt-2 text-sm text-red-600">{{ actualisationErreur }}</p>
 
         <div class="mt-6">
           <PeriodeKpis :payload="payload" :period-key="periodeKey" />

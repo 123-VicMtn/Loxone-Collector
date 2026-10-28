@@ -1186,8 +1186,10 @@ et une page bloquée par un site injoignable).
 - La réponse du décompte porte `statistiques_jusqu_au` (plus récent index
   du décompte électrique) ; `statistiques_erreur` reflète la dernière
   synchro du site depuis le démarrage.
-- Frontend à faire (l'utilisateur y travaille) : afficher « relevés à
-  jour au … » et un bouton « Actualiser ».
+- Frontend (`DecomptePage.vue`) : « Relevés à jour au … » et bouton
+  « Actualiser » à côté du mois ; après l'actualisation, le décompte est
+  rechargé sans écran de chargement et le mois choisi est gardé. Un échec
+  du Miniserver passe par le bandeau « Relevés pas à jour ».
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
