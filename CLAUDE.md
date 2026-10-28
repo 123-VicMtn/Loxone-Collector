@@ -1332,9 +1332,18 @@ tuile Consommation (« relevés incomplets »).
   catégorie (Sequoia : `Communs sans PAC`, `PAC déjà mesuré`, `Boiler ecs
   mesuré aussi ?`, `M1`-`M6 Zähler`). Ensuite seulement, retirer du code les
   règles de nom devenues inutiles (`déjà mesuré`, `mesuré aussi`, `zähler`
-  dans `dayBalance.ts`). Les compteurs supprimés de Loxone (absents de la
-  structure, `updated_at` en retard sur leur site) ne sont pas encore
-  écartés : proposé, pas fait.
+  dans `dayBalance.ts`).
+- **Compteurs supprimés de Loxone Config** (fait le même jour) :
+  `db.series_retirees(conn)`, une série dont `updated_at` (réécrit à
+  chaque poll pour tout point de la structure) a plus d'un jour de retard
+  (`RETIREE_APRES_S`) sur le dernier passage **de son site** ; un site
+  injoignable n'est donc pas tout entier « retiré ». `GET /api/series`
+  renvoie `retiree` ; seul l'aperçu du jour les ignore. **Le décompte les
+  garde** : un compteur remplacé (« Production Solaire » de Sequoia,
+  arrêté le 09.09) porte l'historique des mois passés. Sur la prod du
+  2026-10-28 : le doublon de « Communs sans PAC » (contrôle `2175e050`,
+  3 minutes de vie le 16.10) et « Valeurs Résiduelles (actual4) » de
+  La Calbasse. La consommation du jour de Sequoia s'affiche de nouveau.
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 

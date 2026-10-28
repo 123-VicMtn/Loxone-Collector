@@ -395,6 +395,28 @@ def last_reading_by_miniserver(conn: sqlite3.Connection) -> dict[str, int]:
     return {ms: ts for ms, ts in rows if ts is not None}
 
 
+# Marge avant de déclarer un compteur retiré de Loxone Config : couvre une
+# structure relue en échec quelques heures (Miniserver lent, port changé).
+RETIREE_APRES_S = 86400
+
+
+def series_retirees(conn: sqlite3.Connection, marge_s: int = RETIREE_APRES_S) -> set[str]:
+    """Séries absentes de la structure de leur Miniserver : `updated_at` est
+    réécrit à chaque poll pour chaque point présent, un contrôle supprimé de
+    Loxone Config garde l'heure de son dernier passage. Comparé au dernier
+    passage du MÊME site, pas à l'heure actuelle : un site injoignable
+    (Horizon, octobre 2026) ne voit pas tous ses compteurs déclarés retirés.
+    Leur historique reste valable pour les périodes passées."""
+    rows = conn.execute(
+        "SELECT sm.series_id FROM series_meta sm "
+        "JOIN (SELECT miniserver, MAX(updated_at) AS dernier FROM series_meta "
+        "GROUP BY miniserver) site USING (miniserver) "
+        "WHERE sm.updated_at < site.dernier - ?",
+        (marge_s,),
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
 def query_daily_last(conn: sqlite3.Connection, series_id: str, start_ts: int,
                       end_ts: int) -> list[tuple[int, float]]:
     """Retourne, pour chaque jour (UTC) couvert par [start_ts, end_ts], la

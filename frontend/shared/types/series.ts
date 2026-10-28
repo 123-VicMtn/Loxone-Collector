@@ -18,6 +18,9 @@ export interface Series {
   /** Catégorie Loxone « hors-décompte » (valeur calculée, sous-compteur
    * déjà compté ailleurs) : jamais dans une somme. */
   hors_decompte: boolean
+  /** Absent de la structure du Miniserver depuis plus d'un jour (supprimé
+   * de Loxone Config) : plus de relevé à attendre, historique gardé. */
+  retiree: boolean
 }
 
 /** Forme exacte renvoyée par GET /api/series/<id>/range (et réutilisée en

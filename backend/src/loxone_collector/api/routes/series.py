@@ -71,8 +71,10 @@ def api_series():
     allowed = set(allowed_miniservers())
     with closing(read_conn()) as conn:
         series = [s for s in db.list_series(conn) if s["miniserver"] in allowed]
+        retirees = db.series_retirees(conn)
     for s in series:
         s["hors_decompte"] = est_hors_decompte(s["category"])
+        s["retiree"] = s["series_id"] in retirees
     return jsonify(series)
 
 

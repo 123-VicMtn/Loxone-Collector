@@ -205,6 +205,23 @@ def test_compteur_hors_decompte(app_test, client_user):
     assert app1["periodes"]["2026-10"]["controle"]["alertes"] == ["aucune série trouvée pour cette colonne"]
 
 
+def test_compteur_retire_de_loxone(app_test, client_user):
+    """Un compteur absent de la structure depuis plus d'un jour, par rapport
+    au dernier passage de son site, est signalé `retiree` ; un site muet
+    tout entier ne l'est pas."""
+    with closing(db.get_connection(app_test.config["LOXONE_CFG"].db_path)) as conn:
+        dernier = conn.execute(
+            "SELECT MAX(updated_at) FROM series_meta WHERE miniserver = ?", (ref.SITE,)
+        ).fetchone()[0]
+        conn.execute("UPDATE series_meta SET updated_at = ? WHERE series_id = ?",
+                     (dernier - 2 * 86400, SERIE_REF))
+        conn.execute("UPDATE series_meta SET updated_at = updated_at - 30 * 86400 WHERE miniserver = ?",
+                     (ref.AUTRE,))
+        conn.commit()
+    series = client_user.get("/api/series").get_json()
+    assert [s["series_id"] for s in series if s["retiree"]] == [SERIE_REF]
+
+
 def test_decompte_site_par_defaut(client_user):
     assert client_user.get("/api/decompte").get_json()["miniserver"] == ref.SITE
 

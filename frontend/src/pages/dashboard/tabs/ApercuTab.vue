@@ -137,7 +137,9 @@ async function refresh() {
   if (!site.value) return
   const token = ++refreshToken
   loading.value = true
-  const series = allSeries.value.filter((s) => s.miniserver === site.value && !s.hors_decompte)
+  // Un compteur retiré de Loxone n'a plus de relevé aujourd'hui : il
+  // rendrait la somme « incomplète » à tort.
+  const series = allSeries.value.filter((s) => s.miniserver === site.value && !s.hors_decompte && !s.retiree)
   const [from, to] = todayBounds()
   axisFrom.value = from
   axisTo.value = to
