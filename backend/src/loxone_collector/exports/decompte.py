@@ -1,6 +1,7 @@
 """
-Lignes des tableaux du décompte d'un mois (électricité, chauffage, eau
-chaude, buanderie) et export CSV. Le classeur Excel
+Lignes des tableaux du décompte d'une période (électricité, détail par
+mois, chauffage, eau chaude, buanderie) et export CSV. La période est un
+mois (clé « 2026-10 ») ou une plage de dates (`billing.cumul_periodes`). Le classeur Excel
 (exports/decompte_xlsx.py) part des mêmes lignes. Aucun calcul ici : les
 kWh viennent de services/billing.py (`compute_decompte`, `compute_postes`).
 """
@@ -49,11 +50,46 @@ def _buanderie_par_zone(postes: dict | None) -> dict[str, float | None] | None:
 
 
 def _mois_label(payload: dict, period_key: str) -> str:
-    year, month = parse_period_key(period_key)
     for p in payload.get("periodes") or []:
         if p.get("key") == period_key and p.get("label"):
             return p["label"]
+    year, month = parse_period_key(period_key)
     return period_label(year, month)
+
+
+def _est_un_mois(period_key: str) -> bool:
+    try:
+        parse_period_key(period_key)
+    except ValueError:
+        return False
+    return True
+
+
+def lignes_detail(payload: dict) -> list[dict]:
+    """Une ligne par mois et par zone quand l'export couvre plusieurs mois
+    (`payload["detail"]`), sinon aucune. Les kWh sont ceux du décompte de
+    chaque mois ; leur somme est la ligne de la zone dans l'onglet
+    Électricité."""
+    detail = payload.get("detail")
+    if not detail:
+        return []
+    lignes = []
+    for p in detail["periodes"]:
+        source = (detail["repartition"].get(p["key"]) or {}).get("source")
+        for z in detail["zones"]:
+            e = z["periodes"].get(p["key"])
+            if e is None:
+                continue
+            lignes.append({
+                "mois": p["label"],
+                "zone": z.get("label") or z.get("zone"),
+                "total": e["total"],
+                "solaire": e["solaire"]["kwh"],
+                "reseau": e["reseau"]["kwh"],
+                "parts": "calculées" if source == "calculee" else "Miniserver",
+                "etat": etat_zone(e),
+            })
+    return lignes
 
 
 def export_lignes(payload: dict, period_key: str) -> list[list]:
@@ -89,6 +125,8 @@ def export_lignes(payload: dict, period_key: str) -> list[list]:
     rows.append([mois_label, "Total immeuble",
                  *[sums[k] if seen[k] else None for k in cles], ""])
     headers = list(EXPORT_HEADERS)
+    if not _est_un_mois(period_key):
+        headers[0] = "Période"
     if buanderie is not None:
         headers.insert(-1, _BUANDERIE_HEADER)
     return [headers, *rows]
@@ -183,6 +221,17 @@ def export_csv_lignes(payload: dict, period_key: str) -> list[list[str]]:
     for row in [*zones, total]:
         out.append([c if isinstance(c, str) else _fr(c, 2) for c in row])
 
+    detail = lignes_detail(payload)
+    if detail:
+        out += [[], ["Détail par mois"], [
+            "Mois", "Zone", "Consommation totale (kWh)", "Solaire (kWh)", "Réseau (kWh)",
+            "Parts réseau / solaire", "État",
+        ]]
+        for ln in detail:
+            out.append([ln["mois"], ln["zone"], _fr(_arrondi(ln["total"], 2), 2),
+                        _fr(_arrondi(ln["solaire"], 2), 2), _fr(_arrondi(ln["reseau"], 2), 2),
+                        ln["parts"], ln["etat"]])
+
     postes = _postes_du_mois(payload, period_key)
     if not postes:
         return out
@@ -191,7 +240,7 @@ def export_csv_lignes(payload: dict, period_key: str) -> list[list[str]]:
         if not lignes:
             continue
         out += [[], [titre], [
-            "Mois", "Zone", "Compteur", f"Index début ({unite})", f"Index fin ({unite})",
+            elec[0][0], "Zone", "Compteur", f"Index début ({unite})", f"Index fin ({unite})",
             f"{grandeur} ({unite})", "État",
         ]]
         for ln in lignes:
@@ -203,7 +252,7 @@ def export_csv_lignes(payload: dict, period_key: str) -> list[list[str]]:
         out.append([mois_label, "Total immeuble", "", "", "", _fr(total, dec), ""])
     lignes, totaux = lignes_buanderie(postes)
     if lignes:
-        out += [[], ["Buanderie"], ["Mois", "Zone", "Cycles", "Énergie (kWh)", "État"]]
+        out += [[], ["Buanderie"], [elec[0][0], "Zone", "Cycles", "Énergie (kWh)", "État"]]
         for ln in lignes:
             out.append([mois_label, ln["zone"], _fr(ln["cycles"], 0),
                         _fr(ln["energie"], 2), ln["etat"]])

@@ -69,7 +69,7 @@ deux compteurs, plus un compteur plus ancien de périmètre différent :
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from loxone_collector import db
@@ -213,6 +213,40 @@ def periods_covering(first_ts: int, last_ts: int, tz_name: str = TIMEZONE) -> li
         month += 1
         if month > 12:
             month, year = 1, year + 1
+    return out
+
+
+def parse_jour(value: str, tz_name: str = TIMEZONE) -> int:
+    """« 2026-01-15 » → minuit local de ce jour (epoch)."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value or ""):
+        raise ValueError(f"date invalide: {value!r} (attendu ex: 2026-01-15)")
+    try:
+        d = date.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"date invalide: {value!r} (attendu ex: 2026-01-15)") from None
+    return int(datetime(d.year, d.month, d.day, tzinfo=ZoneInfo(tz_name)).timestamp())
+
+
+def _jour_court(ts: int, tz_name: str = TIMEZONE) -> str:
+    return datetime.fromtimestamp(ts, ZoneInfo(tz_name)).strftime("%d.%m")
+
+
+def periodes_plage(start_ts: int, end_ts: int, tz_name: str = TIMEZONE) -> list[dict]:
+    """Mois calendaires de [start_ts, end_ts[, le premier et le dernier
+    rognés aux bornes (départ d'un locataire le 15 : « Octobre 2026
+    (01.10 → 15.10) »). Chaque morceau garde la clé de son mois et se
+    calcule comme un mois entier, avec son propre verdict de répartition."""
+    out = []
+    for p in periods_covering(start_ts, end_ts - 1, tz_name):
+        start, end = max(p["start"], start_ts), min(p["end"], end_ts)
+        if start >= end:
+            continue
+        if (start, end) != (p["start"], p["end"]):
+            p = dict(
+                p, start=start, end=end, partiel=True,
+                label=f"{p['label']} ({_jour_court(start, tz_name)} → {_jour_court(end - 1, tz_name)})",
+            )
+        out.append(p)
     return out
 
 
@@ -666,7 +700,8 @@ def taux(numerateur: float | None, denominateur: float | None) -> float | None:
 
 def compute_decompte(conn, series: list[dict], periods: list[dict],
                       tarifs: list[dict], now_ts: int,
-                      tz_name: str = TIMEZONE) -> dict:
+                      tz_name: str = TIMEZONE,
+                      fenetre: tuple[int, int] | None = None) -> dict:
     """Décompte complet : pour chaque zone et chaque mois, la part réseau et
     la part solaire autoconsommée, le taux d'autoproduction, les montants,
     et les alertes de fiabilité. Puis la synthèse d'immeuble.
@@ -675,12 +710,17 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
     séries du Miniserver quand elles sont les seules utilisables (Arlopi),
     répartition recalculée sur le compteur du lot quand elles sont
     incohérentes (Sequoia). Le total facturé reste le relevé de compteur.
+
+    `fenetre` : bornes sur lesquelles juger le bilan du bâtiment et choisir
+    les compteurs de production. Par défaut, celles de `periods`. Un export
+    passe toute la plage des données, pour qu'un mois isolé soit jugé comme
+    sur la page (un bilan sur un seul mois peut boucler par hasard).
     """
 
     zones = resolve_zones(series)
     batiment_src = resolve_batiment(series)
     if periods:
-        fenetre_debut, fenetre_fin = periods[0]["start"], periods[-1]["end"]
+        fenetre_debut, fenetre_fin = fenetre or (periods[0]["start"], periods[-1]["end"])
         actives = productions_sur_fenetre(
             conn, series, fenetre_debut, fenetre_fin, statistics=True,
         )
@@ -733,6 +773,99 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
     }
 
 
+def cumul_periodes(payload: dict, cle: str, label: str, start: int, end: int) -> dict:
+    """Décompte de plusieurs mois (`payload`, calculé sur `periodes_plage`)
+    ramené à une seule période `cle` : les kWh de chaque mois additionnés.
+    Un mois sans relevé rend le total de la zone inconnu, jamais un total
+    silencieusement incomplet. Le détail par mois reste dans
+    `payload["detail"]`."""
+    periods = payload["periodes"]
+    labels = [p["label"] for p in periods]
+
+    zones = []
+    for z in payload["zones"]:
+        entries = [z["periodes"][p["key"]] for p in periods]
+        zones.append({**z, "periodes": {cle: _cumul_zone(entries, labels)}})
+
+    bat_src = payload["batiment"]["sources"]
+    bat_mois = [payload["batiment"]["periodes"][p["key"]] for p in periods]
+    reps = [payload["repartition"].get(p["key"]) or _repartition_payload(None) for p in periods]
+    sources = {r["source"] for r in reps}
+    return {
+        **payload,
+        "periodes": [{"key": cle, "label": label, "start": start, "end": end}],
+        "zones": zones,
+        "batiment": {"sources": bat_src, "periodes": {cle: _cumul_batiment(bat_mois, labels)}},
+        "repartition": {cle: {
+            "source": sources.pop() if len(sources) == 1 else "mixte",
+            "confiance_verifiee": all(r["confiance_verifiee"] for r in reps),
+            "raisons": [f"{lbl} : {r_}" for lbl, r in zip(labels, reps) for r_ in r["raisons"]],
+        }},
+        "detail": {
+            "periodes": periods,
+            "zones": payload["zones"],
+            "repartition": payload["repartition"],
+        },
+    }
+
+
+def _somme_ou_rien(values: list) -> float | None:
+    return None if any(v is None for v in values) else sum(values)
+
+
+def _cumul_lecture(blocks: list[dict], labels: list[str]) -> dict:
+    return {
+        "kwh": _somme_ou_rien([b["kwh"] for b in blocks]),
+        "releve_debut": blocks[0].get("releve_debut"),
+        "releve_debut_ts": blocks[0].get("releve_debut_ts"),
+        "releve_fin": blocks[-1].get("releve_fin"),
+        "releve_fin_ts": blocks[-1].get("releve_fin_ts"),
+        "alertes": [f"{lbl} : {a}" for lbl, b in zip(labels, blocks) for a in b.get("alertes") or []],
+    }
+
+
+def _cumul_zone(entries: list[dict], labels: list[str]) -> dict:
+    reseau = _cumul_lecture([e["reseau"] for e in entries], labels)
+    solaire = _cumul_lecture([e["solaire"] for e in entries], labels)
+    total = _somme_ou_rien([e["total"] for e in entries])
+    tarif = entries[0]["tarif"]
+    return {
+        "reseau": reseau,
+        "solaire": solaire,
+        "controle": _cumul_lecture([e["controle"] for e in entries], labels),
+        "total": total,
+        "taux_autoproduction": taux(solaire["kwh"], total),
+        "en_cours": any(e["en_cours"] for e in entries),
+        "facturable": all(e["facturable"] for e in entries),
+        "tarif": tarif,
+        "tarifs_differents": any(e["tarif"] != tarif for e in entries),
+        "montants": montants(reseau["kwh"], solaire["kwh"], tarif),
+        "alertes": [f"{lbl} : {a}" for lbl, e in zip(labels, entries) for a in e["alertes"]],
+    }
+
+
+def _cumul_batiment(mois: list[dict], labels: list[str]) -> dict:
+    def somme_connue(key):
+        vals = [m[key] for m in mois if m[key] is not None]
+        return sum(vals) if vals else None
+
+    production = _cumul_lecture([m["production"] for m in mois], labels)
+    autoconso = somme_connue("autoconsommation")
+    conso = somme_connue("consommation_totale")
+    prod = production["kwh"]
+    return {
+        "en_cours": any(m["en_cours"] for m in mois),
+        "production": production,
+        "autoconsommation": autoconso,
+        "achat_reseau": somme_connue("achat_reseau"),
+        "consommation_totale": conso,
+        "injection": (prod - autoconso) if (prod is not None and autoconso is not None) else None,
+        "taux_autoproduction": taux(autoconso, conso),
+        "taux_autoconsommation": taux(autoconso, prod),
+        "zones_incompletes": any(m["zones_incompletes"] for m in mois),
+    }
+
+
 def _evaluer_mois(conn, series: list[dict], zones: list[dict], p: dict,
                   bilan_fenetre: dict) -> dict:
     """`repartition.evaluer_site` sur le seul mois `p`, avec le compteur de
@@ -757,14 +890,35 @@ def repartition_du_mois(payload: dict, period_key: str) -> dict:
     return (payload.get("repartition") or {}).get(period_key) or _repartition_payload(None)
 
 
+# Wallbox de Sequoia : le compteur de facturation (« Wallbox Energizähler »)
+# démarre le 04.03.2026 à 20 h, à l'index 0. Avant, il n'y a rien à
+# facturer : 0 kWh, pas un relevé manquant (règle reprise de l'ancien
+# scripts/export_appartement.py).
+WALLBOX_LABEL_RE = re.compile(r"(?i)wallbox\s+energiz")
+WALLBOX_VALID_FROM = int(datetime(2026, 3, 4, 20, 0, tzinfo=ZoneInfo(TIMEZONE)).timestamp())
+
+
+def _lecture_zone(conn, src: dict, p: dict, now_ts: int) -> dict:
+    """Relevé d'un compteur de zone sur la période `p`."""
+    start = p["start"]
+    if WALLBOX_LABEL_RE.search(src.get("label") or ""):
+        if p["end"] <= WALLBOX_VALID_FROM:
+            return {
+                "kwh": 0.0, "releve_debut": None, "releve_fin": None,
+                "releve_debut_ts": None, "releve_fin_ts": None,
+                "alertes": [],
+            }
+        start = max(start, WALLBOX_VALID_FROM)
+    return reading_delta(conn, src["series_id"], start, p["end"], now_ts, statistics=True)
+
+
 def _zone_period(conn, zone: dict, p: dict, tarifs: list[dict], now_ts: int,
                   tz_name: str) -> dict:
     src = zone["sources"]
 
     def delta(key):
         s = src[key]
-        return reading_delta(conn, s["series_id"], p["start"], p["end"], now_ts,
-                             statistics=True) if s else _absent()
+        return _lecture_zone(conn, s, p, now_ts) if s else _absent()
 
     reseau, solaire, controle = delta("reseau"), delta("solaire"), delta("controle")
     r, s = reseau["kwh"], solaire["kwh"]
@@ -883,11 +1037,7 @@ def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
     """
 
     src = zone["sources"]
-    controle = (
-        reading_delta(conn, src["controle"]["series_id"], p["start"], p["end"], now_ts,
-                      statistics=True)
-        if src.get("controle") else _absent()
-    )
+    controle = _lecture_zone(conn, src["controle"], p, now_ts) if src.get("controle") else _absent()
     total = controle["kwh"]
     en_cours = p["end"] > now_ts
     alertes = []

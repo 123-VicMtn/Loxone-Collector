@@ -21,16 +21,17 @@ from loxone_collector.exports.decompte import (
     _POSTE_TABLES,
     _buanderie_par_zone,
     _fr,
+    _mois_label,
     _postes_du_mois,
     etat_zone,
     lignes_buanderie,
     lignes_compteurs,
+    lignes_detail,
 )
 from loxone_collector.services.billing import (
     TIMEZONE,
     parse_period_key,
     period_bounds,
-    period_label,
     repartition_du_mois,
 )
 
@@ -144,24 +145,19 @@ def _couverture_mois(payload: dict, period_key: str, entries: list) -> tuple[str
     """Libellé du mois et phrase de période, en heure suisse. Un mois en
     cours s'arrête au dernier relevé, comme sur la page."""
     tz = payload.get("timezone") or TIMEZONE
-    year, month = parse_period_key(period_key)
-    label = period_label(year, month)
-    start, end = period_bounds(year, month, tz)
-    for p in payload.get("periodes") or []:
-        if p.get("key") != period_key:
-            continue
-        label = p.get("label") or label
-        start = p.get("start", start)
-        end = p.get("end", end)
-        break
+    label, (start, end) = _mois_label(payload, period_key), _bornes_mois(payload, period_key)
 
     bat = ((payload.get("batiment") or {}).get("periodes") or {}).get(period_key) or {}
     generated = payload.get("generated_at")
     en_cours = bool(bat.get("en_cours")) or any(e.get("en_cours") for _, e in entries)
     if generated and end > generated:
         en_cours = True
+    # Une plage de dates porte déjà ses dates dans son libellé.
+    plage = bool(payload.get("detail"))
 
     if not en_cours:
+        if plage:
+            return label, "heure de Suisse"
         return label, f"{_jour(start, tz)} → {_jour(end - 1, tz)} (heure de Suisse)"
 
     stamps = []
@@ -173,6 +169,8 @@ def _couverture_mois(payload: dict, period_key: str, entries: list) -> tuple[str
     prod_ts = (bat.get("production") or {}).get("releve_fin_ts")
     if prod_ts:
         stamps.append(prod_ts)
+    if stamps and plage:
+        return label, f"dernier relevé le {_jour(max(stamps), tz)}, mois en cours"
     if stamps:
         return label, (
             f"{_jour(start, tz)} → {_jour(max(stamps), tz)} (dernier relevé, mois en cours)"
@@ -239,6 +237,20 @@ def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
         ))
     elif rep.get("source") == "loxone":
         notes.append(("Ces parts sont les mesures du Miniserver.", "note"))
+    elif rep.get("source") == "mixte":
+        notes.append((
+            "Selon le mois, ces parts sont calculées (compteur du lot réparti selon le "
+            "mix du bâtiment) ou mesurées par le Miniserver : voir la colonne « Parts "
+            "réseau / solaire » de l'onglet Détail par mois.",
+            "note",
+        ))
+    if payload.get("detail"):
+        notes.append((
+            "Chaque ligne additionne les mois de la période, détaillés dans l'onglet "
+            "Détail par mois. Un mois sans relevé laisse la case vide : le total de "
+            "la période n'est jamais incomplet en silence.",
+            "note",
+        ))
     if payload.get("reserves"):
         notes.append(("Sous réserve", "head"))
         notes.extend((ligne, "note") for ligne in payload["reserves"])
@@ -265,9 +277,14 @@ def _style_kwh(cell, value) -> None:
         cell.alignment = _ALIGN_RIGHT
 
 
+def _tarifs_differents(entries: list) -> bool:
+    return any(e.get("tarifs_differents") for _, e in entries)
+
+
 def _tarif_du_mois(entries: list) -> dict | None:
     """Un mois n'a qu'un tarif pour le site. On prend celui déjà résolu
-    sur les zones (tarif_for au début de la période)."""
+    sur les zones (tarif_for au début de la période). Sur une plage de
+    plusieurs mois, celui du premier mois (voir _tarifs_differents)."""
     for _, e in entries:
         tarif = e.get("tarif") or None
         if tarif and tarif.get("prix_reseau") is not None and tarif.get("prix_solaire") is not None:
@@ -374,15 +391,11 @@ def _points_horaires(conn, series_ids: list[str], start: int, end: int) -> dict[
 
 
 def _bornes_mois(payload: dict, period_key: str) -> tuple[int, int]:
-    tz = payload.get("timezone") or TIMEZONE
-    year, month = parse_period_key(period_key)
-    start, end = period_bounds(year, month, tz)
     for p in payload.get("periodes") or []:
-        if p.get("key") == period_key:
-            start = p.get("start", start)
-            end = p.get("end", end)
-            break
-    return start, end
+        if p.get("key") == period_key and "start" in p and "end" in p:
+            return p["start"], p["end"]
+    year, month = parse_period_key(period_key)
+    return period_bounds(year, month, payload.get("timezone") or TIMEZONE)
 
 
 def _ecrire_onglet_releves(wb: Workbook, entries: list, payload: dict, period_key: str,
@@ -673,6 +686,38 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
     )
 
 
+def _ecrire_onglet_detail(wb: Workbook, payload: dict, site: str, label: str,
+                          couverture: str) -> None:
+    """Une ligne par mois et par zone, quand l'export couvre plusieurs mois."""
+    lignes = lignes_detail(payload)
+    if not lignes:
+        return
+    colonnes = [
+        ("Mois", 30, None),
+        ("Zone", 22, None),
+        ("Consommation totale (kWh)", 18, _KWH_FMT),
+        ("Solaire (kWh)", 16, _KWH_FMT),
+        ("Réseau (kWh)", 16, _KWH_FMT),
+        ("Parts réseau / solaire", 18, None),
+        ("État", 22, "etat"),
+    ]
+    rows = [[ln["mois"], ln["zone"], _kwh_affiche(ln["total"]), _kwh_affiche(ln["solaire"]),
+             _kwh_affiche(ln["reseau"]), ln["parts"], ln["etat"]] for ln in lignes]
+    notes = [
+        ("Décompte de chaque mois de la période, calculé comme un mois seul. Le "
+         "premier et le dernier mois sont rognés aux dates demandées.", "note"),
+        ("« calculées » : compteur du lot réparti selon le mix du bâtiment ; "
+         "« Miniserver » : mesures réseau et solaire du Miniserver.", "note"),
+        ("Le tableau peut se filtrer par zone : la somme de ses mois est sa ligne "
+         "de l'onglet Électricité.", "note"),
+    ]
+    _ecrire_onglet_tableau(
+        wb, "Détail par mois", f"Détail par mois — {site}" if site else "Détail par mois",
+        f"{label}  ·  {couverture}", colonnes, rows, None, notes,
+        site, label, "Détail par mois · kWh",
+    )
+
+
 _FRAIS_COLONNES = [
     # (titre, largeur, saisie par l'utilisateur)
     ("Zone", 28, False),
@@ -839,7 +884,11 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
     elif tarif:
         origine = "Tarif enregistré pour ce site."
     else:
-        origine = "Aucun tarif enregistré pour ce mois."
+        origine = ("Aucun tarif enregistré pour cette période." if payload.get("detail")
+                   else "Aucun tarif enregistré pour ce mois.")
+    if _tarifs_differents(entries):
+        origine += (" Le tarif change pendant la période : les prix sont ceux du "
+                    "premier mois, à corriger au besoin.")
     ws.merge_cells(start_row=_PRIX_RESEAU_ROW, start_column=3, end_row=_TVA_ROW, end_column=ncol)
     note_prix = ws.cell(
         _PRIX_RESEAU_ROW, 3,
@@ -953,6 +1002,7 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
     )
     _mise_en_page(ws, ncol, last_row, _XLSX_HEADER_ROW, site, label, "Électricité · kWh et CHF")
 
+    _ecrire_onglet_detail(wb, payload, site, label, couverture)
     if postes:
         _ecrire_onglets_postes(wb, postes, site, label, couverture, taux_tva)
     _ecrire_onglet_frais(

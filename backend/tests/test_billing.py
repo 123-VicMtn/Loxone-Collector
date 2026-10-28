@@ -78,6 +78,22 @@ class TestPeriodes(unittest.TestCase):
         with self.assertRaises(ValueError):
             billing.parse_period_key("2026-P1")
 
+    def test_plage_rognee_au_jour_pres(self):
+        # Départ d'un locataire le 15.10 : du 15.01 au 15.10 inclus.
+        plage = billing.periodes_plage(ts(2026, 1, 15), ts(2026, 10, 16))
+        self.assertEqual(len(plage), 10)
+        self.assertEqual((plage[0]["start"], plage[0]["end"]), (ts(2026, 1, 15), ts(2026, 2, 1)))
+        self.assertEqual(plage[0]["label"], "Janvier 2026 (15.01 → 31.01)")
+        self.assertEqual(plage[1]["label"], "Février 2026")
+        self.assertEqual(plage[-1]["label"], "Octobre 2026 (01.10 → 15.10)")
+        self.assertEqual(plage[-1]["end"], ts(2026, 10, 16))
+
+    def test_jour_en_heure_locale(self):
+        self.assertEqual(billing.parse_jour("2026-03-29"), ts(2026, 3, 29))
+        for invalide in ("2026-02-30", "29.03.2026", "2026-3-29", ""):
+            with self.assertRaises(ValueError):
+                billing.parse_jour(invalide)
+
 
 def s(series_id, label, resource_type, apartment, state_name="total"):
     return {
@@ -1138,3 +1154,34 @@ class TestExportPostes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWallbox(unittest.TestCase):
+    """Le compteur de la Wallbox de Sequoia démarre le 04.03.2026 à 20 h :
+    avant, 0 kWh à facturer, pas un relevé manquant."""
+
+    def setUp(self):
+        self.conn = db.get_connection(":memory:")
+        self.src = {"series_id": "W:w:total", "label": "Wallbox Energizähler (total)"}
+        db.upsert_statistic_samples(self.conn, [
+            ("W:w:total", billing.WALLBOX_VALID_FROM, 0.0),
+            ("W:w:total", ts(2026, 3, 31, 23), 12.5),
+        ])
+
+    def lire(self, mois):
+        start, end = billing.period_bounds(2026, mois)
+        return billing._lecture_zone(self.conn, self.src, {"start": start, "end": end}, ts(2026, 6, 1))
+
+    def test_avant_la_mise_en_service(self):
+        lecture = self.lire(2)
+        self.assertEqual(lecture["kwh"], 0.0)
+        self.assertEqual(lecture["alertes"], [])
+
+    def test_mois_de_la_mise_en_service(self):
+        self.assertEqual(self.lire(3)["kwh"], 12.5)
+
+    def test_autre_compteur_inchange(self):
+        start, end = billing.period_bounds(2026, 2)
+        autre = {"series_id": "W:w:total", "label": "App 1 (total)"}
+        lecture = billing._lecture_zone(self.conn, autre, {"start": start, "end": end}, ts(2026, 6, 1))
+        self.assertIsNone(lecture["kwh"])
