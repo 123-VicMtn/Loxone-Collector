@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * Page / : graphiques du site affiché (mémorisé, partagé avec les
- * autres pages).
+ * autres pages) : aperçu du jour, puis historique mensuel de l'immeuble.
  * La navigation entre pages est dans shared/components/AppSidebar.vue.
  *
  * Mode avancé (Explorer) reste dans le code mais masqué : voir
@@ -16,6 +16,7 @@ import CollecteBanner from '@shared/components/CollecteBanner.vue'
 import Sidebar from '../components/Sidebar.vue'
 import ExplorerTab from '../tabs/ExplorerTab.vue'
 import ApercuTab from '../tabs/ApercuTab.vue'
+import HistoriqueMensuel from '../components/HistoriqueMensuel.vue'
 import { useExplorerSelection } from '../composables/useExplorerSelection'
 
 type TabKey = 'apercu' | 'explorer'
@@ -76,6 +77,7 @@ function confirmAdvanced() {
 
       <section v-show="activeTab === 'apercu'">
         <ApercuTab />
+        <HistoriqueMensuel />
       </section>
       <section v-show="activeTab === 'explorer'">
         <ExplorerTab :selected="selected" @clear="clearSelection" />

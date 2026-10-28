@@ -1252,6 +1252,14 @@ moteur de décompte).
   dans la page (`affiche`), sans appel au serveur ; le choix survit au
   changement de période et revient à « Tout l'immeuble » au changement
   de site.
+- **Graphiques mensuels déplacés** (même jour, point « 9.1 » de
+  l'utilisateur) : « Consommation mensuelle de l'immeuble » et « Devenir
+  de la production solaire » quittent `/decompte` pour la page
+  Graphiques (`/`), sous l'aperçu du jour, dans une section « Historique
+  mensuel » (`dashboard/components/HistoriqueMensuel.vue`, qui lit
+  `GET /api/decompte` du site affiché). `EvolutionChart.vue`,
+  `SolaireChart.vue` et leurs options (`utils/charts.ts`) sont passés de
+  `pages/decompte/` à `pages/dashboard/`.
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 

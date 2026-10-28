@@ -2,12 +2,12 @@
 /**
  * Page /decompte. Un seul calendrier (PeriodPicker) choisit la période :
  * un mois entier ou des dates libres. Le bandeau KPI, le tableau, les
- * messages et les téléchargements suivent cette période ; les deux
- * graphiques restent l'historique mois par mois.
+ * messages et les téléchargements suivent cette période. Les graphiques
+ * mensuels de l'immeuble sont sur la page Graphiques (HistoriqueMensuel).
  *
  * La liste « Zone » restreint toute la page à un appartement (départ d'un
  * locataire) : KPI, tableau, messages et téléchargements ne portent que
- * sur lui, et les graphiques de l'immeuble sont masqués.
+ * sur lui.
  *
  * Un appel à /api/decompte ramène tous les mois disponibles : choisir un
  * mois entier ne re-interroge pas le serveur. Des dates libres demandent
@@ -32,15 +32,13 @@ import GlobalBanner from '../components/GlobalBanner.vue'
 import PeriodeKpis from '../components/PeriodeKpis.vue'
 import PeriodPicker, { type Plage } from '../components/PeriodPicker.vue'
 import ZoneTable from '../components/ZoneTable.vue'
-import EvolutionChart from '../components/EvolutionChart.vue'
-import SolaireChart from '../components/SolaireChart.vue'
 
 const SITE_STORAGE_KEY = 'decompte-site'
 
 const { site: siteActif, loadSites } = useSiteActif()
 
 const currentSite = ref('')
-/** Tous les mois du site : graphiques, et période quand c'est un mois entier. */
+/** Tous les mois du site : la période, quand c'est un mois entier. */
 const payload = ref<DecomptePayload | null>(null)
 /** Mois par défaut à l'ouverture du site. */
 const periodeKey = ref('')
@@ -502,24 +500,6 @@ watch(siteActif, (name) => {
         </div>
       </Card>
 
-      <!-- Graphiques de l'immeuble : sans objet pour un seul appartement. -->
-      <Card v-if="!zoneChoisie" title="Consommation mensuelle de l'immeuble" hint="comparée à la production solaire">
-        <EvolutionChart :payload="payload" :periodes="payload.periodes" />
-        <p class="mt-4 text-sm text-neutral-500">
-          Chaque mois, la consommation de l'immeuble (somme des zones) est
-          mise à côté de la production solaire du bâtiment. Les deux barres
-          ne s'additionnent pas.
-        </p>
-      </Card>
-
-      <Card v-if="!zoneChoisie" title="Devenir de la production solaire" hint="consommé sur place ou réinjecté">
-        <SolaireChart :payload="payload" :periodes="payload.periodes" />
-        <p class="mt-4 text-sm text-neutral-500">
-          La hauteur totale de chaque barre est la production photovoltaïque du
-          mois. En vert, ce qui a été consommé dans l'immeuble ; en bleu, le
-          surplus réinjecté au réseau.
-        </p>
-      </Card>
     </template>
 
     <p v-else-if="errored" class="text-sm text-red-600">{{ loadingMessage }}</p>

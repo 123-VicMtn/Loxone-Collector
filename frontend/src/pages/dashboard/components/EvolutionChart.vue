@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Bar } from 'vue-chartjs'
-import type { DecomptePayload, Period } from '../types/decompte'
+import type { DecomptePayload, Period } from '../../decompte/types/decompte'
 import { PALETTE_GENERIC, PALETTE_SOLAR, groupedKwhOptions } from '../utils/charts'
 
 const props = defineProps<{ payload: DecomptePayload; periodes: Period[] }>()

@@ -1,5 +1,5 @@
 /**
- * Options Chart.js des graphs du décompte (barres kWh). La palette vient
+ * Options Chart.js des graphiques mensuels (barres kWh). La palette vient
  * de @shared/charts.
  */
 
