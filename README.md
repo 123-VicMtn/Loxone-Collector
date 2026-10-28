@@ -1,193 +1,121 @@
 # Loxone Collector
 
-Petit serveur web autonome pour Raspberry Pi qui interroge périodiquement un
-ou plusieurs Miniservers Loxone en local, stocke l'historique en SQLite, et
-propose un dashboard web avec graphs (Chart.js) pour consulter les données.
+Collecte les compteurs de plusieurs Miniservers Loxone (électricité, eau,
+chauffage), les garde en SQLite et établit les décomptes de charges par
+appartement : part réseau et part solaire autoconsommée, chauffage, eau
+chaude, buanderie. Export Excel et CSV, sur un mois ou des dates libres.
 
-Pensé pour tourner en continu sur un **Raspberry Pi 4B (2 Go RAM) avec une
-carte SD 32 Go** : un seul process Python (Flask + thread de poll), pas de
-base de données externe, écritures SQLite limitées et historique
-auto-résumé pour ne pas remplir la carte SD.
+Deux parties indépendantes :
 
-Ce projet est la brique de collecte de données du projet plus large
-"MCP-Loxone" (récupération des valeurs de plusieurs miniservers pour ensuite
-générer des factures / décomptes de charges) : les données historisées ici
-(notamment les compteurs d'énergie) pourront être exploitées plus tard pour
-calculer ces décomptes.
+- **`backend/`** : API JSON en Python (Flask). Lit les Miniservers, stocke
+  les relevés, calcule les décomptes.
+- **`frontend/`** : application web (Vue 3, TypeScript, Tailwind) qui
+  consomme l'API : graphiques, liste des compteurs, décompte, classification.
 
-## Fonctionnement en un coup d'œil
+L'historique des décisions et le détail du fonctionnement sont dans
+[`CLAUDE.md`](CLAUDE.md).
 
-1. Au démarrage, pour chaque miniserver configuré, le poller télécharge le
-   fichier de structure de l'installation (`/data/LoxAPP3.json`) et en
-   extrait tous les points mesurables (capteurs, compteurs, températures de
-   pièce, ...).
-2. Toutes les `poll_interval_seconds` (60s par défaut), il relit la valeur
-   courante de chaque point via l'API locale (`/jdev/sps/io/<uuid>`) et
-   l'écrit en SQLite.
-3. Une fois par jour, les données brutes plus vieilles que
-   `raw_retention_days` (30 jours par défaut) sont résumées en moyennes
-   horaires puis supprimées, pour borner la taille de la base.
-4. Le dashboard web (Flask) lit cette base SQLite et affiche des graphs
-   (Chart.js, servi en local, aucune dépendance internet nécessaire une
-   fois installé).
-5. Chaque capteur est aussi classé automatiquement par appartement et type
-   de ressource (voir section suivante), pour un dashboard organisé façon
-   Climkit : appartement > type de ressource > capteur.
+## Prérequis
 
-## Classification par appartement / type de ressource
+- Python 3.9 ou plus récent
+- Node.js 20.19 ou 22.12 et plus récent (pour le frontend)
+- Un accès aux Miniservers : en réseau local, ou à distance par le Cloud DNS
+  Loxone. Idéalement avec un utilisateur Loxone en lecture seule.
 
-Loxone ne fournit pas de métadonnée "appartement" ou "type de ressource" —
-seul le nom du capteur, tel que défini dans Loxone Config, est disponible.
-Le projet devine ces deux informations automatiquement à chaque poll :
+## Installation
 
-- **Appartement** : extrait par expression régulière depuis le nom du
-  capteur. Par défaut, reconnaît un motif `APPxx` (`APP01`, `App 12`, ...),
-  qui d'après l'installation en place est la seule convention qui se répète
-  de façon fiable.
-- **Type de ressource** (eau chaude/froide, énergie solaire/réseau/injectée/
-  consommée) : deviné par mots-clés dans le nom (`ECS`, `PV`, `réseau`,
-  ...), avec un fallback raisonnable ("Meter" sans mot-clé reconnu =
-  énergie consommée générique).
-
-Ces règles sont **best-effort** : vu l'absence de convention de nommage
-fiable côté Loxone, il ne faut pas s'attendre à 100% de réussite d'entrée
-de jeu. Les règles (regex) sont personnalisables dans `config.yaml` (voir
-`config.example.yaml`, section commentée en bas du fichier) si les valeurs
-par défaut ne correspondent pas à ta nomenclature.
-
-Pour corriger les cas mal classés (ou en ajouter manuellement), va sur
-**`http://<ip-du-pi>:8080/admin`** : chaque capteur y est listé avec un
-champ appartement (texte libre, avec autocomplétion sur les appartements
-déjà connus) et un menu déroulant type de ressource. Une fois enregistrée,
-une correction manuelle est mémorisée et **n'est plus jamais écrasée** par
-la reclassification automatique du poller (marquée "manuel" dans la table) ;
-le bouton ↺ permet de revenir à la classification automatique si besoin.
-
-Le dashboard principal (`/`) regroupe par défaut les capteurs par
-**appartement puis type de ressource**. Le lien "Par pièce" en haut de la
-barre latérale bascule sur l'ancien regroupement par pièce Loxone.
-
-## Installation sur le Raspberry Pi
-
-Système recommandé : Raspberry Pi OS Lite (64 bits), sans interface
-graphique, pour économiser la RAM disponible sur les 2 Go.
+Depuis la racine du dépôt :
 
 ```bash
-sudo apt update && sudo apt install -y python3-venv python3-pip git
-
-# Récupère le projet sur le Pi (copie ce dossier, ou clone ton propre dépôt git)
-cd /home/pi
-# ... copier/cloner loxone-collector ici ...
-cd loxone-collector
-
-# Le venv reste à la racine du repo, le code applicatif est sous backend/
-# (voir CLAUDE.md, "Nettoyage de la structure du backend")
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r backend/requirements.txt -r backend/requirements-websocket.txt
+pip install -e backend
 
-cd backend
-cp config.example.yaml config.yaml
-cp .env.example .env
-nano .env          # renseigne les identifiants Loxone
-nano config.yaml   # adapte host/port/nom du ou des miniservers
+npm --prefix frontend install
 ```
 
-### Créer un utilisateur Loxone dédié (recommandé)
-
-Dans Loxone Config, crée un utilisateur avec le droit "Visualisation"
-uniquement (lecture seule), plutôt que d'utiliser le compte admin dans ce
-service. Cela limite les dégâts en cas de fuite des identifiants stockés sur
-le Pi.
-
-### Test manuel
+Configuration, dans `backend/` :
 
 ```bash
-source .venv/bin/activate
 cd backend
-python app.py
+cp config.example.yaml config.yaml   # sites à suivre
+cp .env.example .env                 # identifiants et SECRET_KEY
+python3 -c "import secrets; print(secrets.token_hex(32))"   # valeur de SECRET_KEY
 ```
 
-`http://<ip-du-pi>:<port>/health` donne l'état du dernier cycle de poll par
-miniserver (utile pour diagnostiquer un souci d'identifiants/réseau). Le
-backend est une API JSON pure (voir CLAUDE.md, "Backend 100% API") -- le
-dashboard lui-même est servi séparément par le frontend Vue (`frontend/`,
-voir CLAUDE.md pour son propre déploiement).
+Les mots de passe ne vont jamais dans `config.yaml` : on y écrit `${NOM}`,
+et la valeur va dans `.env` (non versionné).
 
-### Démarrage automatique (systemd)
+Créer un compte pour se connecter (pas d'inscription en ligne) :
 
 ```bash
-sudo cp backend/scripts/loxone-collector.service /etc/systemd/system/
-sudo nano /etc/systemd/system/loxone-collector.service   # vérifie User/chemins
-sudo systemctl daemon-reload
-sudo systemctl enable --now loxone-collector
-sudo systemctl status loxone-collector
-journalctl -u loxone-collector -f     # logs en direct
+python3 scripts/create_admin_user.py config.yaml
 ```
 
-## Authentification avancée / si l'API refuse le Basic Auth
+Deux rôles : `admin` (tous les sites, modifications) et `user` (lecture
+seule, sites accordés). Le même script liste, supprime et donne accès aux
+sites (`--help`).
 
-Ce projet utilise l'API locale HTTP documentée par Loxone (Basic Auth +
-`/jdev/sps/io/<uuid>`), qui fonctionne sur la plupart des installations en
-réseau local. Si ton Miniserver renvoie une 401 malgré des identifiants
-corrects (certains firmwares récents peuvent imposer une authentification
-Websocket chiffrée par token pour un accès "sécurisé"), deux options :
+## Lancer en développement
 
-- Vérifie dans Loxone Config (Miniserver > Général > options réseau/sécurité)
-  qu'un accès local non chiffré n'est pas explicitement désactivé.
-- Si nécessaire, remplace `loxone_client.py` par une implémentation basée
-  sur la librairie `pyloxone-api` (utilisée par l'intégration Loxone de
-  Home Assistant), qui gère l'échange de clé RSA/AES et les tokens. La
-  structure du reste du projet (base SQLite, dashboard, API `/api/series`)
-  reste inchangée : seule la façon d'obtenir `structure` et `values` change.
+Deux terminaux :
 
-## Ménager la carte SD (32 Go)
+```bash
+# 1. API, depuis backend/
+python3 app.py config.yaml
 
-Quelques principes déjà appliqués par défaut, à connaître si tu ajustes la
-config :
+# 2. Frontend, depuis la racine
+npm --prefix frontend run dev        # http://localhost:5173
+```
 
-- **Mode WAL + `synchronous=NORMAL`** : moins de `fsync` qu'en mode SQLite
-  par défaut.
-- **Résumé horaire automatique** (`raw_retention_days`) : les données brutes
-  minute par minute ne s'accumulent pas indéfiniment ; l'historique long
-  terme (utile pour les décomptes de charges) est conservé sous forme de
-  moyennes horaires, qui pèsent beaucoup moins lourd.
-- **`checkpoint_wal` quotidien** : évite que le fichier `loxone.db-wal` ne
-  grossisse indéfiniment entre deux VACUUM.
-- **`backend/scripts/vacuum_db.py`** : à lancer une fois par mois (cron) pour
-  compacter le fichier `.db` — pas plus souvent, car c'est une opération
-  qui réécrit toute la base.
-- Ordres de grandeur : avec ~50 capteurs suivis, un poll toutes les 60s
-  produit environ 50 × 1440 = 72 000 lignes brutes par jour, résumées après
-  30 jours en 50 × 24 = 1 200 lignes horaires/jour. Sur plusieurs années,
-  la base reste de l'ordre de quelques centaines de Mo, largement gérable
-  sur une carte 32 Go.
-- Si tu veux aller plus loin : déplacer `db_path` vers une clé USB ou un
-  SSD externe (via `config.yaml`) réduit encore l'usure de la carte SD sur
-  le très long terme — pas indispensable au démarrage.
+Le frontend redirige `/api` et `/health` vers l'API. L'adresse se règle
+dans `frontend/.env.local` (`VITE_API_PROXY_TARGET`, par défaut
+`http://localhost:5050`).
 
-## API JSON
+L'API ne recharge pas le code toute seule : la redémarrer après chaque
+modification Python ou de configuration.
 
-- `GET /api/series` — liste des capteurs suivis (id, label, pièce,
-  catégorie, unité, appartement, type de ressource).
-- `GET /api/series/<series_id>/data?range=24h` — points `{ts, value}` pour
-  une série. `range` accepte `1h`, `24h`, `7d`, `30d`, `1y`, ou bien
-  `start`/`end` en timestamps Unix explicites.
-- `POST /api/series/<series_id>/classify` — corrige la classification d'un
-  capteur. Body JSON `{"apartment": "APP01", "resource_type": "eau_chaude"}`
-  (un seul des deux champs suffit), ou `{"reset": true}` pour revenir à la
-  classification automatique. Utilisé par la page `/admin`.
-- `GET /health` — dernier statut de poll par miniserver.
+### Sans Miniserver : la démo
 
-Cette API peut être réutilisée plus tard par le module de génération de
-factures/décomptes de charges du projet MCP-Loxone (ex: agréger les valeurs
-d'un compteur d'énergie sur une période de facturation).
+```bash
+cd backend
+python3 scripts/seed_demo_data.py config.demo.yaml   # données synthétiques
+python3 scripts/create_admin_user.py config.demo.yaml
+python3 app.py config.demo.yaml                      # API sur le port 8082
+```
 
-## Étendre / prochaines étapes possibles
+## Tests
 
-- Export CSV/Excel d'une plage de données pour construire les décomptes de
-  charges.
-- Alertes (email/notification) si un miniserver ne répond plus
-  (`last_poll_ok` dans `/health`).
-- Authentification sur le dashboard web si le Pi est exposé au-delà du
-  réseau local (actuellement pensé pour un usage strictement LAN).
+```bash
+cd backend
+../.venv/bin/ruff check .
+../.venv/bin/python3 -m pytest -q
+
+npm --prefix ../frontend run build   # vérifie aussi les types
+```
+
+## Scripts utiles (`backend/scripts/`)
+
+| Script | Usage |
+|---|---|
+| `create_admin_user.py` | Gérer les comptes et leurs sites |
+| `backfill_statistics.py` | Importer l'historique d'un Miniserver (combler un trou de collecte : `--since AAAA-MM-JJ`) |
+| `diagnose_auth.py`, `diagnose_websocket.py` | Tester la connexion à un Miniserver |
+| `check_statistics.py` | Voir quels compteurs ont un historique sur le Miniserver |
+| `audit_repartition.py` | Dossier de preuve quand la répartition solaire de Loxone est fausse |
+| `vacuum_db.py` | Compacter la base (manuel, une fois par mois) |
+
+## Production
+
+- **API** : service systemd, modèle dans `backend/scripts/loxone-collector.service`
+  (utilisateur et chemins à adapter).
+- **Frontend** : `npm --prefix frontend run build`, puis servir
+  `frontend/dist/` comme un site statique. Le serveur doit renvoyer
+  `index.html` pour toute route inconnue, et transmettre `/api` et
+  `/health` à l'API.
+- `GET /health` (public) indique si chaque site remonte encore des données,
+  pour une supervision externe.
+
+Le déploiement complet (reverse proxy Caddy, serveur WSGI) n'est pas
+encore en place.

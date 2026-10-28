@@ -613,9 +613,10 @@ fonctionnement d'abord, revenir sur la structure ensuite.
   feature (disperserait une connexion SQLite unique et son schéma à
   travers plusieurs fichiers pour un gain moins net à cette taille de
   projet) -- à revisiter seulement s'il continue à grossir.
-- `README.md` reste partiellement daté (framing Raspberry Pi, ne mentionne
-  pas le frontend Vue ni l'authentification) -- signalé lors du nettoyage
-  de structure du 2026-09-24, pas repris.
+- `README.md` réécrit le 2026-10-28 (demande de l'utilisateur : simple) :
+  rôle du projet, installation, lancement, démo, tests, scripts utiles,
+  production. Le détail reste dans ce fichier. `frontend/README.md` est
+  encore le modèle Vite d'origine.
 
 ### Terrain / installateur (hors code, à relancer si besoin)
 
