@@ -52,7 +52,8 @@ datées ci-dessous, écrites avant ce déplacement) désigne le fichier sous
   Une barre latérale commune (`shared/components/AppSidebar.vue`,
   montée dans `App.vue`, absente de `/login`), en deux parties :
   **Équipements** (Communication, Matériels) et **Outils** (Graphiques,
-  Décompte, Classification pour un admin). Le compte est en bas.
+  Décompte). Classification est masquée (`SHOW_CLASSIFICATION` dans
+  `AppSidebar.vue`) ; `/admin` reste en place pour un admin. Le compte est en bas.
   Le site affiché est mémorisé (`site-actif`) et partagé par les outils
   et la liste de matériels.
   Fixe à partir de 1024 px ; en dessous, tiroir ouvert depuis une barre
@@ -1401,8 +1402,11 @@ le 14.10) :
 
 La barre du haut (`AppNavbar.vue`) est une barre latérale
 (`shared/components/AppSidebar.vue`), en deux parties : Équipements
-(Communication, Matériels) et Outils (Graphiques, Décompte,
-Classification). Le site affiché est mémorisé (`site-actif`) et sert
+(Communication, Matériels) et Outils (Graphiques, Décompte).
+Classification est masquée depuis le 2026-10-28
+(`SHOW_CLASSIFICATION` dans `AppSidebar.vue`, `false`) : la page
+`/admin` et sa route restent, le lien n'est plus dans la barre. Le
+site affiché est mémorisé (`site-actif`) et sert
 aux outils et à la liste de matériels. À partir
 de 1024 px elle reste affichée et le contenu est décalé d'autant. En
 dessous, une barre avec le bouton menu ouvre un tiroir (fermeture au
