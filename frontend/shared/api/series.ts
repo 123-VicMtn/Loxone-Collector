@@ -4,12 +4,23 @@
  * seule fois par chargement de page -- port direct de core/api.js.
  */
 
+import { watch } from 'vue'
 import { fetchJSON, postJSON } from './http'
+import { authState } from '../auth'
 import type { ReadingDelta, Series } from '../types/series'
 
 let allSeries: Series[] = []
 let loaded = false
 let inflight: Promise<Series[]> | null = null
+
+// Changement de compte sans recharger la page : les compteurs du compte
+// précédent (autres sites, autres clients) ne doivent pas rester en cache.
+watch(() => authState.username, (nouveau, ancien) => {
+  if (nouveau === ancien) return
+  allSeries = []
+  loaded = false
+  inflight = null
+})
 
 /** Charge (une seule fois, puis depuis le cache) la liste de tous les
  * capteurs connus. */
@@ -20,6 +31,9 @@ export async function loadAllSeries(): Promise<Series[]> {
       allSeries = data
       loaded = true
       return data
+    }).catch((err) => {
+      inflight = null  // un échec n'est pas gardé : le prochain appel réessaie
+      throw err
     })
   }
   return inflight

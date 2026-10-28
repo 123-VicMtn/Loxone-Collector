@@ -32,9 +32,13 @@ const labels = ref<Record<string, string>>({})
 const groupMode = ref<'apartment' | 'room'>('apartment')
 
 onMounted(async () => {
-  const [series, labelMap] = await Promise.all([loadAllSeries(), loadResourceTypeLabels()])
-  allSeries.value = series
-  labels.value = labelMap
+  try {
+    const [series, labelMap] = await Promise.all([loadAllSeries(), loadResourceTypeLabels()])
+    allSeries.value = series
+    labels.value = labelMap
+  } catch (err) {
+    console.error(err)  // la liste reste vide ; la page affiche ses propres messages
+  }
 })
 
 const bySite = computed(() => {

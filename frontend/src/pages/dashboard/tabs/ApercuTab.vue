@@ -34,6 +34,8 @@ const allSeries = ref<Series[]>([])
 const { site } = useSiteActif()
 const balance = ref<DayBalance | null>(null)
 const loading = ref(true)
+/** Texte montré à l'utilisateur ; le détail technique part dans la console. */
+const erreur = ref('')
 const powerLoading = ref(false)
 const powerError = ref('')
 const powerMissing = ref(0)
@@ -193,7 +195,17 @@ async function refresh() {
 }
 
 onMounted(async () => {
-  allSeries.value = await loadAllSeries()
+  try {
+    allSeries.value = await loadAllSeries()
+  } catch (err) {
+    // Sans ce catch, la promesse rejetée n'était attrapée par personne
+    // (« Unhandled error during execution of mounted hook ») et l'aperçu
+    // restait sur « Calcul depuis minuit… ».
+    console.error(err)
+    erreur.value = 'Les compteurs n\'ont pas pu être chargés. Réessayez dans quelques minutes.'
+    loading.value = false
+    return
+  }
   if (site.value) void refresh()
   else loading.value = false
 })
@@ -206,6 +218,7 @@ watch(site, (name) => {
 <template>
   <div>
     <p v-if="loading" class="text-sm text-neutral-500">Calcul depuis minuit…</p>
+    <p v-else-if="erreur" class="text-sm text-red-700">{{ erreur }}</p>
 
     <div v-else-if="balance" class="flex flex-col gap-4">
       <div class="grid w-full grid-cols-2 content-start gap-3 sm:grid-cols-4">

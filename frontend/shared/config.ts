@@ -17,6 +17,9 @@ export async function loadResourceTypeLabels(): Promise<Record<string, string>> 
     inflight = fetchJSON<Record<string, string>>('/api/resource-types').then((data) => {
       cache = data
       return data
+    }).catch((err) => {
+      inflight = null  // un échec n'est pas gardé : le prochain appel réessaie
+      throw err
     })
   }
   return inflight
