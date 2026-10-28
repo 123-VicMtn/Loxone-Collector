@@ -96,44 +96,27 @@ def reprendre_statistiques_archivees(conn, series_id: str) -> int:
     return db.upsert_statistic_samples(conn, rows)
 
 
-def _a_rafraichir(conn, series_id: str, start_ts: int | None, end_ts: int | None,
-                  now_ts: int) -> bool:
+def _a_rafraichir(conn, series_id: str, now_ts: int) -> bool:
     """Faut-il rappeler le Miniserver pour cette série ?"""
     if (db.statistic_unavailable_fresh(conn, series_id, now_ts)
             and db.statistic_max_ts(conn, series_id) is not None):
         return False
     last = db.statistic_max_ts(conn, series_id)
-    horizon = min(end_ts, now_ts) if end_ts else now_ts
-    if last is None or last < horizon - FRAICHEUR_S:
-        return True
-    if start_ts is not None and db.query_statistic_at(conn, series_id, start_ts) is None:
-        return True
-    return False
+    return last is None or last < now_ts - FRAICHEUR_S
 
 
 def sync_decompte(cfg, conn, ms_name: str, series: list[dict], now_ts: int,
-                  start_ts: int | None = None, end_ts: int | None = None,
-                  toutes_les_series: bool = False, postes: bool = False) -> dict:
-    """Importe les index Statistics des compteurs du décompte.
-
-    `toutes_les_series` : tous les total/totalNeg du site (export CLI, qui
-    couvre aussi l'eau et le chauffage). `postes` : séries du décompte
-    électrique plus chauffage, eau chaude et buanderie (export web). Sinon,
-    seulement les séries du décompte électrique.
+                  postes: bool = False) -> dict:
+    """Importe jusqu'à `now_ts` les index Statistics des compteurs du
+    décompte. `postes` : aussi le chauffage, l'eau chaude et la buanderie.
+    Une série jamais importée l'est depuis le début de son historique.
 
     Ne lit pas `readings`. Si le Miniserver ne répond pas, `ok` est False
     et les échantillons déjà en base restent utilisables.
     """
-    if toutes_les_series:
-        targets = [
-            s for s in series
-            if s.get("state_name") in ("total", "totalNeg")
-        ]
-    else:
-        targets = series_du_decompte(series, postes=postes)
     besoin = [
-        s for s in targets
-        if _a_rafraichir(conn, s["series_id"], start_ts, end_ts, now_ts)
+        s for s in series_du_decompte(series, postes=postes)
+        if _a_rafraichir(conn, s["series_id"], now_ts)
     ]
     if not besoin:
         return {"ok": True, "erreur": None, "series": 0, "points": 0}
@@ -173,15 +156,8 @@ def sync_decompte(cfg, conn, ms_name: str, series: list[dict], now_ts: int,
                 continue
 
             last = db.statistic_max_ts(conn, s["series_id"])
-            ouverture_manquante = (
-                start_ts is not None
-                and db.query_statistic_at(conn, s["series_id"], start_ts) is None
-            )
-            if last is None or ouverture_manquante:
-                from_ts = active_since
-            else:
-                from_ts = max(active_since, last - 3600)
-            to_ts = max(now_ts, end_ts or now_ts)
+            from_ts = active_since if last is None else max(active_since, last - 3600)
+            to_ts = now_ts
             if from_ts >= to_ts:
                 continue
             try:

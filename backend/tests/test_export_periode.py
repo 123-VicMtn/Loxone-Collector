@@ -1,7 +1,6 @@
 """
 Export du décompte sur une période choisie (`du` / `au`) : plusieurs mois,
-ou des dates quelconques (départ d'un locataire le 15). Remplace
-scripts/export_appartement.py.
+ou des dates quelconques (départ d'un locataire le 15).
 
 Site « Ref » (tests/site_reference.py) : septembre sur les séries du
 Miniserver, octobre en répartition recalculée, App 2 sans relevé en octobre.

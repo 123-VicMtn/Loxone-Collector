@@ -35,9 +35,8 @@ from loxone_collector.services.billing import (
     repartition_du_mois,
 )
 
-# Mise en page du classeur téléchargé. Même famille visuelle que
-# scripts/export_appartement.py : le fichier doit s'ouvrir déjà lisible,
-# sans élargir les colonnes ni deviner le site et le mois.
+# Mise en page du classeur téléchargé : le fichier doit s'ouvrir déjà
+# lisible, sans élargir les colonnes ni deviner le site et la période.
 # Colonnes de l'onglet Électricité : (titre, largeur). La colonne
 # buanderie n'existe que si le mois en a une, d'où des positions
 # calculées et non figées.

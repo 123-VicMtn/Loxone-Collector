@@ -150,9 +150,8 @@ RESERVES_ZONES = {
 # heures dans la fenêtre — sinon le bilan n'a aucune production et le
 # décompte reste sur les séries Grid/Solaire.
 SOLAIRE_BATIMENT_RE = re.compile(r"(?i)^solaire \(total\)$")
-# Précision des parts réseau/solaire recalculées : la même que
-# scripts/export_appartement.py, pour que réseau + solaire = consommation
-# à l'affichage près.
+# Précision des parts réseau/solaire recalculées : celle de l'affichage,
+# pour que réseau + solaire = consommation à l'affichage près.
 KWH_DECIMALES = 2
 
 
@@ -466,9 +465,7 @@ RUPTURE_MIN_DROP_EAU_M3 = 0.05
 def min_drop_for_resource_type(resource_type: str | None) -> float:
     """Seuil de détection de rupture adapté à l'échelle du type de
     ressource : un compteur d'eau (m^3) a des incréments bien plus petits
-    qu'un compteur d'énergie (kWh) -- reprend la distinction déjà encodée
-    par poste de facturation dans scripts/export_appartement.py::RULES.
-    Utilisé par la route générique /api/series/<id>/range (dashboard),
+    qu'un compteur d'énergie (kWh). Utilisé par la route générique /api/series/<id>/range (dashboard),
     qui sert aussi bien des séries eau que chauffage/énergie."""
     if resource_type and resource_type.startswith("eau_"):
         return RUPTURE_MIN_DROP_EAU_M3
@@ -488,8 +485,8 @@ def reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
 
     `min_drop` est le seuil de détection d'une rupture de compteur, dans
     l'unité de la série : la valeur par défaut est calibrée pour des kWh, un
-    compteur d'eau en m^3 demande un seuil plus fin (voir
-    scripts/export_appartement.py).
+    compteur d'eau en m^3 demande un seuil plus fin
+    (`min_drop_for_resource_type`).
 
     `statistics=True` : l'index vient des Statistics du Miniserver
     (`statistic_samples`), pas du collecteur. C'est le mode des décomptes.
@@ -546,9 +543,6 @@ def reading_delta(conn, series_id: str, start_ts: int, end_ts: int,
         res["kwh"] = None
     return res
 
-
-# scripts/export_appartement.py appelle encore ce nom.
-_reading_delta = reading_delta
 
 
 def delta_compteurs_successifs(conn, sources: list[dict], start_ts: int, end_ts: int,
@@ -892,8 +886,7 @@ def repartition_du_mois(payload: dict, period_key: str) -> dict:
 
 # Wallbox de Sequoia : le compteur de facturation (« Wallbox Energizähler »)
 # démarre le 04.03.2026 à 20 h, à l'index 0. Avant, il n'y a rien à
-# facturer : 0 kWh, pas un relevé manquant (règle reprise de l'ancien
-# scripts/export_appartement.py).
+# facturer : 0 kWh, pas un relevé manquant.
 WALLBOX_LABEL_RE = re.compile(r"(?i)wallbox\s+energiz")
 WALLBOX_VALID_FROM = int(datetime(2026, 3, 4, 20, 0, tzinfo=ZoneInfo(TIMEZONE)).timestamp())
 

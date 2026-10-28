@@ -364,18 +364,17 @@ injection)`, appliquée à la consommation mesurée du lot.
   sinon le compteur de contrôle d'un lot de Sequoia était son compteur de
   chaleur.
 
-**Exports CLI** :
+**Exports** :
 
-- `scripts/export_appartement.py` : un appartement, ou `--tous` (décompte
-  consolidé, `--recap-seul` pour un seul fichier, `--from-mois`,
-  `--to-mois`, `--tva`). Sorties `docs/Decompte <site> <de> a <à>.xlsx` +
-  CSV. L'onglet « Décompte » a des prix unitaires modifiables et des
-  formules HT/TVA/TTC vivantes.
+- Le décompte s'exporte depuis `/decompte` (Excel + CSV, un mois ou des
+  dates libres). L'ancien CLI `scripts/export_appartement.py` a été
+  supprimé le 2026-10-28 (voir « Décompte sur des dates libres »).
 - `scripts/audit_repartition.py` : dossier de preuve pour l'installateur
   (`docs/Anomalie repartition solaire <site> ...xlsx`), bâti sur les heures
   où l'index d'achat du bâtiment ne bouge pas, donc sans aucun modèle de
   notre part.
-- Pièges déjà rencontrés dans ces scripts :
+- Pièges déjà rencontrés dans ces scripts (les deux premiers dans l'ancien
+  CLI, toujours valables pour tout export par compteur) :
   - la clé d'un compteur est `<rôle>:<series_id>`, pas le nom de la règle
     (trois compteurs de chaleur des communs s'écrasaient : 484 kWh au lieu
     de 3 495,25) ;
@@ -1014,7 +1013,7 @@ correction de l'installateur (09.09.2026) condamnaient aussi les suivants
   passer les mois corrigés sur les séries Loxone : **décision de
   l'utilisateur en attente**. Le recalcul reste juste dans tous les cas.
 - `scripts/export_appartement.py` (CLI) garde son propre verdict sur la
-  plage demandée, non modifié.
+  plage demandée, non modifié. (Script supprimé le 2026-10-28.)
 - **Synchro Statistics automatique** (2026-10-26) : thread `statistics-sync`
   dans `app.py`, toutes les `statistics_sync_hours` heures (défaut 6, 0 =
   off, 0 dans `config.demo.yaml`), première passe 120 s après le
@@ -1197,6 +1196,45 @@ et une page bloquée par un site injoignable).
   rechargé sans écran de chargement et le mois choisi est gardé. Un échec
   du Miniserver passe par le bandeau « Relevés pas à jour ».
 
+## Décompte sur des dates libres — 2026-10-28
+
+Besoin de l'utilisateur : des décomptes sur plusieurs mois, et sur des
+dates quelconques (départ d'un locataire en cours de mois). Porté dans
+l'API, puis `scripts/export_appartement.py` supprimé (plus aucun double
+moteur de décompte).
+
+- **Calcul** : `billing.periodes_plage(start, end)` découpe la période en
+  mois calendaires, le premier et le dernier rognés aux dates. Chaque
+  morceau est calculé comme un mois de la page (son verdict de
+  répartition ; bilan du bâtiment jugé sur toute la plage des données via
+  `compute_decompte(..., fenetre=...)`), puis `billing.cumul_periodes`
+  additionne. **Un mois sans relevé laisse le total de la zone vide**
+  (règle reprise du CLI : jamais un total incomplet en silence). Verdict
+  `"mixte"` si les mois n'ont pas la même source. Chauffage, eau chaude,
+  buanderie : index de fin − index de début sur toute la période.
+- **API** : `GET /api/decompte?du=YYYY-MM-DD&au=YYYY-MM-DD` (`au` inclus,
+  heure de Suisse ; réponse ramenée à une période, `periode_cle`), et
+  `export.xlsx` / `export.csv` avec `du` / `au` ou `mois`. 400 si date
+  invalide, fin avant début, plus de 36 mois (`EXPORT_MAX_MOIS`) ou aucune
+  donnée. Un export d'un mois est identique à avant (référence inchangée).
+  Classeur et CSV : onglet / section « Détail par mois » pour une plage.
+- **Page** : un seul calendrier (`decompte/components/PeriodPicker.vue`,
+  sans dépendance) : premier jour puis dernier jour, ou « Tout le mois ».
+  KPI, tableau, messages et téléchargements suivent la période ; les deux
+  graphiques restent l'historique mensuel. Un mois entier lit le payload
+  déjà chargé ; des dates libres appellent l'API.
+- Comparaison avec le CLI avant suppression (copie de la base de prod) :
+  identique sur Sequoia (janv.-août, août-oct.) ; Arlopy nov.-juil. :
+  l'API est juste, le CLI recalculait à tort (verdict sur la seule plage,
+  limite connue de `bilan_exploitable`) ; La Calbasse : le CLI ignorait la
+  PAC. La règle Wallbox (0 kWh avant le 04.03.2026,
+  `billing.WALLBOX_VALID_FROM`) est passée dans `billing` : la page la
+  montrait en « données incomplètes » de janvier à mars 2026.
+- Perdu avec le CLI, non repris (pas demandé) : un classeur par
+  appartement, l'eau froide, le volume de chauffage et les compteurs de
+  contrôle dans les classeurs. `sync_decompte` a perdu `toutes_les_series`,
+  `start_ts` et `end_ts`, qui ne servaient plus.
+
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
 **La Calbasse est le premier site avec une configuration Loxone
@@ -1260,8 +1298,8 @@ site concerné sera renommé :
 - `lotConsumptionSeries` : exclusions `cenergie`, `nrmachine`, `zähler`,
   `déjà mesuré`, `mesuré aussi` (Sequoia).
 - Côté Python : `billing.resolve_zones` / `resolve_batiment` /
-  `resolve_postes`, `CONTROLE_EXCLUDE_RE`, `ZONE_LABEL_OVERRIDES`, les
-  `RULES` de `scripts/export_appartement.py`, et le motif d'appartement
+  `resolve_postes`, `CONTROLE_EXCLUDE_RE`, `ZONE_LABEL_OVERRIDES`,
+  `WALLBOX_LABEL_RE`, et le motif d'appartement
   de `classification.py` (qui reconnaît déjà `APPxx` et `Commun`).
 
 **`/decompte` sur La Calbasse, vérifié le 2026-10-27** (Statistics depuis
