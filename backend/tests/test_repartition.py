@@ -363,6 +363,79 @@ class TestEvaluerSite(Base):
         self.assertFalse(repartition.bilan_exploitable({"ecart_pct": 138.7}))
         self.assertFalse(repartition.bilan_exploitable({"ecart_pct": None}))
 
+    def _series_incoherentes(self):
+        # La zone « achète » 4 kWh à l'heure 2 alors que le bâtiment n'importe rien.
+        self.cumule("zg", self.t0, [5.0, 4.0])
+        self.cumule("zs", self.t0, [0.0, 0.0])
+        return [zone("APP1", reseau="zg", solaire="zs", controle="zc")]
+
+    def test_site_non_comparable_meme_si_la_periode_boucle(self):
+        # Arlopi : un mois isolé boucle parfois par hasard. Le site, jugé
+        # sur ses mois, n'est pas comparable : rien n'est recalculé.
+        self._batiment_qui_boucle()
+        zones = self._series_incoherentes()
+        site = repartition.comparabilite_site([{"ecart_pct": 2.0}, {"ecart_pct": -40.0},
+                                               {"ecart_pct": 120.0}])
+        ev = repartition.evaluer_site(self.conn, zones, batiment(), self.t0,
+                                      self.t0 + 3 * 3600, comparabilite=site)
+        self.assertEqual(ev["source_recommandee"], "loxone")
+        self.assertFalse(ev["confiance_verifiee"])
+        self.assertIn("bilan bouclé sur 1 mois sur 3", ev["audit"]["raisons"][0])
+
+    def test_periode_qui_ne_boucle_pas_nest_pas_recalculee(self):
+        # Site comparable (Sequoia), mais ce mois-ci le bilan ne boucle pas :
+        # pas d'audit ni de recalcul sur ce mois, et la raison le dit.
+        self.cumule("imp", self.t0, [5.0, 0.0])
+        self.cumule("prod", self.t0, [0.0, 10.0])
+        self.cumule("exp", self.t0, [0.0, 2.0])
+        self.cumule("zc", self.t0, [15.0, 15.0])   # 30 kWh pour 13 : +130 %
+        zones = self._series_incoherentes()
+        site = repartition.comparabilite_site([{"ecart_pct": 0.5}] * 11 + [{"ecart_pct": 130.0}])
+        self.assertTrue(site["comparable"])
+        ev = repartition.evaluer_site(self.conn, zones, batiment(), self.t0,
+                                      self.t0 + 3 * 3600, comparabilite=site)
+        self.assertEqual(ev["source_recommandee"], "loxone")
+        self.assertFalse(ev["confiance_verifiee"])
+        self.assertIn("hors tolérance sur cette période", ev["audit"]["raisons"][0])
+
+    def test_site_comparable_et_periode_qui_boucle_recalculee(self):
+        self._batiment_qui_boucle()
+        zones = self._series_incoherentes()
+        site = repartition.comparabilite_site([{"ecart_pct": 0.5}, {"ecart_pct": -1.0}])
+        ev = repartition.evaluer_site(self.conn, zones, batiment(), self.t0,
+                                      self.t0 + 3 * 3600, comparabilite=site)
+        self.assertEqual(ev["source_recommandee"], "calculee")
+        self.assertTrue(ev["confiance_verifiee"])
+
+
+class TestComparabiliteSite(unittest.TestCase):
+    """Les compteurs de bâtiment sont jugés sur les mois du site, pas sur un
+    total où les écarts saisonniers se compensent."""
+
+    def juge(self, *ecarts):
+        return repartition.comparabilite_site([{"ecart_pct": e} for e in ecarts])
+
+    def test_deux_tiers_des_mois(self):
+        self.assertTrue(self.juge(1.0, -2.0, 40.0)["comparable"])        # 2 sur 3
+        self.assertFalse(self.juge(1.0, 40.0)["comparable"])             # 1 sur 2
+        self.assertFalse(self.juge(1.0, 1.0, 40.0, 40.0)["comparable"])  # 2 sur 4
+
+    def test_les_saisons_ne_se_compensent_plus(self):
+        # Arlopi janvier-mai 2026 : le total tombait à +7,5 % (« comparable »).
+        verdict = self.juge(-44.3, -37.8, -14.4, 54.5, 126.6)
+        self.assertFalse(verdict["comparable"])
+        self.assertEqual((verdict["mois_bouclant"], verdict["mois_calculables"]), (1, 5))
+
+    def test_un_mois_aberrant_ne_pese_quun_mois(self):
+        self.assertTrue(self.juge(*([0.3] * 11 + [61445.2]))["comparable"])
+
+    def test_mois_sans_bilan_ignores(self):
+        verdict = self.juge(None, 0.5, None)
+        self.assertTrue(verdict["comparable"])
+        self.assertEqual(verdict["mois_calculables"], 1)
+        self.assertFalse(self.juge(None, None)["comparable"])
+        self.assertFalse(self.juge()["comparable"])
+
 
 class TestQualiteBilan(Base):
     def test_ecart_de_bouclage(self):

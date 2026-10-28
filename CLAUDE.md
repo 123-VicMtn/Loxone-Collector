@@ -347,18 +347,20 @@ injection)`, appliquée à la consommation mesurée du lot.
   relevé de compteur, seule la proportion vient de l'agrégation horaire.
   Arrondir à la précision affichée AVANT de déduire la part réseau.
 - `evaluer_site` choisit seul la source, et l'ordre compte :
-  1. `qualite_bilan` d'abord. Sans bouclage (Arlopi : +138,7 %, compteur à
-     l'onduleur) l'audit est **non testable** et rien n'est recalculé.
+  1. Le bilan d'abord, à deux niveaux (depuis le 2026-10-28) : le site doit
+     être comparable (`comparabilite_site`, au moins 2/3 des mois bouclent)
+     ET la période elle-même doit boucler. Sinon (Arlopi : 3 mois sur 18,
+     compteur à l'onduleur) l'audit est **non testable** et rien n'est
+     recalculé.
   2. `audit_series_loxone` ensuite, si le bilan boucle. S'il condamne les
      séries (Sequoia), répartition recalculée.
   3. Sinon on garde les séries du Miniserver, avec
      `confiance_verifiee=False` si le bilan n'a pas permis de vérifier.
 - Seuil `BILAN_TOLERANCE_PCT = 15`.
-- **Limite connue, non corrigée** : `bilan_exploitable` juge un pourcentage
-  agrégé sur toute la fenêtre. Sur Arlopi le verdict dépend de la fenêtre
-  (+7,5 % sur janvier-mai, donc « exploitable » à tort ; +32,1 % sur
-  janvier-août). Correctif naturel : exiger que la majorité des
-  sous-périodes bouclent.
+- **Limite corrigée le 2026-10-28** (point 3 de l'utilisateur) : la
+  comparabilité se jugeait sur un pourcentage agrégé sur toute la fenêtre,
+  où les saisons se compensaient (Arlopi : +7,5 % sur janvier-mai, donc
+  « exploitable » à tort). Voir « Comparabilité jugée mois par mois ».
 - `billing.CONTROLE_EXCLUDE_RE` exclut `chauffage`, `c[ch]aleur` (la
   coquille « Ccaleur » de l'App 34 est réelle), `cenergie`, `nrmachine` :
   sinon le compteur de contrôle d'un lot de Sequoia était son compteur de
@@ -651,12 +653,6 @@ fonctionnement d'abord, revenir sur la structure ensuite.
   `git-index.lock-leftover`, `_update.zip` -- ~230 Ko au total, rien de
   volumineux mais à vider une fois confirmé qu'aucun de ces fichiers n'est
   plus utile).
-- Limite connue du garde-fou `repartition.py::bilan_exploitable` : juge sur
-  UN pourcentage agrégé sur toute la fenêtre demandée, ce qui peut masquer
-  une variation saisonnière (détail chiffré dans "Topologie MS-PPE-Sequoia
-  + répartition solaire recalculée", 2026-09-09, sous-section "Limite
-  connue du garde-fou") -- correctif naturel si le sujet revient : exiger
-  que la majorité des sous-périodes bouclent, pas seulement la moyenne.
 
 ## Dashboard aperçu, relevés, port Cloud DNS — 2026-09-25
 
@@ -984,7 +980,9 @@ correction de l'installateur (09.09.2026) condamnaient aussi les suivants
   `billing.repartition_du_mois()` (classeur) et `repartitionMois` dans
   `DecomptePage.vue`. Les kWh de chaque mois suivent le verdict de ce mois.
 - **La comparabilité des compteurs de bâtiment reste jugée sur toute la
-  fenêtre** (`evaluer_site(..., bilan_reference=...)`) : c'est une
+  fenêtre** (`evaluer_site(..., bilan_reference=...)`, remplacé le
+  2026-10-28 par `comparabilite=`, voir « Comparabilité jugée mois par
+  mois ») : c'est une
   question d'emplacement des compteurs. Jugée par mois, Arlopi (compteur
   à l'onduleur) bouclait par hasard certains mois (juil.-sept. 2025,
   mars 2026) et passait à tort en répartition calculée. Seul l'audit des
@@ -1277,6 +1275,29 @@ moteur de décompte).
   `GET /api/decompte` du site affiché). `EvolutionChart.vue`,
   `SolaireChart.vue` et leurs options (`utils/charts.ts`) sont passés de
   `pages/decompte/` à `pages/dashboard/`.
+
+## Comparabilité jugée mois par mois — 2026-10-28
+
+Point 3 de la liste de l'utilisateur, règles validées par lui :
+
+1. **Le site** : les compteurs de bâtiment sont comparables à la somme des
+   zones si au moins **2/3 des mois calculables** bouclent à ±15 %
+   (`repartition.comparabilite_site`, `MAJORITE_MOIS_BOUCLANT`). Avant :
+   un seul pourcentage sur toute la fenêtre, où les saisons se
+   compensaient (Arlopi : −35 à −44 % l'hiver, +100 à +133 % l'été ;
+   janvier-mai donnait +7,5 %) et où un mois aberrant pesait tout (mai
+   2025 à +61 445 %). Pas de nombre minimal de mois (La Calbasse : 1 sur 1).
+2. **La période** : elle doit boucler elle-même ; sinon ni audit ni
+   recalcul, raison « bilan du bâtiment hors tolérance sur cette période ».
+
+`billing.compute_decompte` calcule le bilan de chaque mois de la fenêtre
+des données (`_bilan_periode`), puis passe `comparabilite=` à
+`evaluer_site` pour chaque période. Vérifié sur la copie de prod du
+2026-10-28 : mêmes verdicts et mêmes kWh sur les quatre sites (Arlopy 3
+mois sur 18, Sequoia 12/12, La Calbasse 1/1, Horizon sans bilan) ; seule
+la raison d'Arlopy change (« bilan bouclé sur 3 mois sur 18 »). La
+protection porte sur l'avenir : un hiver de plus pouvait ramener le
+total d'Arlopy sous 15 %.
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 

@@ -18,7 +18,7 @@ from loxone_collector.services.billing.compteurs import (
     resolve_batiment,
     resolve_zones,
 )
-from loxone_collector.services.billing.periodes import TIMEZONE
+from loxone_collector.services.billing.periodes import TIMEZONE, periods_covering
 from loxone_collector.services.billing.releves import (
     delta_compteurs_successifs,
     lecture_absente,
@@ -108,15 +108,16 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
     # Un verdict par mois : à Sequoia, le bloc « Répartition Solaire » est
     # faux jusqu'au 09.09.2026 et juste ensuite. Jugé sur tout l'historique,
     # les mois d'avant la correction condamnaient aussi les mois suivants.
-    # La comparabilité des compteurs de bâtiment, elle, reste jugée sur
-    # toute la fenêtre (voir repartition.evaluer_site, `bilan_reference`).
+    # La comparabilité des compteurs de bâtiment, elle, est jugée sur les
+    # mois de toute la fenêtre (voir repartition.comparabilite_site).
     evaluations = {}
     if periods:
-        bilan_fenetre = repartition.evaluer_site(
-            conn, zones, batiment_src, fenetre_debut, fenetre_fin, statistics=True,
-        )["bilan"]
+        comparabilite = repartition.comparabilite_site([
+            _bilan_periode(conn, series, zones, m)
+            for m in periods_covering(fenetre_debut, fenetre_fin - 1, tz_name)
+        ])
         evaluations = {
-            p["key"]: _evaluer_mois(conn, series, zones, p, bilan_fenetre) for p in periods
+            p["key"]: _evaluer_mois(conn, series, zones, p, comparabilite) for p in periods
         }
 
     for z in zones:
@@ -242,12 +243,10 @@ def _cumul_batiment(mois: list[dict], labels: list[str]) -> dict:
     }
 
 
-def _evaluer_mois(conn, series: list[dict], zones: list[dict], p: dict,
-                  bilan_fenetre: dict) -> dict:
-    """`repartition.evaluer_site` sur le seul mois `p`, avec le compteur de
-    production qui couvre ce mois-là. `bilan_fenetre` décide si le bilan
-    du bâtiment est exploitable."""
-
+def _batiment_de_la_periode(conn, series: list[dict], p: dict) -> dict:
+    """Compteurs de bâtiment de la période `p`, avec le compteur de
+    production qui la couvre (« Production Solaire » puis « Solaire » à
+    Sequoia)."""
     batiment = resolve_batiment(series)
     actives = productions_sur_fenetre(conn, series, p["start"], p["end"], statistics=True)
     if actives:
@@ -255,9 +254,24 @@ def _evaluer_mois(conn, series: list[dict], zones: list[dict], p: dict,
     couvrant = production_couvrante(conn, series, p["start"], p["end"], statistics=True)
     if couvrant:
         batiment["production"] = couvrant
+    return batiment
+
+
+def _bilan_periode(conn, series: list[dict], zones: list[dict], p: dict) -> dict:
+    """Bilan du bâtiment sur la période `p` (repartition.qualite_bilan)."""
+    batiment = _batiment_de_la_periode(conn, series, p)
+    frac = repartition.solar_fraction(conn, batiment, p["start"], p["end"], True)
+    return repartition.qualite_bilan(conn, zones, batiment, frac, p["start"], p["end"], True)
+
+
+def _evaluer_mois(conn, series: list[dict], zones: list[dict], p: dict,
+                  comparabilite: dict) -> dict:
+    """`repartition.evaluer_site` sur la seule période `p`. `comparabilite`
+    (tous les mois du site) dit si les compteurs de bâtiment sont
+    comparables aux zones ; la période doit en plus boucler elle-même."""
     return repartition.evaluer_site(
-        conn, zones, batiment, p["start"], p["end"], statistics=True,
-        bilan_reference=bilan_fenetre,
+        conn, zones, _batiment_de_la_periode(conn, series, p), p["start"], p["end"],
+        statistics=True, comparabilite=comparabilite,
     )
 
 

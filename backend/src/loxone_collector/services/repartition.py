@@ -62,6 +62,8 @@ près.
 """
 from __future__ import annotations
 
+from fractions import Fraction
+
 # Une part solaire calculée doit rester dans [0, 1]. Elle peut sortir de cet
 # intervalle sur une heure où les compteurs de bâtiment ne concordent pas
 # tout à fait (tolérances de mesure, horodatages décalés d'une minute) : on
@@ -422,9 +424,36 @@ def bilan_exploitable(bilan: dict, tolerance_pct: float = BILAN_TOLERANCE_PCT) -
     return e is not None and abs(e) <= tolerance_pct
 
 
+# Part des mois calculables dont le bilan doit boucler pour juger les
+# compteurs de bâtiment comparables aux zones (décidé avec l'utilisateur le
+# 2026-10-28). Un total sur toute la fenêtre laissait les écarts saisonniers
+# se compenser : à Arlopi (compteur à l'onduleur, -35 à -44 % l'hiver,
+# +100 à +133 % l'été), janvier-mai donnait +7,5 % et le site passait à tort
+# pour comparable.
+MAJORITE_MOIS_BOUCLANT = Fraction(2, 3)
+
+
+def comparabilite_site(bilans_mensuels: list[dict],
+                       tolerance_pct: float = BILAN_TOLERANCE_PCT) -> dict:
+    """Les compteurs de bâtiment mesurent-ils le même périmètre que la somme
+    des zones ? Oui si au moins MAJORITE_MOIS_BOUCLANT des mois dont le
+    bilan est calculable bouclent à `tolerance_pct` près. Un mois aberrant
+    ne pèse qu'un mois ; un mois sans bilan (compteur manquant) ne compte
+    pas. C'est une propriété de l'installation (emplacement des compteurs),
+    jugée sur tout l'historique du site."""
+    calculables = [b for b in bilans_mensuels if b.get("ecart_pct") is not None]
+    bouclant = [b for b in calculables if bilan_exploitable(b, tolerance_pct)]
+    return {
+        "comparable": bool(calculables)
+        and Fraction(len(bouclant), len(calculables)) >= MAJORITE_MOIS_BOUCLANT,
+        "mois_bouclant": len(bouclant),
+        "mois_calculables": len(calculables),
+    }
+
+
 def evaluer_site(conn, zones: list[dict], batiment: dict,
                  start_ts: int, end_ts: int, statistics: bool = False,
-                 bilan_reference: dict | None = None) -> dict:
+                 comparabilite: dict | None = None) -> dict:
     """Point d'entrée unique : décide sur quoi facturer la part solaire d'un
     site, et pourquoi.
 
@@ -442,34 +471,49 @@ def evaluer_site(conn, zones: list[dict], batiment: dict,
     revérifiée ici, plutôt que de laisser croire à un contrôle qui n'a pas
     eu lieu.
 
-    `bilan_reference` : bilan d'une fenêtre plus longue (tout l'historique
-    affiché) qui décide seul si les compteurs de bâtiment sont comparables
-    aux zones. C'est une question d'emplacement des compteurs, pas de mois :
-    à Arlopi (compteur à l'onduleur) un mois isolé boucle parfois par
-    hasard, et l'audit y condamnerait à tort des séries justes. L'audit,
-    lui, porte sur [start_ts, end_ts[.
+    `comparabilite` (`comparabilite_site` sur tous les mois du site) dit si
+    les compteurs de bâtiment sont comparables aux zones : une question
+    d'emplacement des compteurs, pas de mois. À Arlopi (compteur à
+    l'onduleur) un mois isolé boucle parfois par hasard, et l'audit y
+    condamnerait à tort des séries justes. Sans elle, le bilan de
+    [start_ts, end_ts[ en décide seul. Dans les deux cas, la période elle-même
+    doit boucler : un mois qui ne boucle pas n'est ni audité ni recalculé.
+    L'audit porte sur [start_ts, end_ts[.
     """
     frac_info = solar_fraction(conn, batiment, start_ts, end_ts, statistics)
     bilan = qualite_bilan(conn, zones, batiment, frac_info, start_ts, end_ts, statistics)
     audit = audit_series_loxone(conn, zones, batiment, start_ts, end_ts, statistics)
-    juge = bilan_reference if bilan_reference is not None else bilan
-    ok_bilan = bilan_exploitable(juge)
-    if ok_bilan and bilan.get("ecart_pct") is None:
-        # Fenêtre longue exploitable, mais ce mois-ci un compteur manque.
-        ok_bilan = False
-        juge = bilan
+    site_ok = comparabilite["comparable"] if comparabilite is not None else bilan_exploitable(bilan)
+    ok_bilan = site_ok and bilan_exploitable(bilan)
 
     if not ok_bilan:
         audit["testable"] = False
         audit["fiable"] = True
-        audit["raisons"] = [
-            f"compteurs de bâtiment non comparables aux compteurs de zone "
-            f"(écart de bouclage {juge['ecart_pct']:+.1f} %) : ni l'audit des "
-            f"séries du Miniserver ni une répartition recalculée ne sont "
-            f"possibles sur ce site."
-        ] if juge.get("ecart_pct") is not None else [
-            "bilan du bâtiment incalculable (compteur manquant)."
-        ]
+        if comparabilite is not None and not comparabilite["mois_calculables"]:
+            raison = "bilan du bâtiment incalculable (compteur manquant)."
+        elif not site_ok and comparabilite is not None:
+            raison = (
+                f"compteurs de bâtiment non comparables aux compteurs de zone "
+                f"(bilan bouclé sur {comparabilite['mois_bouclant']} mois sur "
+                f"{comparabilite['mois_calculables']}) : ni l'audit des séries du "
+                f"Miniserver ni une répartition recalculée ne sont possibles sur ce site."
+            )
+        elif bilan.get("ecart_pct") is None:
+            raison = "bilan du bâtiment incalculable (compteur manquant)."
+        elif not site_ok:
+            raison = (
+                f"compteurs de bâtiment non comparables aux compteurs de zone "
+                f"(écart de bouclage {bilan['ecart_pct']:+.1f} %) : ni l'audit des "
+                f"séries du Miniserver ni une répartition recalculée ne sont "
+                f"possibles sur ce site."
+            )
+        else:
+            raison = (
+                f"bilan du bâtiment hors tolérance sur cette période "
+                f"({bilan['ecart_pct']:+.1f} %, ±{BILAN_TOLERANCE_PCT:.0f} % admis) : "
+                f"la répartition n'y est ni auditée ni recalculée."
+            )
+        audit["raisons"] = [raison]
 
     if ok_bilan and not audit["fiable"]:
         source, confiance = "calculee", True
@@ -478,5 +522,6 @@ def evaluer_site(conn, zones: list[dict], batiment: dict,
 
     return {"fraction": frac_info, "bilan": bilan, "audit": audit,
             "bilan_exploitable": ok_bilan,
+            "comparabilite": comparabilite,
             "source_recommandee": source,
             "confiance_verifiee": confiance}
