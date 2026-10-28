@@ -111,3 +111,16 @@ def test_periode_invalide_400(client_user, query, message):
         res = client_user.get(URL.format(ext) + "&" + query)
         assert res.status_code == 400
         assert message in res.get_json()["error"]
+
+
+def test_la_page_lit_une_plage_choisie(client_user):
+    data = client_user.get(f"/api/decompte?miniserver={ref.SITE}&du=2026-09-15&au=2026-10-15").get_json()
+    cle = data["periode_cle"]
+    assert [p["key"] for p in data["periodes"]] == [cle]
+    assert data["periodes"][0]["label"] == "15.09.2026 → 15.10.2026"
+    assert data["repartition"][cle]["source"] == "mixte"
+    zones = {z["label"]: z["periodes"][cle] for z in data["zones"]}
+    csv = _par_zone(_section(_csv(client_user, "du=2026-09-15&au=2026-10-15"), "Électricité"), 2)
+    assert round(zones["App 1"]["total"], 2) == csv["App 1"]
+    assert "postes" not in data
+    assert client_user.get(f"/api/decompte?miniserver={ref.SITE}&du=2026-10-31&au=2026-09-01").status_code == 400

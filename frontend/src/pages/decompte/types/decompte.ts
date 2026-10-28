@@ -95,7 +95,8 @@ export interface Batiment {
 
 /** Décision de repartition.evaluer_site, déjà appliquée aux kWh du payload. */
 export interface RepartitionInfo {
-  source: 'calculee' | 'loxone'
+  /** `mixte` : décompte de dates libres dont les mois n'ont pas tous la même source. */
+  source: 'calculee' | 'loxone' | 'mixte'
   confiance_verifiee: boolean
   raisons: string[]
 }
@@ -116,4 +117,6 @@ export interface DecomptePayload {
   statistiques_erreur?: string | null
   /** Plus récent index Statistics importé (epoch) : « relevés à jour au … ». */
   statistiques_jusqu_au?: number | null
+  /** Décompte de dates libres (`du` / `au`) : clé de son unique période. */
+  periode_cle?: string
 }

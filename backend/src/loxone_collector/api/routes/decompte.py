@@ -102,8 +102,19 @@ def api_decompte():
     configuré). Paramètres optionnels `from` / `to` : clés de mois
     (ex: 2026-05). Sans eux, tous les mois couverts par les données
     disponibles de ce site.
+
+    `du` / `au` (YYYY-MM-DD, `au` inclus) : le décompte de ces dates
+    seulement, ramené à une seule période (même calcul que l'export,
+    `periode_cle` donne sa clé). C'est ce que la page affiche pour une
+    plage choisie dans son calendrier.
     """
     ms_name = resolve_miniserver(request.args.get("miniserver"))
+    if request.args.get("du") or request.args.get("au"):
+        start, end, suffixe = _periode_export()
+        payload, cle = _export_payload(ms_name, access.maintenant(), start, end, suffixe,
+                                       postes=False)
+        payload["periode_cle"] = cle
+        return jsonify(payload)
     return jsonify(_decompte_payload(ms_name, access.maintenant()))
 
 
@@ -158,7 +169,8 @@ def _periode_export() -> tuple[int, int, str]:
     return start, end, f"{du}_{au}"
 
 
-def _export_payload(ms_name: str, now: int, start: int, end: int, cle: str) -> tuple[dict, str]:
+def _export_payload(ms_name: str, now: int, start: int, end: int, cle: str,
+                    postes: bool = True) -> tuple[dict, str]:
     """Décompte de la période [start, end[ pour l'export, et la clé de
     période sous laquelle les exports le lisent.
 
@@ -191,9 +203,10 @@ def _export_payload(ms_name: str, now: int, start: int, end: int, cle: str) -> t
         payload["miniserver"] = ms_name
         payload["statistiques_erreur"] = _statistiques_erreur(ms_name)
         payload["statistiques_jusqu_au"] = statistics_sync.index_jusqu_au(conn, series)
-        payload["postes"] = {cle: billing.compute_postes(
-            conn, billing.resolve_postes(series), {"key": cle, "start": start, "end": end}, now,
-        )}
+        if postes:
+            payload["postes"] = {cle: billing.compute_postes(
+                conn, billing.resolve_postes(series), {"key": cle, "start": start, "end": end}, now,
+            )}
         return payload, cle
 
 

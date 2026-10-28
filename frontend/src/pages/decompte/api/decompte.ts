@@ -20,6 +20,13 @@ export async function fetchDecompte(opts: {
   return fetchJSON<DecomptePayload>(`/api/decompte${qs ? '?' + qs : ''}`)
 }
 
+/** Décompte des dates choisies (YYYY-MM-DD, `au` inclus), ramené à une
+ * seule période (`periode_cle`). */
+export async function fetchDecomptePlage(miniserver: string, du: string, au: string): Promise<DecomptePayload> {
+  const params = new URLSearchParams({ miniserver, du, au })
+  return fetchJSON<DecomptePayload>(`/api/decompte?${params}`)
+}
+
 /** Relit tout de suite les Statistics du site sur le Miniserver (la page ne
  * lit que la base, alimentée chaque heure par la synchro de fond). Recharger
  * ensuite le décompte. */
@@ -56,6 +63,18 @@ export function downloadDecompte(format: 'xlsx' | 'csv', miniserver: string, moi
   return downloadFile(
     `/api/decompte/export.${format}?${params}`,
     `decompte-${safe}-${mois}.${format}`,
+  )
+}
+
+/** Décompte sur des dates choisies (YYYY-MM-DD, `au` inclus). */
+export function downloadDecomptePeriode(
+  format: 'xlsx' | 'csv', miniserver: string, du: string, au: string,
+): Promise<void> {
+  const params = new URLSearchParams({ miniserver, du, au })
+  const safe = miniserver.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_|_$/g, '') || 'site'
+  return downloadFile(
+    `/api/decompte/export.${format}?${params}`,
+    `decompte-${safe}-${du}_${au}.${format}`,
   )
 }
 

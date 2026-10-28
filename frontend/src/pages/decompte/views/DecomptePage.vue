@@ -1,16 +1,23 @@
 <script setup lang="ts">
 /**
- * Page /decompte. Un seul appel à /api/decompte ramène tous les mois
- * disponibles : changer de mois dans le calendrier ne re-interroge pas le
- * serveur. Le mois en cours est déjà borné au dernier relevé connu
- * (billing.reading_delta lit le dernier point avant la fin de période).
+ * Page /decompte. Un seul calendrier (PeriodPicker) choisit la période :
+ * un mois entier ou des dates libres. Le bandeau KPI, le tableau, les
+ * messages et les téléchargements suivent cette période ; les deux
+ * graphiques restent l'historique mois par mois.
+ *
+ * Un appel à /api/decompte ramène tous les mois disponibles : choisir un
+ * mois entier ne re-interroge pas le serveur. Des dates libres demandent
+ * leur décompte au serveur (`du` / `au`, même calcul que l'export). Le mois
+ * en cours est borné au dernier relevé connu.
  *
  * Le serveur ne lit que sa base (synchro des Statistics chaque heure) ;
  * « Actualiser » la fait relire tout de suite pour ce site.
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
-import { actualiserDecompte, downloadDecompte, fetchDecompte } from '../api/decompte'
+import {
+  actualiserDecompte, downloadDecompte, downloadDecomptePeriode, fetchDecompte, fetchDecomptePlage,
+} from '../api/decompte'
 import type { DecomptePayload, Period, RepartitionInfo } from '../types/decompte'
 import { fmtDay, fmtPeriodBounds } from '../utils/format'
 import { fmtDateTimeShort } from '@shared/format'
@@ -19,6 +26,7 @@ import { useSiteActif } from '@shared/composables/useSiteActif'
 import Card from '../components/Card.vue'
 import GlobalBanner from '../components/GlobalBanner.vue'
 import PeriodeKpis from '../components/PeriodeKpis.vue'
+import PeriodPicker, { type Plage } from '../components/PeriodPicker.vue'
 import ZoneTable from '../components/ZoneTable.vue'
 import EvolutionChart from '../components/EvolutionChart.vue'
 import SolaireChart from '../components/SolaireChart.vue'
@@ -28,9 +36,18 @@ const SITE_STORAGE_KEY = 'decompte-site'
 const { site: siteActif, loadSites } = useSiteActif()
 
 const currentSite = ref('')
+/** Tous les mois du site : graphiques, et période quand c'est un mois entier. */
 const payload = ref<DecomptePayload | null>(null)
-
+/** Mois par défaut à l'ouverture du site. */
 const periodeKey = ref('')
+
+/** Période choisie dans le calendrier (YYYY-MM-DD, `au` inclus). */
+const selection = ref<Plage>({ du: '', au: '' })
+/** Décompte de dates libres, demandé au serveur. */
+const payloadPlage = ref<DecomptePayload | null>(null)
+const chargementPlage = ref(false)
+const erreurPlage = ref('')
+let requetePlage = 0
 
 const downloading = ref(false)
 const downloadError = ref('')
@@ -59,40 +76,65 @@ const loadingMessage = ref('Chargement du décompte…')
 const errored = ref(false)
 const empty = ref(false)
 
-const selectedPeriod = computed<Period | null>(() => {
-  if (!payload.value) return null
-  return payload.value.periodes.find((p) => p.key === periodeKey.value) || null
+function iso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function bornesDuMois(key: string): Plage {
+  const [y, m] = key.split('-').map(Number)
+  return { du: `${key}-01`, au: iso(new Date(y, m, 0)) }
+}
+
+/** Clé du mois si la sélection est un mois entier connu du payload. */
+const moisChoisi = computed<string | null>(() => {
+  const { du, au } = selection.value
+  if (!payload.value || !du) return null
+  const key = du.slice(0, 7)
+  const bornes = bornesDuMois(key)
+  if (du !== bornes.du || au !== bornes.au) return null
+  return payload.value.periodes.some((p) => p.key === key) ? key : null
 })
 
-/** Verdict du mois choisi : les messages ne parlent que de ce mois-là. */
+/** Ce que montrent le bandeau KPI, le tableau et les messages. */
+const vuePayload = computed<DecomptePayload | null>(() => (
+  moisChoisi.value ? payload.value : payloadPlage.value
+))
+const vueKey = computed(() => moisChoisi.value ?? payloadPlage.value?.periode_cle ?? '')
+
+const dateMin = computed(() => {
+  const premier = payload.value?.periodes[0]?.key
+  return premier ? `${premier}-01` : ''
+})
+const dateMax = iso(new Date())
+
+const selectedPeriod = computed<Period | null>(() => {
+  if (!vuePayload.value) return null
+  return vuePayload.value.periodes.find((p) => p.key === vueKey.value) || null
+})
+
+/** Verdict de la période choisie : les messages ne parlent que d'elle. */
 const repartitionMois = computed<RepartitionInfo>(() => {
-  const rep = periodeKey.value ? payload.value?.repartition[periodeKey.value] : undefined
+  const rep = vueKey.value ? vuePayload.value?.repartition[vueKey.value] : undefined
   return rep || { source: 'loxone', confiance_verifiee: false, raisons: [] }
 })
 
-const monthMin = computed(() => payload.value?.periodes[0]?.key ?? '')
-const monthMax = computed(() => {
-  const list = payload.value?.periodes
-  return list && list.length ? list[list.length - 1].key : ''
-})
-
 const periodeEnCours = computed(() => {
-  if (!payload.value || !periodeKey.value) return false
-  return payload.value.batiment.periodes[periodeKey.value]?.en_cours ?? false
+  if (!vuePayload.value || !vueKey.value) return false
+  return vuePayload.value.batiment.periodes[vueKey.value]?.en_cours ?? false
 })
 
-/** Dernier relevé réellement utilisé sur le mois choisi (zones + production). */
+/** Dernier relevé réellement utilisé sur la période (zones + production). */
 const dernierReleveTs = computed<number | null>(() => {
-  if (!payload.value || !periodeKey.value) return null
+  if (!vuePayload.value || !vueKey.value) return null
   const stamps: number[] = []
-  for (const z of payload.value.zones) {
-    const e = z.periodes[periodeKey.value]
+  for (const z of vuePayload.value.zones) {
+    const e = z.periodes[vueKey.value]
     if (!e) continue
     if (e.controle.releve_fin_ts) stamps.push(e.controle.releve_fin_ts)
     if (e.reseau.releve_fin_ts) stamps.push(e.reseau.releve_fin_ts)
     if (e.solaire.releve_fin_ts) stamps.push(e.solaire.releve_fin_ts)
   }
-  const prod = payload.value.batiment.periodes[periodeKey.value]?.production.releve_fin_ts
+  const prod = vuePayload.value.batiment.periodes[vueKey.value]?.production.releve_fin_ts
   if (prod) stamps.push(prod)
   return stamps.length ? Math.max(...stamps) : null
 })
@@ -106,10 +148,10 @@ const periodeCouverture = computed(() => {
 })
 
 const relevesManquants = computed<ReleveManquant[]>(() => {
-  if (!payload.value || !periodeKey.value) return []
+  if (!vuePayload.value || !vueKey.value) return []
   const out: ReleveManquant[] = []
-  for (const z of payload.value.zones) {
-    const e = z.periodes[periodeKey.value]
+  for (const z of vuePayload.value.zones) {
+    const e = z.periodes[vueKey.value]
     if (!e) continue
     for (const [cote, block] of [['Réseau', e.reseau], ['Solaire', e.solaire]] as const) {
       for (const detail of block.alertes) out.push({ zone: z.label, cote, detail })
@@ -125,6 +167,42 @@ function hasZoneData(p: DecomptePayload, periodKey: string): boolean {
   })
 }
 
+/** Décompte des dates choisies, quand ce n'est pas un mois entier. Une
+ * réponse arrivée après un autre choix est ignorée. */
+async function chargerPlage() {
+  const site = currentSite.value
+  const { du, au } = selection.value
+  const numero = ++requetePlage
+  erreurPlage.value = ''
+  if (!site || !du || moisChoisi.value) {
+    payloadPlage.value = null
+    chargementPlage.value = false
+    return
+  }
+  chargementPlage.value = true
+  try {
+    const data = await fetchDecomptePlage(site, du, au)
+    if (numero !== requetePlage) return
+    payloadPlage.value = data
+  } catch (err) {
+    if (numero !== requetePlage) return
+    console.error(err)
+    payloadPlage.value = null
+    // Le calendrier n'envoie que des dates valides : un refus du serveur
+    // veut dire, en pratique, qu'il n'a aucun relevé sur la période.
+    erreurPlage.value = (err as { status?: number }).status === 400
+      ? 'Pas de relevés sur cette période : choisissez d\'autres dates.'
+      : MESSAGE_INDISPONIBLE
+  } finally {
+    if (numero === requetePlage) chargementPlage.value = false
+  }
+}
+
+watch(selection, () => {
+  downloadError.value = ''
+  void chargerPlage()
+})
+
 async function loadSite(site: string) {
   currentSite.value = site
   localStorage.setItem(SITE_STORAGE_KEY, site)
@@ -133,6 +211,7 @@ async function loadSite(site: string) {
   errored.value = false
   empty.value = false
   loadingMessage.value = 'Chargement du décompte…'
+  payloadPlage.value = null
 
   try {
     const data = await fetchDecompte({ miniserver: site })
@@ -151,6 +230,7 @@ async function loadSite(site: string) {
     const defaut = dernier(avecDonnees(termines)) || dernier(avecDonnees(data.periodes)) ||
       dernier(termines) || dernier(data.periodes)
     periodeKey.value = defaut.key
+    selection.value = bornesDuMois(defaut.key)
 
     loading.value = false
   } catch (err) {
@@ -162,8 +242,9 @@ async function loadSite(site: string) {
 }
 
 /** Relit les Statistics du site puis recharge le décompte, sans repasser
- * par l'écran de chargement ni changer le mois choisi. Si le Miniserver ne
- * répond pas, le bandeau « Relevés pas à jour » le dit (statistiques_erreur). */
+ * par l'écran de chargement ni changer la période choisie. Si le
+ * Miniserver ne répond pas, le bandeau « Relevés pas à jour » le dit
+ * (statistiques_erreur). */
 async function actualiser() {
   const site = currentSite.value
   if (!site || actualisation.value) return
@@ -174,9 +255,7 @@ async function actualiser() {
     const data = await fetchDecompte({ miniserver: site })
     if (site !== currentSite.value) return
     payload.value = data
-    if (!data.periodes.some((p) => p.key === periodeKey.value) && data.periodes.length) {
-      periodeKey.value = data.periodes[data.periodes.length - 1].key
-    }
+    await chargerPlage()
   } catch (err) {
     console.error(err)
     actualisationErreur.value = 'L\'actualisation n\'a pas abouti. Réessayez dans quelques minutes.'
@@ -186,7 +265,7 @@ async function actualiser() {
 }
 
 async function download(format: 'xlsx' | 'csv') {
-  if (!currentSite.value || !periodeKey.value) return
+  if (!currentSite.value || !vueKey.value) return
   if (relevesManquants.value.length) {
     confirmFormat.value = format
     return
@@ -201,22 +280,21 @@ async function confirmDownload() {
 }
 
 async function runDownload(format: 'xlsx' | 'csv') {
-  if (!currentSite.value || !periodeKey.value) return
+  if (!currentSite.value || !vueKey.value) return
   downloading.value = true
   downloadError.value = ''
   try {
-    await downloadDecompte(format, currentSite.value, periodeKey.value)
+    if (moisChoisi.value) {
+      await downloadDecompte(format, currentSite.value, moisChoisi.value)
+    } else {
+      await downloadDecomptePeriode(format, currentSite.value, selection.value.du, selection.value.au)
+    }
   } catch (err) {
     console.error(err)
     downloadError.value = 'Le fichier n\'a pas pu être préparé. Réessayez dans quelques minutes.'
   } finally {
     downloading.value = false
   }
-}
-
-function onMonthInput(value: string) {
-  if (!payload.value) return
-  if (payload.value.periodes.some((p) => p.key === value)) periodeKey.value = value
 }
 
 let demarre = false
@@ -257,25 +335,24 @@ watch(siteActif, (name) => {
 
     <div class="space-y-6">
 
-    <GlobalBanner v-if="payload && !loading && !empty" :payload="payload" :period-key="periodeKey" />
+    <GlobalBanner
+      v-if="payload && !loading && !empty"
+      :payload="vuePayload ?? payload"
+      :period-key="vuePayload ? vueKey : periodeKey"
+    />
 
     <p v-if="loading || empty" class="text-sm text-neutral-500">{{ loadingMessage }}</p>
 
     <template v-else-if="payload && !errored">
       <Card>
         <div class="flex flex-wrap items-end gap-4">
-          <label class="flex flex-col text-sm text-neutral-600">
-            Mois
-            <input
-              type="month"
-              class="mt-1 rounded border border-neutral-300 px-2 py-1"
-              :min="monthMin"
-              :max="monthMax"
-              :value="periodeKey"
-              @input="onMonthInput(($event.target as HTMLInputElement).value)"
-            >
-          </label>
           <div class="flex flex-col text-sm text-neutral-600">
+            Période
+            <PeriodPicker v-model="selection" :min="dateMin" :max="dateMax" />
+          </div>
+          <!-- Des dates libres sont déjà dans le calendrier : la ligne ne
+               sert que pour un mois, ou une période arrêtée au dernier relevé. -->
+          <div v-if="moisChoisi || periodeEnCours" class="flex flex-col text-sm text-neutral-600">
             Période couverte
             <span class="mt-1 py-1 font-medium text-neutral-900">{{ periodeCouverture }}</span>
           </div>
@@ -295,11 +372,13 @@ watch(siteActif, (name) => {
         <p v-if="actualisationErreur" class="mt-2 text-sm text-red-600">{{ actualisationErreur }}</p>
 
         <div class="mt-6">
-          <PeriodeKpis :payload="payload" :period-key="periodeKey" />
+          <p v-if="chargementPlage" class="text-sm text-neutral-500">Calcul du décompte sur ces dates…</p>
+          <p v-else-if="erreurPlage" class="text-sm text-red-600" role="alert">{{ erreurPlage }}</p>
+          <PeriodeKpis v-else-if="vuePayload" :payload="vuePayload" :period-key="vueKey" />
         </div>
       </Card>
 
-      <Card title="Décompte par zone" :hint="selectedPeriod?.label">
+      <Card v-if="vuePayload && !chargementPlage && !erreurPlage" title="Décompte par zone" :hint="selectedPeriod?.label">
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -315,12 +394,12 @@ watch(siteActif, (name) => {
           >Télécharger CSV</button>
           <span v-if="downloadError" class="text-sm text-red-600">{{ downloadError }}</span>
         </div>
-        <ZoneTable :payload="payload" :period-key="periodeKey" />
+        <ZoneTable :payload="vuePayload" :period-key="vueKey" />
         <div
           v-if="relevesManquants.length"
           class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
         >
-          <p class="font-semibold">Relevés incomplets sur ce mois</p>
+          <p class="font-semibold">Relevés incomplets sur cette période</p>
           <ul class="mt-2 list-disc space-y-1 pl-5">
             <li v-for="(r, i) in relevesManquants" :key="i">
               {{ r.zone }} — {{ r.cote }} : {{ r.detail }}
@@ -341,6 +420,11 @@ watch(siteActif, (name) => {
           répartie selon le mix du bâtiment (production moins réinjection).
           Les séries Grid et Solaire du Miniserver ne servent pas à ce décompte.
         </p>
+        <p v-else-if="repartitionMois.source === 'mixte'" class="mt-2 text-sm text-neutral-600">
+          Selon le mois, ces parts sont calculées (compteur du lot réparti
+          selon le mix du bâtiment) ou mesurées par le Miniserver. Le fichier
+          Excel donne le détail mois par mois.
+        </p>
         <p
           v-else-if="!repartitionMois.confiance_verifiee"
           class="mt-2 text-sm text-neutral-600"
@@ -349,7 +433,7 @@ watch(siteActif, (name) => {
           permet pas de les revérifier.
         </p>
         <ul
-          v-if="repartitionMois.source === 'calculee' && repartitionMois.raisons.length"
+          v-if="repartitionMois.source !== 'loxone' && repartitionMois.raisons.length"
           class="mt-2 list-disc space-y-1 pl-5 text-sm text-neutral-500"
         >
           <li v-for="(raison, i) in repartitionMois.raisons" :key="i">{{ raison }}</li>
