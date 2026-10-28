@@ -6,10 +6,16 @@ sont enregistrées sur la carte SD du Miniserver même s'il est arrêté. Un
 décompte (page, export) se calcule sur ces index, jamais sur `readings`.
 Ici : quelles séries importer, et quand. Le protocole (requêtes, décodage)
 est dans loxone/statistics.py.
+
+Depuis le 2026-10-28, la page et les exports du décompte ne lisent que la
+base : l'import passe par `synchroniser_site`, appelé par la synchro de
+fond (workers/poller.py) et par « Actualiser » (POST
+/api/decompte/actualiser).
 """
 from __future__ import annotations
 
 import logging
+import threading
 
 from loxone_collector import db
 from loxone_collector.loxone.client import LoxoneAuthError, LoxoneError, client_for
@@ -25,6 +31,15 @@ logger = logging.getLogger("miniserver_statistics")
 # Un relevé de moins d'une heure avant « maintenant » (ou avant la fin de
 # la période demandée) est assez frais : on ne rappelle pas le Miniserver.
 FRAICHEUR_S = 3600
+
+# Une synchro à la fois par site : la synchro de fond et « Actualiser » ne
+# relisent pas les mêmes Statistics en parallèle.
+_verrous: dict[str, threading.Lock] = {}
+_verrous_lock = threading.Lock()
+
+# Résultat de la dernière synchro de chaque site depuis le démarrage :
+# {"ts": epoch, "ok": bool}. Le message technique reste dans le log.
+derniers_resultats: dict[str, dict] = {}
 
 
 def series_du_decompte(series: list[dict], postes: bool = False) -> list[dict]:
@@ -200,3 +215,33 @@ def sync_decompte(cfg, conn, ms_name: str, series: list[dict], now_ts: int,
     if sans_stats:
         logger.info("Sans Statistics (%s) : %s", ms_name, ", ".join(sans_stats))
     return {"ok": True, "erreur": None, "series": fetched, "points": points}
+
+
+def _verrou(ms_name: str) -> threading.Lock:
+    with _verrous_lock:
+        return _verrous.setdefault(ms_name, threading.Lock())
+
+
+def synchroniser_site(cfg, conn, ms_name: str, now_ts: int) -> dict:
+    """Importe les Statistics du décompte d'un site (électricité, chauffage,
+    eau chaude, buanderie) jusqu'à `now_ts` et retient le résultat."""
+    series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
+    if not series:
+        return {"ok": True, "erreur": None, "series": 0, "points": 0}
+    with _verrou(ms_name):
+        res = sync_decompte(cfg, conn, ms_name, series, now_ts, postes=True)
+    derniers_resultats[ms_name] = {"ts": now_ts, "ok": bool(res["ok"])}
+    return res
+
+
+def index_jusqu_au(conn, series: list[dict]) -> int | None:
+    """Horodatage du plus récent index Statistics des compteurs du décompte
+    électrique : « relevés à jour au … » sur la page."""
+    ids = [s["series_id"] for s in series_du_decompte(series)]
+    if not ids:
+        return None
+    marques = ",".join("?" * len(ids))
+    row = conn.execute(
+        f"SELECT MAX(ts) FROM statistic_samples WHERE series_id IN ({marques})", ids,
+    ).fetchone()
+    return int(row[0]) if row and row[0] is not None else None

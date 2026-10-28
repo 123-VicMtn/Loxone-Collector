@@ -29,9 +29,9 @@ maintenance_hour_utc: 3
 
 # Toutes les N heures, complète les index Statistics du Miniserver
 # utilisés par le décompte (électricité, chauffage, eau chaude,
-# buanderie), pour que /decompte et l'export soient à jour sans avoir
-# été ouverts. 0 = désactivé.
-statistics_sync_hours: 6
+# buanderie). /decompte et l'export ne lisent que la base : ce délai fixe
+# leur fraîcheur (bouton « Actualiser » pour forcer). 0 = désactivé.
+statistics_sync_hours: 1
 
 # Un site sans nouveau relevé depuis N minutes est signalé dans le
 # dashboard et par /health (status "degrade").

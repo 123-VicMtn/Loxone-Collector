@@ -63,6 +63,7 @@ def app_test(base_reference, tmp_path):
 
     sync_ok = {"ok": True, "erreur": None, "series": 0, "points": 0}
     with mock.patch.object(statistics_sync, "sync_decompte", return_value=sync_ok), \
+            mock.patch.dict(statistics_sync.derniers_resultats, clear=True), \
             mock.patch.object(access, "maintenant", return_value=ref.NOW):
         yield flask_app
 

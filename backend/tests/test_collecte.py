@@ -38,10 +38,39 @@ def test_message_statistiques_court_sans_detail_technique(client_user, client_ad
     erreur = "[Ref] échec de connexion à https://10.0.0.1:443/jdev/sps/getStatistic: refused"
     retour = {"ok": False, "erreur": erreur, "series": 0, "points": 0}
     with mock.patch.object(statistics_sync, "sync_decompte", return_value=retour):
-        for client in (client_user, client_admin):
-            data = client.get(f"/api/decompte?miniserver={ref.SITE}").get_json()
-            assert data["statistiques_erreur"] == routes_decompte.MESSAGE_STATISTIQUES_INJOIGNABLES
-            assert "10.0.0.1" not in str(data)
+        actualise = client_user.post("/api/decompte/actualiser", json={"miniserver": ref.SITE})
+    assert actualise.status_code == 200
+    assert actualise.get_json()["statistiques_erreur"] == routes_decompte.MESSAGE_STATISTIQUES_INJOIGNABLES
+    assert "10.0.0.1" not in actualise.get_data(as_text=True)
+    # L'échec reste signalé sur la page tant qu'une synchro n'a pas réussi.
+    for client in (client_user, client_admin):
+        data = client.get(f"/api/decompte?miniserver={ref.SITE}").get_json()
+        assert data["statistiques_erreur"] == routes_decompte.MESSAGE_STATISTIQUES_INJOIGNABLES
+        assert "10.0.0.1" not in str(data)
+
+
+def test_la_page_du_decompte_ne_lit_que_la_base(client_user):
+    with mock.patch.object(statistics_sync, "sync_decompte") as sync:
+        data = client_user.get(f"/api/decompte?miniserver={ref.SITE}").get_json()
+        client_user.get(f"/api/decompte/export.csv?miniserver={ref.SITE}&mois=2026-10")
+    sync.assert_not_called()
+    assert data["statistiques_erreur"] is None
+    assert data["statistiques_jusqu_au"] is not None
+
+
+def test_actualiser_relit_le_site_demande(client_user):
+    with mock.patch.object(statistics_sync, "sync_decompte",
+                           return_value={"ok": True, "erreur": None, "series": 2, "points": 9}) as sync:
+        res = client_user.post("/api/decompte/actualiser", json={"miniserver": ref.SITE})
+    assert res.status_code == 200
+    assert sync.call_args.args[2] == ref.SITE
+    assert sync.call_args.kwargs == {"postes": True}
+    assert res.get_json()["statistiques_erreur"] is None
+
+
+def test_actualiser_controle_l_acces(client_user, client_anonyme):
+    assert client_anonyme.post("/api/decompte/actualiser", json={"miniserver": ref.SITE}).status_code == 401
+    assert client_user.post("/api/decompte/actualiser", json={"miniserver": ref.AUTRE}).status_code == 403
 
 
 def test_repli_sur_lhoraire_quand_le_brut_est_purge():

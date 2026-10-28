@@ -1171,6 +1171,24 @@ section 7, règle « un commit déplace, un autre corrige »).
   sait pas installer en éditable depuis un `pyproject.toml`).
 - Les scripts restent dans `backend/scripts/` pour l'instant.
 
+## Le décompte ne lit que la base — 2026-10-28
+
+Choix de l'utilisateur (option 2 sur 3) : `GET /api/decompte` et les
+exports n'appellent plus le Miniserver (avant : jusqu'à ~27 s d'attente,
+et une page bloquée par un site injoignable).
+
+- Les Statistics arrivent par `statistics_sync.synchroniser_site` (un
+  verrou par site, résultat retenu dans `derniers_resultats`), appelé par
+  la synchro de fond, désormais **toutes les heures**
+  (`statistics_sync_hours` vaut 1 par défaut), et par `POST
+  /api/decompte/actualiser` (`miniserver`, tout compte qui a accès au
+  site ; séries de moins d'une heure sautées).
+- La réponse du décompte porte `statistiques_jusqu_au` (plus récent index
+  du décompte électrique) ; `statistiques_erreur` reflète la dernière
+  synchro du site depuis le démarrage.
+- Frontend à faire (l'utilisateur y travaille) : afficher « relevés à
+  jour au … » et un bouton « Actualiser ».
+
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
 **La Calbasse est le premier site avec une configuration Loxone

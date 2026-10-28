@@ -36,46 +36,42 @@ MESSAGE_STATISTIQUES_INJOIGNABLES = (
 )
 
 
+def _statistiques_erreur(ms_name: str) -> str | None:
+    dernier = statistics_sync.derniers_resultats.get(ms_name)
+    return MESSAGE_STATISTIQUES_INJOIGNABLES if dernier and not dernier["ok"] else None
+
+
 def _decompte_payload(ms_name: str, now: int, mois: str | None = None) -> dict:
     """Décompte complet d'un site. `from` / `to` (clés YYYY-MM) bornent
     les mois ; sans eux, tous les mois couverts par les données.
 
     `mois` (export) : ajoute pour ce mois le chauffage, l'eau chaude et la
-    buanderie (`payload["postes"]`). Leurs Statistics ne sont lues qu'ici,
-    pas à chaque affichage de la page."""
+    buanderie (`payload["postes"]`).
+
+    Ne lit que la base : les index Statistics y sont importés par la
+    synchro de fond et par POST /api/decompte/actualiser, jamais ici (avant
+    le 2026-10-28, chaque affichage attendait le Miniserver)."""
     with closing(read_conn()) as conn:
         series = [s for s in db.list_series(conn) if s["miniserver"] == ms_name]
         tarifs = db.list_tarifs(conn, ms_name)
-        start_hint = end_hint = None
+        periode_export = None
         try:
-            if request.args.get("from"):
-                year, month = billing.parse_period_key(request.args["from"])
-                start_hint = billing.period_bounds(year, month)[0]
-            if request.args.get("to"):
-                year, month = billing.parse_period_key(request.args["to"])
-                end_hint = billing.period_bounds(year, month)[1]
-            periode_export = None
+            for cle in ("from", "to"):
+                if request.args.get(cle):
+                    billing.parse_period_key(request.args[cle])
             if mois:
                 year, month = billing.parse_period_key(mois)
                 start, end = billing.period_bounds(year, month)
                 periode_export = {"key": mois, "start": start, "end": end}
-                start_hint = start if start_hint is None else start_hint
-                end_hint = end if end_hint is None else end_hint
         except ValueError as exc:
             abort(400, str(exc))
-        # Les index viennent des Statistics du Miniserver, pas du collecteur.
-        sync_info = statistics_sync.sync_decompte(
-            current_cfg(), conn, ms_name, series, now, start_hint, end_hint,
-            postes=periode_export is not None,
-        )
         zones = billing.resolve_zones(series)
         batiment_src = billing.resolve_batiment(series)
 
         def finaliser(payload: dict) -> dict:
             payload["miniserver"] = ms_name
-            payload["statistiques_erreur"] = (
-                MESSAGE_STATISTIQUES_INJOIGNABLES if sync_info.get("erreur") else None
-            )
+            payload["statistiques_erreur"] = _statistiques_erreur(ms_name)
+            payload["statistiques_jusqu_au"] = statistics_sync.index_jusqu_au(conn, series)
             if periode_export:
                 payload["postes"] = {mois: billing.compute_postes(
                     conn, billing.resolve_postes(series), periode_export, now,
@@ -119,6 +115,26 @@ def api_decompte():
     """
     ms_name = resolve_miniserver(request.args.get("miniserver"))
     return jsonify(_decompte_payload(ms_name, access.maintenant()))
+
+
+@bp.route("/api/decompte/actualiser", methods=["POST"])
+@login_required
+def api_decompte_actualiser():
+    """Relit tout de suite les Statistics du site sur le Miniserver, sans
+    attendre la synchro de fond. Ouvert à tout compte qui a accès au site :
+    rien n'est modifié, seuls des index plus récents sont importés. Les
+    séries relues il y a moins d'une heure sont sautées."""
+    payload = request.get_json(force=True, silent=True) or {}
+    ms_name = resolve_miniserver(payload.get("miniserver") or request.args.get("miniserver"))
+    with closing(read_conn()) as conn:
+        res = statistics_sync.synchroniser_site(current_cfg(), conn, ms_name, access.maintenant())
+        return jsonify({
+            "miniserver": ms_name,
+            "statistiques_erreur": None if res["ok"] else MESSAGE_STATISTIQUES_INJOIGNABLES,
+            "statistiques_jusqu_au": statistics_sync.index_jusqu_au(
+                conn, [s for s in db.list_series(conn) if s["miniserver"] == ms_name],
+            ),
+        })
 
 
 @bp.route("/api/decompte/export.csv")

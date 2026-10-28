@@ -162,17 +162,12 @@ def poller_loop(cfg: AppConfig) -> None:
 
 def sync_statistics_once(cfg: AppConfig, conn) -> None:
     """Complète jusqu'à maintenant les index Statistics de chaque site.
-    Sans elle, ils n'avançaient qu'à l'ouverture de /decompte ou à un export,
-    et seulement jusqu'à la fin du mois demandé (Sequoia : électricité
-    arrêtée au 02.10.2026, alors que le collecteur tournait)."""
+    C'est la seule source de fraîcheur du décompte : la page et les exports
+    ne lisent que la base (avant le 2026-10-28, ils appelaient le Miniserver
+    eux-mêmes)."""
     for ms_cfg in cfg.miniservers:
-        series = [s for s in db.list_series(conn) if s["miniserver"] == ms_cfg.name]
-        if not series:
-            continue
         try:
-            res = statistics_sync.sync_decompte(
-                cfg, conn, ms_cfg.name, series, int(time.time()), postes=True,
-            )
+            res = statistics_sync.synchroniser_site(cfg, conn, ms_cfg.name, int(time.time()))
         except Exception:  # pragma: no cover - filet de sécurité du thread de fond
             logger.exception("Erreur pendant la synchro Statistics de %s", ms_cfg.name)
             continue

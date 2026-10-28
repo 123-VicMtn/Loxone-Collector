@@ -78,8 +78,9 @@ class AppConfig:
     maintenance_hour_utc: int = 3
     # Toutes les N heures, complète les index Statistics du décompte
     # (électricité, chauffage, eau chaude, buanderie) jusqu'à maintenant.
-    # 0 = désactivé (config de démo : le miniserver n'existe pas).
-    statistics_sync_hours: int = 6
+    # 0 = désactivé (config de démo : le miniserver n'existe pas). La page
+    # /decompte ne lit que la base : ce délai fixe sa fraîcheur.
+    statistics_sync_hours: int = 1
     # Un site sans nouveau relevé depuis N minutes est signalé (dashboard,
     # /health). Horizon est resté muet 11 jours sans que rien ne le dise.
     stale_alert_minutes: int = 60
