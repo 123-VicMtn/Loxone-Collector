@@ -1170,6 +1170,12 @@ section 7, règle « un commit déplace, un autre corrige »).
 - Le venv de cette machine a dû passer à pip 26 / setuptools 82 (pip 21 ne
   sait pas installer en éditable depuis un `pyproject.toml`).
 - Les scripts restent dans `backend/scripts/` pour l'instant.
+- Routes retirées le 2026-10-28, aucun écran ne les appelait :
+  `GET /api/series/<id>/latest` et `/daily` (avec `fetchLatest`,
+  `fetchDaily`, `aggregateMonthly` et `monthKey` côté frontend).
+  `db.query_latest` / `query_daily_last` restent (relevés, billing).
+  `/api/tarifs` est gardé sans écran : c'est le seul moyen de saisir les
+  prix qui pré-remplissent le classeur Excel.
 
 ## Le décompte ne lit que la base — 2026-10-28
 

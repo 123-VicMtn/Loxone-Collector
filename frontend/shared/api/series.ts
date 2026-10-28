@@ -100,37 +100,3 @@ export async function fetchRange(
     return null
   }
 }
-
-/** Dernière valeur connue d'une série (peu importe son âge). Utilisé pour
- * les valeurs qui ne sont PAS un compteur cumulatif (ex: état de charge %
- * d'une batterie) -- voir CLAUDE.md, "Refactor extraction/lecture des
- * données dashboard" pour la distinction avec fetchRange ci-dessus. */
-export async function fetchLatest(seriesId: string | null | undefined): Promise<number | null> {
-  if (!seriesId) return null
-  try {
-    const data = await fetchJSON<{ value: number | null }>(`/api/series/${encodeURIComponent(seriesId)}/latest`)
-    return data.value
-  } catch (err) {
-    console.error(err)
-    return null
-  }
-}
-
-export interface DailyPoint {
-  date_ts: number
-  end_value: number
-  consumption: number
-}
-
-/** Relevés de fin de journée + consommation dérivée (delta entre deux
- * relevés successifs) pour une série cumulative ("total"). */
-export async function fetchDaily(seriesId: string | null | undefined, days: number): Promise<DailyPoint[]> {
-  if (!seriesId) return []
-  try {
-    const data = await fetchJSON<{ points: DailyPoint[] }>(`/api/series/${encodeURIComponent(seriesId)}/daily?days=${days}`)
-    return data.points
-  } catch (err) {
-    console.error(err)
-    return []
-  }
-}

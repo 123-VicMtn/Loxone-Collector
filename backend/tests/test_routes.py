@@ -28,8 +28,6 @@ ROUTES_CONNECTEES = [
     ("get", "/api/series"),
     ("get", "/api/releves"),
     ("get", f"/api/series/{SERIE_REF}/data"),
-    ("get", f"/api/series/{SERIE_REF}/latest"),
-    ("get", f"/api/series/{SERIE_REF}/daily"),
     ("get", f"/api/series/{SERIE_REF}/range?from={OCTOBRE[0]}&to={OCTOBRE[1]}"),
     ("post", "/api/apercu/puissance"),
     ("get", "/api/decompte"),
@@ -112,7 +110,7 @@ def test_releves_dernier_index(client_user):
 
 
 @pytest.mark.parametrize("suffixe", [
-    "data", "latest", "daily", f"range?from={OCTOBRE[0]}&to={OCTOBRE[1]}",
+    "data", f"range?from={OCTOBRE[0]}&to={OCTOBRE[1]}",
 ])
 def test_serie_dun_autre_site_403(client_user, client_admin, suffixe):
     assert client_user.get(f"/api/series/{SERIE_AUTRE}/{suffixe}").status_code == 403
@@ -128,15 +126,6 @@ def test_serie_data(client_user):
 def test_serie_data_parametres_invalides_400(client_user, query):
     assert client_user.get(f"/api/series/{SERIE_REF}/data?{query}").status_code == 400
 
-
-def test_serie_latest(client_user):
-    assert client_user.get(f"/api/series/{SERIE_REF}/latest").get_json() == {
-        "series_id": SERIE_REF, "ts": ref.NOW, "value": 2003.0,
-    }
-
-
-def test_serie_daily_parametre_invalide_400(client_user):
-    assert client_user.get(f"/api/series/{SERIE_REF}/daily?days=x").status_code == 400
 
 
 def test_serie_range(client_user):
@@ -284,9 +273,9 @@ def test_classification_admin_seulement(client_user, client_admin):
 # --- Erreurs en JSON ------------------------------------------------------------
 
 def test_erreur_de_parametre_en_json(client_user):
-    res = client_user.get(f"/api/series/{SERIE_REF}/daily?days=x")
+    res = client_user.get(f"/api/series/{SERIE_REF}/data?start=a&end=b")
     assert res.status_code == 400
-    assert res.get_json() == {"error": "days doit être un entier"}
+    assert res.get_json() == {"error": "start/end doivent être des timestamps unix"}
 
 
 def test_route_inconnue_et_methode_en_json(client_user):

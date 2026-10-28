@@ -200,64 +200,6 @@ def api_apercu_puissance():
     })
 
 
-@bp.route("/api/series/<path:series_id>/latest")
-@login_required
-def api_series_latest(series_id: str):
-    """Dernière valeur connue d'une série (peu importe son âge) -- utilisé
-    pour les tuiles de synthèse (ex: totalDay/totalWeek/totalMonth/totalYear
-    d'un compteur : ce sont des compteurs vivants sans historique Statistics
-    propre, voir db.query_daily_last -- seule leur dernière valeur lue par
-    le poller a un sens, pas un historique)."""
-    with closing(read_conn()) as conn:
-        check_series_access(conn, series_id)
-        latest = db.query_latest(conn, series_id)
-    if latest is None:
-        return jsonify({"series_id": series_id, "ts": None, "value": None})
-    ts, value = latest
-    return jsonify({"series_id": series_id, "ts": ts, "value": value})
-
-
-@bp.route("/api/series/<path:series_id>/daily")
-@login_required
-def api_series_daily(series_id: str):
-    """Relevés de fin de journée + consommation journalière dérivée (delta
-    entre deux relevés successifs), pour une série cumulative -- un index
-    croissant (state "total"/"totalNeg" typiquement). Voir db.query_daily_last
-    pour le détail de la méthode -- c'est la même logique qu'un décompte de
-    charges (différence entre deux relevés de compteur), appliquée jour par
-    jour. Ne JAMAIS appeler cette route sur une puissance instantanée
-    (state "actual", ou "Gpwr"/"Ppwr"/"Spwr" d'un bloc EFM) : MAX(valeur) par
-    jour n'a de sens que sur un cumul qui ne fait que croître."""
-    try:
-        days = int(request.args.get("days", 30))
-    except ValueError:
-        abort(400, "days doit être un entier")
-    days = max(1, min(days, 400))
-
-    now = access.maintenant()
-    # Un jour de marge avant le début demandé, pour pouvoir calculer le
-    # delta du tout premier jour retourné (sinon son delta serait inconnu,
-    # faute de relevé antérieur dans la fenêtre).
-    start_ts = now - (days + 1) * 86400
-
-    with closing(read_conn()) as conn:
-        check_series_access(conn, series_id)
-        rows = db.query_daily_last(conn, series_id, start_ts, now)
-
-    points = []
-    for i in range(1, len(rows)):
-        day_ts, end_value = rows[i]
-        _, prev_value = rows[i - 1]
-        consumption = end_value - prev_value
-        # Un delta négatif signale un compteur qui est reparti de zéro
-        # (remplacement de compteur, reset) plutôt qu'une "consommation
-        # négative" -- on le remonte tel quel (pas de valeur aberrante
-        # masquée), à charge pour l'affichage de le signaler.
-        points.append({"date_ts": day_ts, "end_value": end_value, "consumption": consumption})
-
-    return jsonify({"series_id": series_id, "days": days, "points": points})
-
-
 @bp.route("/api/series/<path:series_id>/range")
 @login_required
 def api_series_range(series_id: str):

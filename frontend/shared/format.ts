@@ -34,12 +34,6 @@ export function fmtRangeTs(ts: number, range: string): string {
   )
 }
 
-/** Clé de regroupement mensuel (UTC), ex: "2026-08". */
-export function monthKey(ts: number): string {
-  const d = new Date(ts * 1000)
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
-}
-
 const ZONE_LABEL_OVERRIDES: Record<string, string> = {
   REZJARDIN: 'Rez Jardin',
   COMMUN: 'Communs',
