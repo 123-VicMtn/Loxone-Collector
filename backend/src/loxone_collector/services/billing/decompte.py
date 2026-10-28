@@ -20,8 +20,8 @@ from loxone_collector.services.billing.compteurs import (
 )
 from loxone_collector.services.billing.periodes import TIMEZONE
 from loxone_collector.services.billing.releves import (
-    _absent,
     delta_compteurs_successifs,
+    lecture_absente,
     reading_delta,
 )
 
@@ -295,7 +295,7 @@ def _zone_period(conn, zone: dict, p: dict, tarifs: list[dict], now_ts: int,
 
     def delta(key):
         s = src[key]
-        return _lecture_zone(conn, s, p, now_ts) if s else _absent()
+        return _lecture_zone(conn, s, p, now_ts) if s else lecture_absente()
 
     reseau, solaire, controle = delta("reseau"), delta("solaire"), delta("controle")
     r, s = reseau["kwh"], solaire["kwh"]
@@ -346,7 +346,7 @@ def _batiment_period(conn, src: dict, zones: list[dict], p: dict, now_ts: int) -
             statistics=True,
         )
     else:
-        production = _absent()
+        production = lecture_absente()
 
     autoconso = 0.0
     achat = 0.0
@@ -414,7 +414,7 @@ def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
     """
 
     src = zone["sources"]
-    controle = _lecture_zone(conn, src["controle"], p, now_ts) if src.get("controle") else _absent()
+    controle = _lecture_zone(conn, src["controle"], p, now_ts) if src.get("controle") else lecture_absente()
     total = controle["kwh"]
     en_cours = p["end"] > now_ts
     alertes = []

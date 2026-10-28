@@ -85,7 +85,8 @@ RESERVES_ZONES = {
 SOLAIRE_BATIMENT_RE = re.compile(r"(?i)^solaire \(total\)$")
 
 
-def _totals(series: list[dict]) -> list[dict]:
+def series_total(series: list[dict]) -> list[dict]:
+    """Séries de l'état `total` (index cumulatif d'un compteur)."""
     return [s for s in series if s.get("state_name") == "total"]
 
 
@@ -99,7 +100,8 @@ def _pick(candidates: list[dict]) -> dict | None:
     return sorted(candidates, key=lambda s: s.get("label", ""))[0]
 
 
-def _src(s: dict | None) -> dict | None:
+def source_ref(s: dict | None) -> dict | None:
+    """Ce que le décompte garde d'une série : identifiant, libellé, unité."""
     if not s:
         return None
     return {"series_id": s["series_id"], "label": s.get("label", ""), "unit": s.get("unit", "")}
@@ -116,7 +118,7 @@ def resolve_zones(series: list[dict]) -> list[dict]:
     le dos de l'utilisateur.
     """
     zones: dict[str, list[dict]] = {}
-    for s in _totals(series):
+    for s in series_total(series):
         apt = (s.get("apartment") or "").strip()
         if not apt and PAC_BATIMENT_RE.match(s.get("label", "")):
             apt = ZONE_PAC
@@ -125,7 +127,7 @@ def resolve_zones(series: list[dict]) -> list[dict]:
         zones.setdefault(apt, []).append(s)
 
     out = []
-    for apt in sorted(zones, key=_zone_sort_key):
+    for apt in sorted(zones, key=zone_sort_key):
         items = zones[apt]
         reseau_c = [s for s in items if s.get("resource_type") == "energie_reseau"]
         solaire_c = [s for s in items if s.get("resource_type") == "energie_solaire"]
@@ -146,11 +148,11 @@ def resolve_zones(series: list[dict]) -> list[dict]:
         reseau, solaire, controle = _pick(reseau_c), _pick(solaire_c), _pick(controle_c)
         out.append({
             "zone": apt,
-            "label": _zone_label(apt),
+            "label": zone_label(apt),
             "sources": {
-                "reseau": _src(reseau),
-                "solaire": _src(solaire),
-                "controle": _src(controle),
+                "reseau": source_ref(reseau),
+                "solaire": source_ref(solaire),
+                "controle": source_ref(controle),
             },
             "ambigus": {
                 "reseau": [s["label"] for s in reseau_c if reseau and s["series_id"] != reseau["series_id"]],
@@ -172,16 +174,16 @@ def resolve_batiment(series: list[dict]) -> dict:
     comparables, et l'injection réelle se déduit de
     `production - autoconsommation`."""
     globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
-    totals = _totals(globals_)
+    totals = series_total(globals_)
     prod = _pick([s for s in totals if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))])
     if not prod:
         prod = _pick([s for s in totals if BATIMENT_PRODUCTION_RE.search(s.get("label", ""))])
-    imp = _pick([s for s in _totals(globals_) if BATIMENT_RESEAU_RE.search(s.get("label", ""))])
+    imp = _pick([s for s in series_total(globals_) if BATIMENT_RESEAU_RE.search(s.get("label", ""))])
     exp = _pick([
         s for s in globals_
         if s.get("state_name") == "totalNeg" and BATIMENT_RESEAU_RE.search(s.get("label", ""))
     ])
-    return {"production": _src(prod), "reseau_import": _src(imp), "reseau_export": _src(exp)}
+    return {"production": source_ref(prod), "reseau_import": source_ref(imp), "reseau_export": source_ref(exp)}
 
 
 def production_couvrante(conn, series: list[dict], start_ts: int, end_ts: int,
@@ -197,7 +199,7 @@ def production_couvrante(conn, series: list[dict], start_ts: int, end_ts: int,
     """
     globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
     candidats = [
-        s for s in _totals(globals_)
+        s for s in series_total(globals_)
         if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))
         or BATIMENT_PRODUCTION_RE.search(s.get("label", ""))
     ]
@@ -222,7 +224,7 @@ def production_couvrante(conn, series: list[dict], start_ts: int, end_ts: int,
     n, _, best = max(scored)
     if n == 0:
         return None
-    return _src(best)
+    return source_ref(best)
 
 
 def productions_sur_fenetre(conn, series: list[dict], start_ts: int, end_ts: int,
@@ -237,7 +239,7 @@ def productions_sur_fenetre(conn, series: list[dict], start_ts: int, end_ts: int
     """
     globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
     candidats = [
-        s for s in _totals(globals_)
+        s for s in series_total(globals_)
         if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))
         or BATIMENT_PRODUCTION_RE.search(s.get("label", ""))
     ]
@@ -259,10 +261,11 @@ def productions_sur_fenetre(conn, series: list[dict], start_ts: int, end_ts: int
         if n:
             scored.append((row[1], s))
     scored.sort(key=lambda item: item[0])
-    return [_src(s) for _, s in scored]
+    return [source_ref(s) for _, s in scored]
 
 
-def _zone_sort_key(apt: str):
+def zone_sort_key(apt: str):
+    """Tri naturel des zones : APP2 avant APP10, puis les zones sans numéro."""
     m = re.search(r"\d+", apt)
     return (0, int(m.group()), apt) if m else (1, 0, apt)
 
@@ -275,7 +278,10 @@ ZONE_LABEL_OVERRIDES = {"REZJARDIN": "Rez Jardin", "COMMUN": "Communs",
                         "WALLBOX": "Wallbox", ZONE_PAC: "PAC"}
 
 
-def _zone_label(apt: str) -> str:
+def zone_label(apt: str) -> str:
+    """Libellé d'une zone : ZONE_LABEL_OVERRIDES d'abord (« COMMUN » →
+    « Communs »), puis « APP35 » → « App 35 », « BUREAU17 » → « Bureau 17 »,
+    et un autre code en majuscules mis en forme (« COMMERCE » → « Commerce »)."""
     if apt in ZONE_LABEL_OVERRIDES:
         return ZONE_LABEL_OVERRIDES[apt]
     m = re.fullmatch(r"(?i)APP(\d+)", apt)

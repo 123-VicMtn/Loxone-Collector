@@ -85,6 +85,10 @@ from loxone_collector.services.billing.compteurs import (
     productions_sur_fenetre,
     resolve_batiment,
     resolve_zones,
+    series_total,
+    source_ref,
+    zone_label,
+    zone_sort_key,
 )
 from loxone_collector.services.billing.decompte import (
     KWH_DECIMALES,
@@ -125,6 +129,7 @@ from loxone_collector.services.billing.releves import (
     RUPTURE_MIN_DROP_EAU_M3,
     RUPTURE_MIN_DROP_KWH,
     delta_compteurs_successifs,
+    lecture_absente,
     min_drop_for_resource_type,
     reading_delta,
 )
@@ -159,6 +164,7 @@ __all__ = [
     "compute_postes",
     "cumul_periodes",
     "delta_compteurs_successifs",
+    "lecture_absente",
     "min_drop_for_resource_type",
     "montants",
     "parse_jour",
@@ -176,6 +182,10 @@ __all__ = [
     "resolve_batiment",
     "resolve_postes",
     "resolve_zones",
+    "series_total",
+    "source_ref",
     "tarif_for",
     "taux",
+    "zone_label",
+    "zone_sort_key",
 ]

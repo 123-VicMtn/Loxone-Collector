@@ -112,7 +112,7 @@ def delta_compteurs_successifs(conn, sources: list[dict], start_ts: int, end_ts:
     if len(sources) <= 1:
         src = sources[0] if sources else None
         if not src:
-            return _absent()
+            return lecture_absente()
         return reading_delta(conn, src["series_id"], start_ts, end_ts, now_ts,
                              statistics=statistics)
 
@@ -136,7 +136,7 @@ def delta_compteurs_successifs(conn, sources: list[dict], start_ts: int, end_ts:
     if len(bornes) <= 1:
         src = bornes[0][1] if bornes else (sources[0] if sources else None)
         if not src:
-            return _absent()
+            return lecture_absente()
         return reading_delta(conn, src["series_id"], start_ts, end_ts, now_ts,
                              statistics=statistics)
 
@@ -198,7 +198,8 @@ def _detect_ruptures(conn, series_id: str, start_ts: int, end_ts: int,
     return out
 
 
-def _absent() -> dict:
+def lecture_absente() -> dict:
+    """Lecture d'une colonne sans compteur : même forme que `reading_delta`."""
     return {
         "kwh": None, "releve_debut": None, "releve_fin": None,
         "releve_debut_ts": None, "releve_fin_ts": None,

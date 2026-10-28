@@ -1172,7 +1172,7 @@ section 7, règle « un commit déplace, un autre corrige »).
   `periodes.py` (mois, plages, fuseau), `compteurs.py` (quel compteur
   alimente quelle colonne : zones, bâtiment, production, réserves,
   `available_range`), `releves.py` (index de fin − index de début,
-  ruptures, `_absent`), `decompte.py` (tarifs, `compute_decompte`, cumul,
+  ruptures, `lecture_absente`), `decompte.py` (tarifs, `compute_decompte`, cumul,
   Wallbox) et `postes.py` (chauffage, eau chaude, buanderie).
   `billing/__init__.py` réexporte tous les noms publics : `billing.X` et
   `from …billing import X` marchent comme avant ; une fonction privée
@@ -1180,8 +1180,9 @@ section 7, règle « un commit déplace, un autre corrige »).
   Dépendances : `decompte` et `postes` → `periodes`, `compteurs`,
   `releves`, qui ne dépendent de rien dans le paquet. Découpage fait par
   script : les 69 définitions sont identiques (AST), référence inchangée.
-  Reste possible ensuite : rendre publics les quelques noms privés
-  partagés entre sous-modules (`_src`, `_totals`, `_zone_label`,
+  Les noms partagés entre sous-modules sont publics depuis le commit
+  suivant : `source_ref`, `series_total`, `zone_label`, `zone_sort_key`,
+  `lecture_absente` (anciens `_src`, `_totals`, `_zone_label`,
   `_zone_sort_key`, `_absent`).
 - Le venv de cette machine a dû passer à pip 26 / setuptools 82 (pip 21 ne
   sait pas installer en éditable depuis un `pyproject.toml`).

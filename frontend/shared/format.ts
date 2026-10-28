@@ -41,7 +41,7 @@ const ZONE_LABEL_OVERRIDES: Record<string, string> = {
   WALLBOX: 'Wallbox',
 }
 
-/** Libellé lisible d'une zone. Mêmes règles que billing._zone_label
+/** Libellé lisible d'une zone. Mêmes règles que billing.zone_label
  * (APP01 → App 1, REZJARDIN → Rez Jardin). */
 export function zoneLabel(apartment: string | null | undefined): string {
   if (!apartment) return 'Bâtiment'

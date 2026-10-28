@@ -10,16 +10,16 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from loxone_collector.services.billing.compteurs import (
-    _src,
-    _totals,
-    _zone_label,
-    _zone_sort_key,
+    series_total,
+    source_ref,
+    zone_label,
+    zone_sort_key,
 )
 from loxone_collector.services.billing.periodes import TIMEZONE
 from loxone_collector.services.billing.releves import (
     RUPTURE_MIN_DROP_EAU_M3,
     RUPTURE_MIN_DROP_KWH,
-    _absent,
+    lecture_absente,
     reading_delta,
 )
 
@@ -90,18 +90,18 @@ def resolve_postes(series: list[dict]) -> list[dict]:
     Chauffage », « Boiler ecs ») sont des compteurs d'immeuble, hors
     décompte."""
     zones: dict[str, dict[str, list[dict]]] = {}
-    for s in _totals(series):
+    for s in series_total(series):
         apt = (s.get("apartment") or "").strip()
         if not apt or apt.upper() in ZONES_FANTOMES:
             continue
         role = _role_poste(s)
         if role is None:
             continue
-        zones.setdefault(apt, {r: [] for r in POSTES})[role].append(_src(s))
+        zones.setdefault(apt, {r: [] for r in POSTES})[role].append(source_ref(s))
     out = []
-    for apt in sorted(zones, key=_zone_sort_key):
+    for apt in sorted(zones, key=zone_sort_key):
         compteurs = {r: sorted(v, key=lambda c: c["label"]) for r, v in zones[apt].items()}
-        out.append({"zone": apt, "label": _zone_label(apt), "compteurs": compteurs})
+        out.append({"zone": apt, "label": zone_label(apt), "compteurs": compteurs})
     return out
 
 
@@ -142,7 +142,7 @@ def compute_postes(conn, postes: list[dict], p: dict, now_ts: int) -> dict:
             continue
         out["buanderie"].append({
             "zone": z["zone"], "label": z["label"], "en_cours": en_cours,
-            "energie": lire(kwh_src, "buanderie", buanderie_start) if kwh_src else _absent(),
-            "cycles": lire(cycles_src, "buanderie_cycles", buanderie_start) if cycles_src else _absent(),
+            "energie": lire(kwh_src, "buanderie", buanderie_start) if kwh_src else lecture_absente(),
+            "cycles": lire(cycles_src, "buanderie_cycles", buanderie_start) if cycles_src else lecture_absente(),
         })
     return out
