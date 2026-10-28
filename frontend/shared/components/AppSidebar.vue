@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * Navigation de l'app, à gauche de toutes les pages sauf /login.
- * Deux parties : Équipements (communication, matériels) et Outils
+ * En tête, le site affiché (SiteSwitcher), commun à toutes les pages ;
+ * sur petit écran, son nom est aussi dans la barre du haut. Deux parties : Équipements (communication, matériels) et Outils
  * (graphiques, décompte, classification). Sur grand écran elle reste
  * affichée. En dessous de
  * lg (1024 px) elle devient un tiroir. Classification n'apparaît que
@@ -12,10 +13,13 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { authState } from '../auth'
 import AuthStatus from './AuthStatus.vue'
+import SiteSwitcher from './SiteSwitcher.vue'
+import { useSiteActif } from '../composables/useSiteActif'
 
 const open = defineModel<boolean>('open', { default: false })
 
 const route = useRoute()
+const { site } = useSiteActif()
 const menuButton = ref<HTMLButtonElement | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
 
@@ -107,6 +111,13 @@ onUnmounted(() => {
       </svg>
     </button>
     <router-link to="/" class="text-base font-bold text-neutral-900">Loxone</router-link>
+    <button
+      v-if="site"
+      type="button"
+      class="ml-auto min-w-0 truncate rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700"
+      :aria-label="`Site affiché : ${site}. Changer de site`"
+      @click="openMenu"
+    >{{ site }}</button>
   </header>
 
   <button
@@ -137,6 +148,10 @@ onUnmounted(() => {
           <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
         </svg>
       </button>
+    </div>
+
+    <div class="shrink-0 border-b border-neutral-200 px-4 py-4">
+      <SiteSwitcher />
     </div>
 
     <nav class="flex-1 overflow-y-auto px-3 py-4">

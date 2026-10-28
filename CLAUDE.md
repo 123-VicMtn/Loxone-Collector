@@ -1302,6 +1302,15 @@ clic dehors, à Échap, ou en changeant de page).
 `/login` n'a pas cette barre. Le fond de page est forcé clair
 (`color-scheme: light` dans `style.css`) : l'app n'a pas de thème sombre.
 
+**Site affiché visible partout (2026-10-28)** : en tête de la barre
+latérale, `shared/components/SiteSwitcher.vue` (liste déroulante si le
+compte a plusieurs sites, le nom seul sinon) ; sous 1024 px, le nom du
+site est aussi une pastille dans la barre du haut, qui ouvre le tiroir.
+Avant, plus aucun écran ne permettait de changer de site
+(`selectSite` n'était appelé nulle part). `useSiteActif` vide la liste
+des sites quand le compte change sans rechargement (sinon les sites
+d'autres clients restaient listés) et ne charge rien sans compte connecté.
+
 ## Prochaine étape prévue
 
 Le décompte RCP est branché, La Calbasse comprise (2026-10-27).
