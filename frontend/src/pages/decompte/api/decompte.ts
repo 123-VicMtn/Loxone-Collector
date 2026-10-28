@@ -57,25 +57,32 @@ export async function saveTarif(tarif: TarifInput): Promise<Tarif[]> {
   return postJSON<Tarif[]>('/api/tarifs', tarif)
 }
 
-export function downloadDecompte(format: 'xlsx' | 'csv', miniserver: string, mois: string): Promise<void> {
-  const params = new URLSearchParams({ miniserver, mois })
-  const safe = miniserver.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_|_$/g, '') || 'site'
-  return downloadFile(
-    `/api/decompte/export.${format}?${params}`,
-    `decompte-${safe}-${mois}.${format}`,
-  )
+function nomSur(texte: string): string {
+  return texte.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_|_$/g, '')
+}
+
+/** `zone` (code, ex. APP35) : le décompte de cette seule zone. */
+function telecharger(
+  format: 'xlsx' | 'csv', params: Record<string, string>, miniserver: string,
+  suffixe: string, zone?: string,
+): Promise<void> {
+  const query = new URLSearchParams({ miniserver, ...params })
+  if (zone) query.set('zone', zone)
+  const nom = (nomSur(miniserver) || 'site') + (zone ? `-${nomSur(zone)}` : '')
+  return downloadFile(`/api/decompte/export.${format}?${query}`, `decompte-${nom}-${suffixe}.${format}`)
+}
+
+export function downloadDecompte(
+  format: 'xlsx' | 'csv', miniserver: string, mois: string, zone?: string,
+): Promise<void> {
+  return telecharger(format, { mois }, miniserver, mois, zone)
 }
 
 /** Décompte sur des dates choisies (YYYY-MM-DD, `au` inclus). */
 export function downloadDecomptePeriode(
-  format: 'xlsx' | 'csv', miniserver: string, du: string, au: string,
+  format: 'xlsx' | 'csv', miniserver: string, du: string, au: string, zone?: string,
 ): Promise<void> {
-  const params = new URLSearchParams({ miniserver, du, au })
-  const safe = miniserver.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_|_$/g, '') || 'site'
-  return downloadFile(
-    `/api/decompte/export.${format}?${params}`,
-    `decompte-${safe}-${du}_${au}.${format}`,
-  )
+  return telecharger(format, { du, au }, miniserver, `${du}_${au}`, zone)
 }
 
 export async function deleteTarif(id: number, miniserver: string): Promise<Tarif[]> {

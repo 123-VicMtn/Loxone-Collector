@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 from loxone_collector.services.billing import (
+    RESERVES_ZONES,
     parse_period_key,
     period_label,
 )
@@ -19,6 +20,36 @@ EXPORT_HEADERS = [
     "Mois", "Zone", "Consommation totale (kWh)", "Solaire (kWh)", "Réseau (kWh)", "État",
 ]
 _BUANDERIE_HEADER = "Buanderie (kWh)"
+
+
+def restreindre_a_zone(payload: dict, zone: str) -> dict:
+    """Décompte d'une seule zone (départ d'un locataire). Le calcul reste
+    celui de l'immeuble entier (verdict de répartition, bilan du bâtiment) :
+    seules les lignes des autres zones sont retirées, partout (électricité,
+    détail par mois, chauffage, eau chaude, buanderie). Lève KeyError si
+    la zone n'est pas dans le décompte."""
+    garder = [z for z in payload.get("zones") or [] if z["zone"] == zone]
+    if not garder:
+        raise KeyError(zone)
+    out = {**payload, "zones": garder, "zone_unique": garder[0]["label"]}
+    out["reserves"] = [RESERVES_ZONES[zone]] if zone in RESERVES_ZONES else []
+    if payload.get("detail"):
+        detail = payload["detail"]
+        out["detail"] = {**detail, "zones": [z for z in detail["zones"] if z["zone"] == zone]}
+    if payload.get("postes"):
+        out["postes"] = {
+            cle: {**postes, **{
+                role: [ligne for ligne in postes.get(role) or [] if ligne["zone"] == zone]
+                for role in ("chauffage", "eau_chaude", "buanderie")
+            }}
+            for cle, postes in payload["postes"].items()
+        }
+    return out
+
+
+def libelle_total(payload: dict) -> str:
+    """« Total » d'un décompte d'une seule zone, « Total immeuble » sinon."""
+    return "Total" if payload.get("zone_unique") else "Total immeuble"
 
 
 def etat_zone(entry: dict) -> str:
@@ -122,7 +153,7 @@ def export_lignes(payload: dict, period_key: str) -> list[list]:
                      *[vals[k] for k in cles], etat_zone(e)])
     if not found:
         raise KeyError(period_key)
-    rows.append([mois_label, "Total immeuble",
+    rows.append([mois_label, libelle_total(payload),
                  *[sums[k] if seen[k] else None for k in cles], ""])
     headers = list(EXPORT_HEADERS)
     if not _est_un_mois(period_key):
@@ -214,7 +245,7 @@ def export_csv_lignes(payload: dict, period_key: str) -> list[list[str]]:
     zones = [[_arrondi(c, 2) if not isinstance(c, str) else c for c in row] for row in elec[1:-1]]
     # Total des valeurs affichées, comme le classeur : sinon la somme des
     # lignes du fichier diffère du total d'un centime.
-    total = [mois_label, "Total immeuble"]
+    total = [mois_label, libelle_total(payload)]
     for i in range(2, len(elec[0]) - 1):
         total.append(_somme_arrondie([row[i] for row in zones], 2))
     total.append("")
@@ -249,14 +280,14 @@ def export_csv_lignes(payload: dict, period_key: str) -> list[list[str]]:
                 _fr(ln["debut"], _INDEX_DECIMALES), _fr(ln["fin"], _INDEX_DECIMALES),
                 _fr(ln["quantite"], dec), ln["etat"],
             ])
-        out.append([mois_label, "Total immeuble", "", "", "", _fr(total, dec), ""])
+        out.append([mois_label, libelle_total(payload), "", "", "", _fr(total, dec), ""])
     lignes, totaux = lignes_buanderie(postes)
     if lignes:
         out += [[], ["Buanderie"], [elec[0][0], "Zone", "Cycles", "Énergie (kWh)", "État"]]
         for ln in lignes:
             out.append([mois_label, ln["zone"], _fr(ln["cycles"], 0),
                         _fr(ln["energie"], 2), ln["etat"]])
-        out.append([mois_label, "Total immeuble", _fr(totaux["cycles"], 0),
+        out.append([mois_label, libelle_total(payload), _fr(totaux["cycles"], 0),
                     _fr(totaux["energie"], 2), ""])
     return out
 

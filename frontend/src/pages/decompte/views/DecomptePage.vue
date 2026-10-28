@@ -52,6 +52,8 @@ let requetePlage = 0
 const downloading = ref(false)
 const downloadError = ref('')
 const confirmFormat = ref<'xlsx' | 'csv' | null>(null)
+/** Code de la zone à exporter seule (départ d'un locataire), '' = tout l'immeuble. */
+const zoneExport = ref('')
 
 const actualisation = ref(false)
 const actualisationErreur = ref('')
@@ -160,6 +162,19 @@ const relevesManquants = computed<ReleveManquant[]>(() => {
   return out
 })
 
+/** Zones proposées à l'export, dans l'ordre du tableau. */
+const zonesExport = computed(() => (vuePayload.value?.zones ?? []).map((z) => ({ zone: z.zone, label: z.label })))
+
+watch(zonesExport, (zones) => {
+  if (zoneExport.value && !zones.some((z) => z.zone === zoneExport.value)) zoneExport.value = ''
+})
+
+/** Relevés manquants de ce qui sera exporté : toute la liste, ou la zone choisie. */
+const manquantsExport = computed<ReleveManquant[]>(() => {
+  const choisie = zonesExport.value.find((z) => z.zone === zoneExport.value)
+  return choisie ? relevesManquants.value.filter((r) => r.zone === choisie.label) : relevesManquants.value
+})
+
 function hasZoneData(p: DecomptePayload, periodKey: string): boolean {
   return p.zones.some((z) => {
     const e = z.periodes[periodKey]
@@ -205,6 +220,7 @@ watch(selection, () => {
 
 async function loadSite(site: string) {
   currentSite.value = site
+  zoneExport.value = ''  // deux sites peuvent avoir chacun un « App 1 »
   localStorage.setItem(SITE_STORAGE_KEY, site)
 
   loading.value = true
@@ -266,7 +282,7 @@ async function actualiser() {
 
 async function download(format: 'xlsx' | 'csv') {
   if (!currentSite.value || !vueKey.value) return
-  if (relevesManquants.value.length) {
+  if (manquantsExport.value.length) {
     confirmFormat.value = format
     return
   }
@@ -285,9 +301,11 @@ async function runDownload(format: 'xlsx' | 'csv') {
   downloadError.value = ''
   try {
     if (moisChoisi.value) {
-      await downloadDecompte(format, currentSite.value, moisChoisi.value)
+      await downloadDecompte(format, currentSite.value, moisChoisi.value, zoneExport.value || undefined)
     } else {
-      await downloadDecomptePeriode(format, currentSite.value, selection.value.du, selection.value.au)
+      await downloadDecomptePeriode(
+        format, currentSite.value, selection.value.du, selection.value.au, zoneExport.value || undefined,
+      )
     }
   } catch (err) {
     console.error(err)
@@ -380,6 +398,16 @@ watch(siteActif, (name) => {
 
       <Card v-if="vuePayload && !chargementPlage && !erreurPlage" title="Décompte par zone" :hint="selectedPeriod?.label">
         <div class="mb-4 flex flex-wrap items-center gap-2">
+          <label class="flex items-center gap-2 text-sm text-neutral-600">
+            Décompte de
+            <select
+              v-model="zoneExport"
+              class="rounded border border-neutral-300 bg-white py-1 pr-8 pl-2 text-sm text-neutral-900"
+            >
+              <option value="">tout l'immeuble</option>
+              <option v-for="z in zonesExport" :key="z.zone" :value="z.zone">{{ z.label }}</option>
+            </select>
+          </label>
           <button
             type="button"
             class="rounded border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
@@ -485,7 +513,7 @@ watch(siteActif, (name) => {
           produit avec les données disponibles, sans ces relevés.
         </p>
         <ul class="mt-3 max-h-48 list-disc space-y-1 overflow-y-auto pl-5 text-sm text-amber-900">
-          <li v-for="(r, i) in relevesManquants" :key="i">
+          <li v-for="(r, i) in manquantsExport" :key="i">
             {{ r.zone }} — {{ r.cote }} : {{ r.detail }}
           </li>
         </ul>

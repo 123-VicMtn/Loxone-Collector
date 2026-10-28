@@ -123,3 +123,38 @@ def test_la_page_lit_une_plage_choisie(client_user):
     assert round(zones["App 1"]["total"], 2) == csv["App 1"]
     assert "postes" not in data
     assert client_user.get(f"/api/decompte?miniserver={ref.SITE}&du=2026-10-31&au=2026-09-01").status_code == 400
+
+
+# --- Une seule zone (départ d'un locataire) -----------------------------------
+
+def test_une_zone_seule_dans_le_csv(client_user):
+    immeuble = _csv(client_user, "du=2026-09-15&au=2026-10-15")
+    lot = _csv(client_user, "du=2026-09-15&au=2026-10-15&zone=app1")
+    for section in ("Électricité", "Chauffage", "Eau chaude", "Buanderie"):
+        lignes = _section(lot, section)[1:]
+        assert [row[1] for row in lignes] == ["App 1", "Total"], section
+        assert lignes[0] == next(r for r in _section(immeuble, section) if r[1] == "App 1")
+    assert {row[1] for row in _section(lot, "Détail par mois")[1:]} == {"App 1"}
+    # Total du lot = sa ligne.
+    elec = _section(lot, "Électricité")
+    assert elec[2][2:5] == elec[1][2:5]
+
+
+def test_une_zone_seule_dans_le_classeur(client_user):
+    res = client_user.get(URL.format("xlsx") + "&mois=2026-10&zone=APP1")
+    assert res.status_code == 200
+    assert "decompte-Ref-APP1-2026-10.xlsx" in res.headers["Content-Disposition"]
+    wb = load_workbook(io.BytesIO(res.get_data()))
+    elec = wb["Électricité"]
+    assert elec["A1"].value == "Décompte de charges — Ref — App 1"
+    zones = [elec.cell(r, 1).value for r in range(9, elec.max_row + 1)]
+    assert zones[:2] == ["App 1", "Total"]
+    frais = [wb["Frais supplémentaires"].cell(r, 1).value for r in range(5, 7)]
+    assert frais == ["App 1", "Total"]
+    assert {row[0] for row in wb["Relevés"].iter_rows(min_row=5, values_only=True)} == {"App 1"}
+
+
+def test_zone_inconnue_400(client_user):
+    res = client_user.get(URL.format("csv") + "&mois=2026-10&zone=APP99")
+    assert res.status_code == 400
+    assert res.get_json() == {"error": "zone inconnue pour ce site"}

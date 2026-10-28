@@ -24,6 +24,7 @@ from loxone_collector.exports.decompte import (
     _mois_label,
     _postes_du_mois,
     etat_zone,
+    libelle_total,
     lignes_buanderie,
     lignes_compteurs,
     lignes_detail,
@@ -258,10 +259,11 @@ def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
         "ne compte que les relevés présents.",
         "note",
     ))
-    notes.append((
-        "Le total porte sur toutes les zones. Filtrer le tableau ne change pas ce total.",
-        "note",
-    ))
+    if not payload.get("zone_unique"):
+        notes.append((
+            "Le total porte sur toutes les zones. Filtrer le tableau ne change pas ce total.",
+            "note",
+        ))
     if manquants:
         notes.append(("Relevés incomplets", "head"))
         notes.extend((ligne, "note") for ligne in manquants)
@@ -590,7 +592,8 @@ def _index_identiques(lignes: list[dict]) -> list[tuple[str, str]]:
 
 
 def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
-                           couverture: str, tva_defaut: float | None = None) -> None:
+                           couverture: str, tva_defaut: float | None = None,
+                           libelle: str = "Total immeuble") -> None:
     """Onglets Chauffage, Eau chaude et Buanderie. Un onglet n'est créé que
     si le site a des compteurs de ce poste.
 
@@ -604,7 +607,7 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
                       "début. L'eau froide n'est pas reprise.",
     }
     for role, (titre, grandeur, unite, dec) in _POSTE_TABLES.items():
-        lignes, total = lignes_compteurs(postes, role)
+        lignes, total_qte = lignes_compteurs(postes, role)
         if not lignes:
             continue
         qte_fmt = _M3_FMT if unite == "m³" else _KWH_FMT
@@ -642,7 +645,7 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
         _ecrire_onglet_tableau(
             wb, titre, f"{titre} — {site}" if site else titre,
             f"{label}  ·  {couverture}", colonnes, rows,
-            ["Total immeuble", "", None, None, total, somme_montants, ""], notes,
+            [libelle, "", None, None, total_qte, somme_montants, ""], notes,
             site, label, f"{titre} · {unite} et CHF",
             prix=[
                 (f"Prix {titre.lower()} HT (CHF/{unite})", None, _PRIX_FMT),
@@ -680,7 +683,7 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
     _ecrire_onglet_tableau(
         wb, "Buanderie", f"Buanderie — {site}" if site else "Buanderie",
         f"{label}  ·  {couverture}", colonnes, rows,
-        ["Total immeuble", totaux["cycles"], totaux["energie"], ""], notes,
+        [libelle, totaux["cycles"], totaux["energie"], ""], notes,
         site, label, "Buanderie · kWh et cycles",
     )
 
@@ -729,7 +732,7 @@ _FRAIS_COLONNES = [
 
 
 def _ecrire_onglet_frais(wb: Workbook, zones: list[tuple[str, int]], site: str,
-                         label: str, couverture: str) -> None:
+                         label: str, couverture: str, total: str = "Total immeuble") -> None:
     """Tableau vide, une ligne par zone de l'onglet Électricité, pour
     reporter à la main les frais hors relevés (location des compteurs,
     frais exceptionnels). `zones` : (nom, ligne dans Électricité) ; le nom
@@ -784,7 +787,7 @@ def _ecrire_onglet_frais(wb: Workbook, zones: list[tuple[str, int]], site: str,
             cell.value = _formule_somme(get_column_letter(c), first, last)
             cell.number_format = _CHF_FMT
             cell.alignment = _ALIGN_RIGHT
-    ws.cell(total_row, 1, "Total immeuble").alignment = _ALIGN_LEFT
+    ws.cell(total_row, 1, total).alignment = _ALIGN_LEFT
     ws.row_dimensions[total_row].height = 22
 
     for c, (_n, width, _s) in enumerate(_FRAIS_COLONNES, start=1):
@@ -793,7 +796,8 @@ def _ecrire_onglet_frais(wb: Workbook, zones: list[tuple[str, int]], site: str,
         ("Tableau à remplir : les cases jaunes sont vides à la génération. "
          "Reporter les montants à facturer en CHF, TVA comprise.", "note"),
         ("Le nom de chaque zone renvoie à sa ligne dans l'onglet Électricité. "
-         "Le total de la ligne et celui de l'immeuble se calculent seuls.", "note"),
+         + ("Les totaux se calculent seuls." if total == "Total"
+            else "Le total de la ligne et celui de l'immeuble se calculent seuls."), "note"),
     ]
     last_row = _ecrire_notes(ws, total_row + 2, notes, ncol,
                              sum(w for _n, w, _s in _FRAIS_COLONNES))
@@ -956,7 +960,7 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
         cell.fill = _FILL_TOTAL
         cell.border = _TOTAL_BORDER
         if key == "zone":
-            cell.value = "Total immeuble"
+            cell.value = libelle_total(payload)
             cell.alignment = _ALIGN_LEFT
         elif key in _ELEC_KWH:
             cell.value = totaux[key]
@@ -1003,10 +1007,11 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
 
     _ecrire_onglet_detail(wb, payload, site, label, couverture)
     if postes:
-        _ecrire_onglets_postes(wb, postes, site, label, couverture, taux_tva)
+        _ecrire_onglets_postes(wb, postes, site, label, couverture, taux_tva,
+                               libelle_total(payload))
     _ecrire_onglet_frais(
         wb, [(ln["zone"], first_data + i) for i, ln in enumerate(lignes)],
-        site, label, couverture,
+        site, label, couverture, libelle_total(payload),
     )
     _ecrire_onglet_releves(
         wb, entries, payload, period_key, site, label, couverture, tz, conn,

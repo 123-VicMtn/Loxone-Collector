@@ -1231,10 +1231,21 @@ moteur de décompte).
   PAC. La règle Wallbox (0 kWh avant le 04.03.2026,
   `billing.WALLBOX_VALID_FROM`) est passée dans `billing` : la page la
   montrait en « données incomplètes » de janvier à mars 2026.
-- Perdu avec le CLI, non repris (pas demandé) : un classeur par
-  appartement, l'eau froide, le volume de chauffage et les compteurs de
-  contrôle dans les classeurs. `sync_decompte` a perdu `toutes_les_series`,
-  `start_ts` et `end_ts`, qui ne servaient plus.
+- Perdu avec le CLI, non repris (pas demandé) : l'eau froide, le volume
+  de chauffage et les compteurs de contrôle dans les classeurs.
+  `sync_decompte` a perdu `toutes_les_series`, `start_ts` et `end_ts`, qui
+  ne servaient plus.
+- **Décompte d'un seul appartement** (repris le même jour, départ d'un
+  locataire) : `zone=<code>` (ex. `APP35`) sur `export.xlsx` / `.csv`,
+  avec un mois ou des dates libres. Le calcul reste celui de l'immeuble
+  entier (verdict, bilan) ; `exports/decompte.restreindre_a_zone` retire
+  les autres zones de tous les tableaux (électricité, détail par mois,
+  chauffage, eau chaude, buanderie, frais, relevés), et la note « Sous
+  réserve » ne reste que si elle concerne cette zone. Titres « … — <site> —
+  App 35 », ligne « Total » au lieu de « Total immeuble », fichier
+  `decompte-<site>-APP35-<période>`. Zone inconnue : 400. Page : liste
+  « Décompte de [tout l'immeuble / App 1 / …] » devant les boutons ; la
+  confirmation des relevés manquants ne porte que sur la zone choisie.
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 

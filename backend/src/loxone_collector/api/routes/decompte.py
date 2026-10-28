@@ -210,9 +210,29 @@ def _export_payload(ms_name: str, now: int, start: int, end: int, cle: str,
         return payload, cle
 
 
-def _nom_fichier(ms_name: str, suffixe: str, ext: str) -> str:
+def _nom_fichier(ms_name: str, suffixe: str, ext: str, zone: str | None = None) -> str:
     safe_site = re.sub(r"[^A-Za-z0-9._-]+", "_", ms_name).strip("_") or "site"
+    if zone:
+        safe_site += "-" + (re.sub(r"[^A-Za-z0-9._-]+", "_", zone).strip("_") or "zone")
     return f"decompte-{safe_site}-{suffixe}.{ext}"
+
+
+def _export_demande(ms_name: str) -> tuple[dict, str, str, str, str | None]:
+    """Décompte à exporter : période demandée et, avec `zone` (code de la
+    zone, ex. APP35), une seule zone (départ d'un locataire). Retourne le
+    payload, sa clé de période, le titre du site dans le fichier, le
+    suffixe du nom de fichier et la zone."""
+    start, end, suffixe = _periode_export()
+    zone = (request.args.get("zone") or "").strip().upper() or None
+    payload, cle = _export_payload(ms_name, access.maintenant(), start, end, suffixe)
+    titre = ms_name
+    if zone:
+        try:
+            payload = decompte_export.restreindre_a_zone(payload, zone)
+        except KeyError:
+            abort(400, "zone inconnue pour ce site")
+        titre = f"{ms_name} — {payload['zone_unique']}"
+    return payload, cle, titre, suffixe, zone
 
 
 @bp.route("/api/decompte/export.csv")
@@ -220,17 +240,16 @@ def _nom_fichier(ms_name: str, suffixe: str, ext: str) -> str:
 def api_decompte_csv():
     """Période demandée (`mois=YYYY-MM`, ou `du` / `au`) : une section par
     tableau (électricité, détail par mois s'il y en a plusieurs, chauffage,
-    eau chaude, buanderie)."""
+    eau chaude, buanderie). `zone` : une seule zone."""
     ms_name = resolve_miniserver(request.args.get("miniserver"))
-    start, end, suffixe = _periode_export()
-    payload, cle = _export_payload(ms_name, access.maintenant(), start, end, suffixe)
+    payload, cle, _titre, suffixe, zone = _export_demande(ms_name)
     rows = decompte_export.export_csv_lignes(payload, cle)
     buf = io.StringIO()
     csv.writer(buf, delimiter=";").writerows(rows)
     data = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
     return send_file(
         data, mimetype="text/csv; charset=utf-8", as_attachment=True,
-        download_name=_nom_fichier(ms_name, suffixe, "csv"),
+        download_name=_nom_fichier(ms_name, suffixe, "csv", zone),
     )
 
 
@@ -241,12 +260,12 @@ def api_decompte_xlsx():
     montants. Onglet Détail par mois si la période en couvre plusieurs.
     Onglets Chauffage, Eau chaude, Buanderie quand le site en a. Onglet
     Frais supplémentaires : tableau vide par zone, à remplir. Onglet
-    Relevés : un point horaire des statistiques par ligne."""
+    Relevés : un point horaire des statistiques par ligne. `zone` : une
+    seule zone, avec son nom dans les titres."""
     ms_name = resolve_miniserver(request.args.get("miniserver"))
-    start, end, suffixe = _periode_export()
-    payload, cle = _export_payload(ms_name, access.maintenant(), start, end, suffixe)
+    payload, cle, titre, suffixe, zone = _export_demande(ms_name)
     with closing(read_conn()) as conn:
-        wb = decompte_xlsx.build_decompte_workbook(payload, cle, ms_name, conn)
+        wb = decompte_xlsx.build_decompte_workbook(payload, cle, titre, conn)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -254,7 +273,7 @@ def api_decompte_xlsx():
         buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=_nom_fichier(ms_name, suffixe, "xlsx"),
+        download_name=_nom_fichier(ms_name, suffixe, "xlsx", zone),
     )
 
 
