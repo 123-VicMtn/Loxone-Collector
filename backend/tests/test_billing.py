@@ -28,6 +28,7 @@ from loxone_collector import db
 from loxone_collector.exports import decompte as decompte_export
 from loxone_collector.exports import decompte_xlsx
 from loxone_collector.services import billing
+from loxone_collector.services.billing import decompte as billing_decompte
 
 
 def ts(year, month, day, hour=0, tz="Europe/Zurich"):
@@ -873,7 +874,7 @@ class TestBatimentPartiel(unittest.TestCase):
             }}},
         ]
         p = {"key": "2026-08", "start": 0, "end": 1}
-        b = billing._batiment_period(None, {"production": None}, zones, p, 0)
+        b = billing_decompte._batiment_period(None, {"production": None}, zones, p, 0)
         self.assertEqual(b["consommation_totale"], 15.0)
         self.assertEqual(b["autoconsommation"], 5.0)
         self.assertTrue(b["zones_incompletes"])
@@ -1170,7 +1171,7 @@ class TestWallbox(unittest.TestCase):
 
     def lire(self, mois):
         start, end = billing.period_bounds(2026, mois)
-        return billing._lecture_zone(self.conn, self.src, {"start": start, "end": end}, ts(2026, 6, 1))
+        return billing_decompte._lecture_zone(self.conn, self.src, {"start": start, "end": end}, ts(2026, 6, 1))
 
     def test_avant_la_mise_en_service(self):
         lecture = self.lire(2)
@@ -1183,5 +1184,5 @@ class TestWallbox(unittest.TestCase):
     def test_autre_compteur_inchange(self):
         start, end = billing.period_bounds(2026, 2)
         autre = {"series_id": "W:w:total", "label": "App 1 (total)"}
-        lecture = billing._lecture_zone(self.conn, autre, {"start": start, "end": end}, ts(2026, 6, 1))
+        lecture = billing_decompte._lecture_zone(self.conn, autre, {"start": start, "end": end}, ts(2026, 6, 1))
         self.assertIsNone(lecture["kwh"])

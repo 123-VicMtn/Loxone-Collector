@@ -1111,7 +1111,7 @@ section 7, règle « un commit déplace, un autre corrige »).
   src/loxone_collector/
     app.py  config.py  db.py   create_app, configuration, tout le SQL
     api/                       Flask : auth.py, access.py, routes/ (Blueprints)
-    services/                  billing, repartition, classification, statistics_sync
+    services/                  billing/ (paquet), repartition, classification, statistics_sync
     loxone/                    client (HTTP), websocket, statistics
     exports/                   Excel et CSV du décompte (à sortir de billing)
     workers/                   poller, synchro Statistics (à sortir d'app.py)
@@ -1167,6 +1167,22 @@ section 7, règle « un commit déplace, un autre corrige »).
   importait `billing` et `db` sans s'en servir ; `billing` importe
   désormais `repartition` en tête de module (plus d'import dans les
   fonctions).
+- **`services/billing` est un paquet** (2026-10-28, point 2 de la liste de
+  l'utilisateur) : le fichier unique de 1 225 lignes est découpé en
+  `periodes.py` (mois, plages, fuseau), `compteurs.py` (quel compteur
+  alimente quelle colonne : zones, bâtiment, production, réserves,
+  `available_range`), `releves.py` (index de fin − index de début,
+  ruptures, `_absent`), `decompte.py` (tarifs, `compute_decompte`, cumul,
+  Wallbox) et `postes.py` (chauffage, eau chaude, buanderie).
+  `billing/__init__.py` réexporte tous les noms publics : `billing.X` et
+  `from …billing import X` marchent comme avant ; une fonction privée
+  s'importe depuis son sous-module (tests : `billing.decompte._lecture_zone`).
+  Dépendances : `decompte` et `postes` → `periodes`, `compteurs`,
+  `releves`, qui ne dépendent de rien dans le paquet. Découpage fait par
+  script : les 69 définitions sont identiques (AST), référence inchangée.
+  Reste possible ensuite : rendre publics les quelques noms privés
+  partagés entre sous-modules (`_src`, `_totals`, `_zone_label`,
+  `_zone_sort_key`, `_absent`).
 - Le venv de cette machine a dû passer à pip 26 / setuptools 82 (pip 21 ne
   sait pas installer en éditable depuis un `pyproject.toml`).
 - Les scripts restent dans `backend/scripts/` pour l'instant.

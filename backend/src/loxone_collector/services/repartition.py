@@ -102,7 +102,7 @@ def hourly_deltas(conn, series_id: str, start_ts: int, end_ts: int,
     et l'historique arrondi par Loxone -- voir billing.RUPTURE_MIN_DROP_KWH)
     sont ramenées à 0 plutôt que propagées en énergie négative. Une vraie
     remise à zéro de compteur reste, elle, du ressort de
-    billing._detect_ruptures, appelé séparément sur la période complète.
+    billing.releves._detect_ruptures, appelé séparément sur la période complète.
     """
     if statistics:
         rows = _indexes_horaires_statistiques(conn, series_id, start_ts, end_ts)
