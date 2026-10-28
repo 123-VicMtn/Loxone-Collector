@@ -33,6 +33,7 @@ def restreindre_a_zone(payload: dict, zone: str) -> dict:
         raise KeyError(zone)
     out = {**payload, "zones": garder, "zone_unique": garder[0]["label"]}
     out["reserves"] = [RESERVES_ZONES[zone]] if zone in RESERVES_ZONES else []
+    out["reserves_zones"] = [zone] if zone in RESERVES_ZONES else []
     if payload.get("detail"):
         detail = payload["detail"]
         out["detail"] = {**detail, "zones": [z for z in detail["zones"] if z["zone"] == zone]}

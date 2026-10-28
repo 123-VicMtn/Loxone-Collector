@@ -4,7 +4,10 @@ import type { DecomptePayload } from '../types/decompte'
 import { fmtKwh } from '../utils/format'
 import StatusBadge from './StatusBadge.vue'
 
-const props = defineProps<{ payload: DecomptePayload; periodKey: string }>()
+const props = withDefaults(
+  defineProps<{ payload: DecomptePayload; periodKey: string; totalLabel?: string }>(),
+  { totalLabel: 'Total immeuble' },
+)
 
 const rows = computed(() =>
   props.payload.zones
@@ -65,7 +68,7 @@ const kwh1 = (v: number) => fmtKwh(v, 1)
       </tbody>
       <tfoot>
         <tr class="border-t-2 border-neutral-300 text-left font-semibold">
-          <td class="py-2 pr-3">Total immeuble</td>
+          <td class="py-2 pr-3">{{ totalLabel }}</td>
           <td class="py-2 px-3 text-right">{{ t('reseau', kwh1) }}</td>
           <td class="py-2 px-3 text-right">{{ t('solaire', kwh1) }}</td>
           <td class="py-2 px-3 text-right">{{ t('total', kwh1) }}</td>

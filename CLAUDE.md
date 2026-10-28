@@ -1243,9 +1243,15 @@ moteur de décompte).
   chauffage, eau chaude, buanderie, frais, relevés), et la note « Sous
   réserve » ne reste que si elle concerne cette zone. Titres « … — <site> —
   App 35 », ligne « Total » au lieu de « Total immeuble », fichier
-  `decompte-<site>-APP35-<période>`. Zone inconnue : 400. Page : liste
-  « Décompte de [tout l'immeuble / App 1 / …] » devant les boutons ; la
-  confirmation des relevés manquants ne porte que sur la zone choisie.
+  `decompte-<site>-APP35-<période>`. Zone inconnue : 400.
+- **Page restreinte à un appartement** (même jour, sur demande) : liste
+  « Zone » à côté du calendrier. Avec une zone choisie, toute la page ne
+  porte que sur elle (KPI, tableau avec une ligne « Total », relevés
+  manquants, note « Sous réserve » via `reserves_zones`, téléchargements)
+  et les deux graphiques de l'immeuble sont masqués. Le filtrage se fait
+  dans la page (`affiche`), sans appel au serveur ; le choix survit au
+  changement de période et revient à « Tout l'immeuble » au changement
+  de site.
 
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 

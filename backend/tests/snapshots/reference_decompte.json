@@ -222,6 +222,7 @@
    }
   },
   "reserves": [],
+  "reserves_zones": [],
   "statistiques_erreur": null,
   "statistiques_jusqu_au": 1793494800,
   "tarifs": [],

@@ -764,6 +764,9 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
         "generated_at": now_ts,
         "repartition": {k: _repartition_payload(ev) for k, ev in evaluations.items()},
         "reserves": [RESERVES_ZONES[z["zone"]] for z in zones if z["zone"] in RESERVES_ZONES],
+        # Zone de chaque note de `reserves`, dans le même ordre : la page
+        # filtrée sur une zone n'affiche que la sienne.
+        "reserves_zones": [z["zone"] for z in zones if z["zone"] in RESERVES_ZONES],
     }
 
 

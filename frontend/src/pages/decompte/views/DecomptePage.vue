@@ -5,6 +5,10 @@
  * messages et les téléchargements suivent cette période ; les deux
  * graphiques restent l'historique mois par mois.
  *
+ * La liste « Zone » restreint toute la page à un appartement (départ d'un
+ * locataire) : KPI, tableau, messages et téléchargements ne portent que
+ * sur lui, et les graphiques de l'immeuble sont masqués.
+ *
  * Un appel à /api/decompte ramène tous les mois disponibles : choisir un
  * mois entier ne re-interroge pas le serveur. Des dates libres demandent
  * leur décompte au serveur (`du` / `au`, même calcul que l'export). Le mois
@@ -52,8 +56,8 @@ let requetePlage = 0
 const downloading = ref(false)
 const downloadError = ref('')
 const confirmFormat = ref<'xlsx' | 'csv' | null>(null)
-/** Code de la zone à exporter seule (départ d'un locataire), '' = tout l'immeuble. */
-const zoneExport = ref('')
+/** Code de la zone affichée seule (départ d'un locataire), '' = tout l'immeuble. */
+const zoneChoisie = ref('')
 
 const actualisation = ref(false)
 const actualisationErreur = ref('')
@@ -103,6 +107,33 @@ const vuePayload = computed<DecomptePayload | null>(() => (
 ))
 const vueKey = computed(() => moisChoisi.value ?? payloadPlage.value?.periode_cle ?? '')
 
+/** Zones de la période, dans l'ordre du tableau. */
+const zonesDisponibles = computed(() => (vuePayload.value?.zones ?? []).map((z) => ({ zone: z.zone, label: z.label })))
+const zoneLabel = computed(() => zonesDisponibles.value.find((z) => z.zone === zoneChoisie.value)?.label ?? '')
+
+// Pendant le calcul d'une nouvelle période, la liste est vide un instant :
+// la zone choisie n'est oubliée que si la période chargée ne l'a pas.
+watch(zonesDisponibles, (zones) => {
+  if (zones.length && zoneChoisie.value && !zones.some((z) => z.zone === zoneChoisie.value)) {
+    zoneChoisie.value = ''
+  }
+})
+
+/** `vuePayload` restreint à la zone choisie. Le calcul reste celui de
+ * l'immeuble (le serveur fait de même pour l'export) : seules les autres
+ * zones sont retirées. */
+const affiche = computed<DecomptePayload | null>(() => {
+  const p = vuePayload.value
+  if (!p || !zoneChoisie.value) return p
+  const zones = p.reserves_zones ?? []
+  return {
+    ...p,
+    zones: p.zones.filter((z) => z.zone === zoneChoisie.value),
+    reserves: p.reserves.filter((_, i) => zones[i] === zoneChoisie.value),
+    reserves_zones: zones.filter((z) => z === zoneChoisie.value),
+  }
+})
+
 const dateMin = computed(() => {
   const premier = payload.value?.periodes[0]?.key
   return premier ? `${premier}-01` : ''
@@ -127,16 +158,16 @@ const periodeEnCours = computed(() => {
 
 /** Dernier relevé réellement utilisé sur la période (zones + production). */
 const dernierReleveTs = computed<number | null>(() => {
-  if (!vuePayload.value || !vueKey.value) return null
+  if (!affiche.value || !vueKey.value) return null
   const stamps: number[] = []
-  for (const z of vuePayload.value.zones) {
+  for (const z of affiche.value.zones) {
     const e = z.periodes[vueKey.value]
     if (!e) continue
     if (e.controle.releve_fin_ts) stamps.push(e.controle.releve_fin_ts)
     if (e.reseau.releve_fin_ts) stamps.push(e.reseau.releve_fin_ts)
     if (e.solaire.releve_fin_ts) stamps.push(e.solaire.releve_fin_ts)
   }
-  const prod = vuePayload.value.batiment.periodes[vueKey.value]?.production.releve_fin_ts
+  const prod = affiche.value.batiment.periodes[vueKey.value]?.production.releve_fin_ts
   if (prod) stamps.push(prod)
   return stamps.length ? Math.max(...stamps) : null
 })
@@ -150,9 +181,9 @@ const periodeCouverture = computed(() => {
 })
 
 const relevesManquants = computed<ReleveManquant[]>(() => {
-  if (!vuePayload.value || !vueKey.value) return []
+  if (!affiche.value || !vueKey.value) return []
   const out: ReleveManquant[] = []
-  for (const z of vuePayload.value.zones) {
+  for (const z of affiche.value.zones) {
     const e = z.periodes[vueKey.value]
     if (!e) continue
     for (const [cote, block] of [['Réseau', e.reseau], ['Solaire', e.solaire]] as const) {
@@ -160,19 +191,6 @@ const relevesManquants = computed<ReleveManquant[]>(() => {
     }
   }
   return out
-})
-
-/** Zones proposées à l'export, dans l'ordre du tableau. */
-const zonesExport = computed(() => (vuePayload.value?.zones ?? []).map((z) => ({ zone: z.zone, label: z.label })))
-
-watch(zonesExport, (zones) => {
-  if (zoneExport.value && !zones.some((z) => z.zone === zoneExport.value)) zoneExport.value = ''
-})
-
-/** Relevés manquants de ce qui sera exporté : toute la liste, ou la zone choisie. */
-const manquantsExport = computed<ReleveManquant[]>(() => {
-  const choisie = zonesExport.value.find((z) => z.zone === zoneExport.value)
-  return choisie ? relevesManquants.value.filter((r) => r.zone === choisie.label) : relevesManquants.value
 })
 
 function hasZoneData(p: DecomptePayload, periodKey: string): boolean {
@@ -220,7 +238,7 @@ watch(selection, () => {
 
 async function loadSite(site: string) {
   currentSite.value = site
-  zoneExport.value = ''  // deux sites peuvent avoir chacun un « App 1 »
+  zoneChoisie.value = ''  // deux sites peuvent avoir chacun un « App 1 »
   localStorage.setItem(SITE_STORAGE_KEY, site)
 
   loading.value = true
@@ -282,7 +300,7 @@ async function actualiser() {
 
 async function download(format: 'xlsx' | 'csv') {
   if (!currentSite.value || !vueKey.value) return
-  if (manquantsExport.value.length) {
+  if (relevesManquants.value.length) {
     confirmFormat.value = format
     return
   }
@@ -301,10 +319,10 @@ async function runDownload(format: 'xlsx' | 'csv') {
   downloadError.value = ''
   try {
     if (moisChoisi.value) {
-      await downloadDecompte(format, currentSite.value, moisChoisi.value, zoneExport.value || undefined)
+      await downloadDecompte(format, currentSite.value, moisChoisi.value, zoneChoisie.value || undefined)
     } else {
       await downloadDecomptePeriode(
-        format, currentSite.value, selection.value.du, selection.value.au, zoneExport.value || undefined,
+        format, currentSite.value, selection.value.du, selection.value.au, zoneChoisie.value || undefined,
       )
     }
   } catch (err) {
@@ -355,8 +373,8 @@ watch(siteActif, (name) => {
 
     <GlobalBanner
       v-if="payload && !loading && !empty"
-      :payload="vuePayload ?? payload"
-      :period-key="vuePayload ? vueKey : periodeKey"
+      :payload="affiche ?? payload"
+      :period-key="affiche ? vueKey : periodeKey"
     />
 
     <p v-if="loading || empty" class="text-sm text-neutral-500">{{ loadingMessage }}</p>
@@ -367,6 +385,17 @@ watch(siteActif, (name) => {
           <div class="flex flex-col text-sm text-neutral-600">
             Période
             <PeriodPicker v-model="selection" :min="dateMin" :max="dateMax" />
+          </div>
+          <div v-if="zonesDisponibles.length > 1" class="flex flex-col text-sm text-neutral-600">
+            <label for="zone-choisie">Zone</label>
+            <select
+              id="zone-choisie"
+              v-model="zoneChoisie"
+              class="mt-1 rounded border border-neutral-300 bg-white py-1.5 pr-8 pl-3 text-sm font-medium text-neutral-900"
+            >
+              <option value="">Tout l'immeuble</option>
+              <option v-for="z in zonesDisponibles" :key="z.zone" :value="z.zone">{{ z.label }}</option>
+            </select>
           </div>
           <!-- Des dates libres sont déjà dans le calendrier : la ligne ne
                sert que pour un mois, ou une période arrêtée au dernier relevé. -->
@@ -392,22 +421,16 @@ watch(siteActif, (name) => {
         <div class="mt-6">
           <p v-if="chargementPlage" class="text-sm text-neutral-500">Calcul du décompte sur ces dates…</p>
           <p v-else-if="erreurPlage" class="text-sm text-red-600" role="alert">{{ erreurPlage }}</p>
-          <PeriodeKpis v-else-if="vuePayload" :payload="vuePayload" :period-key="vueKey" />
+          <PeriodeKpis v-else-if="affiche" :payload="affiche" :period-key="vueKey" />
         </div>
       </Card>
 
-      <Card v-if="vuePayload && !chargementPlage && !erreurPlage" title="Décompte par zone" :hint="selectedPeriod?.label">
+      <Card
+        v-if="affiche && !chargementPlage && !erreurPlage"
+        :title="zoneChoisie ? `Décompte — ${zoneLabel}` : 'Décompte par zone'"
+        :hint="selectedPeriod?.label"
+      >
         <div class="mb-4 flex flex-wrap items-center gap-2">
-          <label class="flex items-center gap-2 text-sm text-neutral-600">
-            Décompte de
-            <select
-              v-model="zoneExport"
-              class="rounded border border-neutral-300 bg-white py-1 pr-8 pl-2 text-sm text-neutral-900"
-            >
-              <option value="">tout l'immeuble</option>
-              <option v-for="z in zonesExport" :key="z.zone" :value="z.zone">{{ z.label }}</option>
-            </select>
-          </label>
           <button
             type="button"
             class="rounded border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
@@ -422,7 +445,11 @@ watch(siteActif, (name) => {
           >Télécharger CSV</button>
           <span v-if="downloadError" class="text-sm text-red-600">{{ downloadError }}</span>
         </div>
-        <ZoneTable :payload="vuePayload" :period-key="vueKey" />
+        <ZoneTable
+          :payload="affiche"
+          :period-key="vueKey"
+          :total-label="zoneChoisie ? 'Total' : 'Total immeuble'"
+        />
         <div
           v-if="relevesManquants.length"
           class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
@@ -467,15 +494,16 @@ watch(siteActif, (name) => {
           <li v-for="(raison, i) in repartitionMois.raisons" :key="i">{{ raison }}</li>
         </ul>
         <div
-          v-if="payload.reserves?.length"
+          v-if="affiche.reserves?.length"
           class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
         >
           <p class="font-semibold">Sous réserve</p>
-          <p v-for="(reserve, i) in payload.reserves" :key="i" class="mt-1">{{ reserve }}</p>
+          <p v-for="(reserve, i) in affiche.reserves" :key="i" class="mt-1">{{ reserve }}</p>
         </div>
       </Card>
 
-      <Card title="Consommation mensuelle de l'immeuble" hint="comparée à la production solaire">
+      <!-- Graphiques de l'immeuble : sans objet pour un seul appartement. -->
+      <Card v-if="!zoneChoisie" title="Consommation mensuelle de l'immeuble" hint="comparée à la production solaire">
         <EvolutionChart :payload="payload" :periodes="payload.periodes" />
         <p class="mt-4 text-sm text-neutral-500">
           Chaque mois, la consommation de l'immeuble (somme des zones) est
@@ -484,7 +512,7 @@ watch(siteActif, (name) => {
         </p>
       </Card>
 
-      <Card title="Devenir de la production solaire" hint="consommé sur place ou réinjecté">
+      <Card v-if="!zoneChoisie" title="Devenir de la production solaire" hint="consommé sur place ou réinjecté">
         <SolaireChart :payload="payload" :periodes="payload.periodes" />
         <p class="mt-4 text-sm text-neutral-500">
           La hauteur totale de chaque barre est la production photovoltaïque du
@@ -513,7 +541,7 @@ watch(siteActif, (name) => {
           produit avec les données disponibles, sans ces relevés.
         </p>
         <ul class="mt-3 max-h-48 list-disc space-y-1 overflow-y-auto pl-5 text-sm text-amber-900">
-          <li v-for="(r, i) in manquantsExport" :key="i">
+          <li v-for="(r, i) in relevesManquants" :key="i">
             {{ r.zone }} — {{ r.cote }} : {{ r.detail }}
           </li>
         </ul>
