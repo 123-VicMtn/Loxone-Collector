@@ -51,6 +51,6 @@ export function groupedKwhOptions(): ChartOptions<'bar'> {
 
 /** Libellé d'un mois sur l'axe ; une étoile marque un mois incomplet ou
  * en cours (détail sous le graphique). */
-export function libelleMois(m: { label_court: string; partiel: boolean; en_cours: boolean }): string {
-  return m.partiel || m.en_cours ? `${m.label_court} *` : m.label_court
+export function libelleMois(m: { label_court: string; partiel: boolean; en_cours: boolean; vide: boolean }): string {
+  return !m.vide && (m.partiel || m.en_cours) ? `${m.label_court} *` : m.label_court
 }

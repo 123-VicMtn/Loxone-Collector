@@ -13,6 +13,10 @@ qu'un axe vide) :
   ne se fait pas sur un mois tronqué sans le dire. Le mois en cours va
   jusqu'au dernier relevé, comme sur la page du décompte. Chaque mois
   tronqué est signalé (`partiel`, `debut_ts`, `fin_ts`).
+- **douze derniers mois** (décision de l'utilisateur, 2026-10-29) : la
+  réponse couvre toujours les 12 mois qui finissent par le mois en cours.
+  Un mois sans relevé est présent mais vide (`vide`), pour que l'axe des
+  graphiques garde ses 12 mois.
 - **site sans part réseau / solaire par lot** (Horizon) : la consommation
   est la somme des compteurs de lot, la production le compteur « PV
   Production » du bâtiment. Autoconsommation et injection restent vides :
@@ -35,6 +39,9 @@ PRODUCTION_REPLI_RE = re.compile(r"(?i)\bpv production \(total\)$")
 # Un mois dont les relevés s'arrêtent plus d'un jour avant sa fin (ou avant
 # maintenant) est signalé comme incomplet (Horizon, muet depuis le 16.10.2026).
 MARGE_FIN_S = 86400
+
+# Nombre de mois affichés, mois en cours compris.
+NB_MOIS = 12
 
 
 def _minuit_suivant(ts: int, tz_name: str) -> int:
@@ -119,8 +126,45 @@ def _production_repli(conn, series: list[dict], p: dict, now_ts: int) -> float |
     return None
 
 
+def _derniers_mois(now_ts: int, tz_name: str) -> list[dict]:
+    """Les `NB_MOIS` mois qui finissent par le mois de `now_ts`."""
+    maintenant = datetime.fromtimestamp(now_ts, ZoneInfo(tz_name))
+    rang = maintenant.year * 12 + maintenant.month - 1 - (NB_MOIS - 1)
+    debut = billing.period_bounds(rang // 12, rang % 12 + 1, tz_name)[0]
+    return billing.periods_covering(debut, now_ts, tz_name)
+
+
+def _mois_vide(p: dict, now_ts: int) -> dict:
+    return {
+        "key": p["key"],
+        "label": p["label"],
+        "label_court": p["label_court"],
+        "debut_ts": p["start"],
+        "fin_ts": p["start"],
+        "en_cours": p["end"] > now_ts,
+        "partiel": False,
+        "releves_arretes": False,
+        "vide": True,
+        "consommation": None,
+        "production": None,
+        "autoconsommation": None,
+        "injection": None,
+    }
+
+
 def historique_mensuel(conn, series: list[dict], tarifs: list[dict], now_ts: int,
                        tz_name: str = billing.TIMEZONE) -> list[dict]:
+    """Les `NB_MOIS` derniers mois, du plus ancien au plus récent ; un mois
+    sans relevé est vide (`vide`)."""
+    fenetre_affichee = _derniers_mois(now_ts, tz_name)
+    mesures = {m["key"]: m for m in _mois_mesures(conn, series, tarifs, now_ts, tz_name,
+                                                   fenetre_affichee[0]["start"])}
+    return [mesures.get(p["key"]) or _mois_vide(p, now_ts) for p in fenetre_affichee]
+
+
+def _mois_mesures(conn, series: list[dict], tarifs: list[dict], now_ts: int,
+                  tz_name: str, depuis_ts: int) -> list[dict]:
+    """Chiffres des mois relevés depuis `depuis_ts`."""
     zones = billing.resolve_zones(series)
     rng = billing.available_range(conn, zones, billing.resolve_batiment(series))
     if rng is None:
@@ -128,8 +172,9 @@ def historique_mensuel(conn, series: list[dict], tarifs: list[dict], now_ts: int
     premier_ts, dernier_ts = rng
     sources = [s for z in zones for s in z["sources"].values() if s]
     sources += [s for s in billing.resolve_batiment(series).values() if s]
-    periodes = _periodes(_debut_des_releves(_premiers_releves(conn, sources), tz_name),
-                         dernier_ts, tz_name)
+    periodes = [p for p in _periodes(_debut_des_releves(_premiers_releves(conn, sources), tz_name),
+                                     dernier_ts, tz_name)
+                if p["end"] > depuis_ts]
     if not periodes:
         return []
     complets = billing.periods_covering(premier_ts, dernier_ts, tz_name)
@@ -172,6 +217,7 @@ def historique_mensuel(conn, series: list[dict], tarifs: list[dict], now_ts: int
             # Relevés arrêtés bien avant la fin du mois (ou avant maintenant
             # pour le mois en cours) : Horizon depuis le 16.10.2026.
             "releves_arretes": arretes,
+            "vide": False,
             "consommation": consommation,
             "production": production,
             "autoconsommation": autoconsommation,

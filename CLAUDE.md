@@ -1328,6 +1328,11 @@ autoconsommation ni injection. Couleurs gardées telles quelles.
   (septembre 2026 : −56 % ; octobre : −102 %) : rôle de « Import Q125 »
   et « Compteur Général Oiken » (95 000 kWh en trois semaines) à éclaircir
   avec l'installateur.
+- **Toujours les 12 derniers mois** (mois en cours compris, demande de
+  l'utilisateur du 2026-10-29) : un mois sans relevé est renvoyé vide
+  (`vide`, sans étoile) pour que l'axe garde ses 12 mois (La Calbasse :
+  11 mois vides puis octobre). Le bilan du bâtiment reste jugé sur toute
+  la plage des données, comme le décompte.
 - Chaque mois tronqué ou en cours a une étoile sur l'axe ; sous les
   graphiques, « Mois incomplets » avec ses dates (« plus de relevé
   ensuite » si la collecte s'est arrêtée : `releves_arretes`).

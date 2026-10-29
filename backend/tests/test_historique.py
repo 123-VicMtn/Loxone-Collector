@@ -2,7 +2,8 @@
 Historique mensuel des graphiques (GET /api/historique,
 services/historique.py) : mêmes chiffres que le décompte pour un mois
 complet ; premier mois rogné au début des relevés plutôt que vide ; site
-sans part réseau / solaire par lot (Horizon) lu sur ses compteurs de lot.
+sans part réseau / solaire par lot (Horizon) lu sur ses compteurs de lot ;
+toujours les 12 derniers mois, vides avant le début des relevés.
 """
 from contextlib import closing
 
@@ -28,7 +29,7 @@ def test_memes_chiffres_que_le_decompte(client_user):
     # Août : relevés depuis le 31.08 à 22 h, aucun jour mesuré. Novembre :
     # deux heures de relevés, signalé incomplet.
     assert [p["key"] for p in decompte["periodes"]] == ["2026-08", "2026-09", "2026-10", "2026-11"]
-    assert list(mois) == ["2026-09", "2026-10", "2026-11"]
+    assert [cle for cle, m in mois.items() if not m["vide"]] == ["2026-09", "2026-10", "2026-11"]
     assert mois["2026-11"]["partiel"] and mois["2026-11"]["releves_arretes"]
     assert not mois["2026-10"]["releves_arretes"]
     for cle in ("2026-09", "2026-10"):
@@ -39,6 +40,17 @@ def test_memes_chiffres_que_le_decompte(client_user):
         assert m["production"] == b["production"]["kwh"]
         assert m["autoconsommation"] == b["autoconsommation"]
         assert m["injection"] == b["injection"]
+
+
+def test_douze_derniers_mois(client_user):
+    """Maintenant : 05.11.2026. De décembre 2025 à novembre 2026 ; les mois
+    d'avant les relevés sont vides, sans étoile ni chiffre."""
+    mois = _historique(client_user)
+    assert list(mois)[0] == "2025-12" and list(mois)[-1] == "2026-11"
+    assert len(mois) == 12
+    aout = mois["2026-08"]
+    assert aout["vide"] and not aout["partiel"] and not aout["en_cours"]
+    assert aout["consommation"] is None and aout["production"] is None
 
 
 def test_premier_mois_rogne_au_debut_des_releves(app_test, client_user):

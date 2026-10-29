@@ -4,7 +4,8 @@
  * à la production solaire, et devenir de cette production. Lit
  * GET /api/historique : mêmes chiffres que le décompte pour un mois
  * complet, et les mois incomplets (début des relevés, mois en cours,
- * relevés arrêtés) plutôt qu'un mois vide, signalés d'une étoile.
+ * relevés arrêtés) plutôt qu'un mois vide, signalés d'une étoile. Toujours
+ * les 12 derniers mois : un mois sans relevé laisse sa place vide sur l'axe.
  */
 
 import { computed, ref, watch } from 'vue'
@@ -45,7 +46,7 @@ watch(site, (nom) => {
 
 /** « Octobre 2026 : du 16.10 au 28.10 (en cours) » pour chaque mois étoilé. */
 const incomplets = computed(() => (mois.value || [])
-  .filter((m) => m.partiel || m.en_cours)
+  .filter((m) => !m.vide && (m.partiel || m.en_cours))
   .map((m) => {
     const fin = fmtDateShort(m.fin_ts - (m.en_cours ? 0 : 1))
     const etat = m.releves_arretes ? ' (plus de relevé ensuite)' : m.en_cours ? ' (en cours)' : ''
@@ -62,8 +63,8 @@ const devenirCalculable = computed(() => (mois.value || []).some((m) => m.autoco
     <h2 class="text-base font-semibold text-neutral-800">Historique mensuel</h2>
     <p v-if="chargement && !mois" class="text-sm text-neutral-500">Chargement de l'historique…</p>
     <p v-else-if="erreur" class="text-sm text-red-700">{{ erreur }}</p>
-    <p v-else-if="mois && !mois.length" class="text-sm text-neutral-500">
-      Pas encore de relevés mensuels sur ce site.
+    <p v-else-if="mois && mois.every((m) => m.vide)" class="text-sm text-neutral-500">
+      Pas de relevés sur les 12 derniers mois pour ce site.
     </p>
     <template v-else-if="mois">
       <div class="w-full rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
