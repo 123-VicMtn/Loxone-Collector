@@ -23,7 +23,7 @@ from loxone_collector.api.access import (
 )
 from loxone_collector.exports import decompte as decompte_export
 from loxone_collector.exports import decompte_xlsx
-from loxone_collector.services import billing, statistics_sync
+from loxone_collector.services import billing, historique, statistics_sync
 
 logger = logging.getLogger("app")
 
@@ -94,6 +94,21 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
 
         periods = billing.periods_covering(first_ts, last_ts)
         return finaliser(billing.compute_decompte(conn, series, periods, tarifs, now))
+
+
+@bp.route("/api/historique")
+@login_required
+def api_historique():
+    """Historique mensuel de l'immeuble pour les graphiques (consommation,
+    production, autoconsommation, injection), mois incomplets compris :
+    voir services/historique.py. Ne sert pas au décompte."""
+    ms_name = resolve_miniserver(request.args.get("miniserver"))
+    with closing(read_conn()) as conn:
+        series = _series_du_site(conn, ms_name)
+        mois = historique.historique_mensuel(
+            conn, series, db.list_tarifs(conn, ms_name), access.maintenant(),
+        )
+    return jsonify({"miniserver": ms_name, "mois": mois})
 
 
 @bp.route("/api/decompte")

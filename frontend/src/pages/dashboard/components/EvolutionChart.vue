@@ -1,22 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Bar } from 'vue-chartjs'
-import type { DecomptePayload, Period } from '../../decompte/types/decompte'
-import { PALETTE_GENERIC, PALETTE_SOLAR, groupedKwhOptions } from '../utils/charts'
+import type { HistoriqueMois } from '../types/historique'
+import { PALETTE_GENERIC, PALETTE_SOLAR, groupedKwhOptions, libelleMois } from '../utils/charts'
 
-const props = defineProps<{ payload: DecomptePayload; periodes: Period[] }>()
+const props = defineProps<{ mois: HistoriqueMois[] }>()
 
 const data = computed(() => ({
-  labels: props.periodes.map((p) => p.label_court),
+  labels: props.mois.map(libelleMois),
   datasets: [
     {
       label: 'Consommation de l\'immeuble',
-      data: props.periodes.map((p) => props.payload.batiment.periodes[p.key]?.consommation_totale ?? null),
+      data: props.mois.map((m) => m.consommation),
       backgroundColor: PALETTE_GENERIC,
     },
     {
       label: 'Production solaire',
-      data: props.periodes.map((p) => props.payload.batiment.periodes[p.key]?.production.kwh ?? null),
+      data: props.mois.map((m) => m.production),
       backgroundColor: PALETTE_SOLAR,
     },
   ],

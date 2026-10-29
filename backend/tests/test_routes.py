@@ -32,6 +32,7 @@ ROUTES_CONNECTEES = [
     ("get", f"/api/series/{SERIE_REF}/range?from={OCTOBRE[0]}&to={OCTOBRE[1]}"),
     ("post", "/api/apercu/puissance"),
     ("get", "/api/decompte"),
+    ("get", "/api/historique"),
     ("post", "/api/decompte/actualiser"),
     ("get", "/api/decompte/export.csv?mois=2026-10"),
     ("get", "/api/decompte/export.xlsx?mois=2026-10"),

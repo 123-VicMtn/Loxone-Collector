@@ -59,7 +59,9 @@ function axisTicks(from: number, to: number): number[] {
   const span = Math.max(to - from, 1)
   const step = span > 12 * 3600 ? 3 * 3600 : span > 6 * 3600 ? 2 * 3600 : 3600
   const ticks = []
-  for (let t = from; t < to; t += step) ticks.push(t)
+  // Pas de graduation à moins d'un quart de pas de la dernière : leurs
+  // libellés se chevauchaient (« 15:00 » et « 15:09 »).
+  for (let t = from; t < to - step / 4; t += step) ticks.push(t)
   ticks.push(to)
   return ticks
 }

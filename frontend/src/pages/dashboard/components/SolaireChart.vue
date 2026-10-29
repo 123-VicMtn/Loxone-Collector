@@ -1,20 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Bar } from 'vue-chartjs'
-import type { BatimentPeriod, DecomptePayload, Period } from '../../decompte/types/decompte'
-import { PALETTE_GENERIC, PALETTE_SOLAR, stackedKwhOptions } from '../utils/charts'
+import type { HistoriqueMois } from '../types/historique'
+import { PALETTE_GENERIC, PALETTE_SOLAR, libelleMois, stackedKwhOptions } from '../utils/charts'
 
-const props = defineProps<{ payload: DecomptePayload; periodes: Period[] }>()
-
-function val(pick: (b: BatimentPeriod) => number | null) {
-  return props.periodes.map((p) => pick(props.payload.batiment.periodes[p.key]))
-}
+const props = defineProps<{ mois: HistoriqueMois[] }>()
 
 const data = computed(() => ({
-  labels: props.periodes.map((p) => p.label_court),
+  labels: props.mois.map(libelleMois),
   datasets: [
-    { label: 'Autoconsommé sur place', data: val((b) => b.autoconsommation), backgroundColor: PALETTE_SOLAR },
-    { label: 'Injecté au réseau', data: val((b) => b.injection), backgroundColor: PALETTE_GENERIC },
+    { label: 'Autoconsommé sur place', data: props.mois.map((m) => m.autoconsommation), backgroundColor: PALETTE_SOLAR },
+    { label: 'Injecté au réseau', data: props.mois.map((m) => m.injection), backgroundColor: PALETTE_GENERIC },
   ],
 }))
 

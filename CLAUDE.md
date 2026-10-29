@@ -1300,6 +1300,43 @@ la raison d'Arlopy change (« bilan bouclé sur 3 mois sur 18 »). La
 protection porte sur l'avenir : un hiver de plus pouvait ramener le
 total d'Arlopy sous 15 %.
 
+## Historique mensuel des graphiques — 2026-10-28
+
+Constat : sur la page Graphiques, l'historique mensuel était vide pour
+La Calbasse (octobre sans relevé avant le 1er) et Horizon (le décompte n'a
+aucun chiffre pour ce site), et Sequoia montrait novembre 2025 à 0.
+Décisions de l'utilisateur : un graphique incomplet plutôt qu'un axe vide ;
+pour Horizon, la consommation (somme des lots) et la production, sans
+autoconsommation ni injection. Couleurs gardées telles quelles.
+
+- `GET /api/historique?miniserver=` (`services/historique.py`), lu par
+  `HistoriqueMensuel.vue` à la place de `/api/decompte`. **Le décompte ne
+  change pas.** Un mois complet a les chiffres du décompte (même calcul,
+  même fenêtre de bilan ; testé dans `tests/test_historique.py`).
+- Premier mois : il part du premier minuit qui suit le DERNIER compteur
+  (zones et bâtiment) à démarrer ce mois-là. Un compteur seul en avance ne
+  compte pas (La Calbasse : « Compteur Intro » dès le 01.10, lots le
+  14.10), ni un compteur ajouté un autre mois (Wallbox de Sequoia). Un mois
+  sans jour mesuré disparaît.
+- Un mois sans aucune zone vraiment relevée n'a pas de consommation (la
+  Wallbox de Sequoia vaut 0 par règle, sans relevé : novembre 2025 à 0).
+- Site sans part réseau / solaire par lot (Horizon) : consommation = somme
+  des compteurs de lot, vide si l'un manque ; production = `… PV Production
+  (total)` du bâtiment (Statistics, sinon relevés du collecteur, présents
+  depuis le 02.09.2026). Le graphique « Devenir de la production » est
+  remplacé par une phrase. Le bilan du bâtiment d'Horizon ne boucle pas
+  (septembre 2026 : −56 % ; octobre : −102 %) : rôle de « Import Q125 »
+  et « Compteur Général Oiken » (95 000 kWh en trois semaines) à éclaircir
+  avec l'installateur.
+- Chaque mois tronqué ou en cours a une étoile sur l'axe ; sous les
+  graphiques, « Mois incomplets » avec ses dates (« plus de relevé
+  ensuite » si la collecte s'est arrêtée : `releves_arretes`).
+- Sur la copie de prod : La Calbasse octobre du 16 au 28.10 (2 587 kWh
+  consommés, 830 produits) ; Horizon mai (dès le 22.05) à octobre (jusqu'au
+  16.10) ; Sequoia novembre 2025 du 20 au 30.11 ; Arlopy inchangé.
+- Aperçu du jour : plus de graduation à moins d'un quart de pas de la
+  dernière (« 15:00 » et « 15:09 » se chevauchaient).
+
 ## Catégorie Loxone « hors-décompte » — 2026-10-28
 
 Demande de l'utilisateur : pouvoir écarter depuis Loxone Config un
