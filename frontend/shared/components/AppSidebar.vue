@@ -26,6 +26,9 @@ const closeButton = ref<HTMLButtonElement | null>(null)
 const DESKTOP_QUERY = '(min-width: 1024px)'
 const isDesktop = ref(typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches)
 let desktopMedia: MediaQueryList | null = null
+/** Pas d'animation au passage du seuil bureau / mobile : sinon la barre
+ * glisse hors de l'écran et ressemble à un tiroir resté ouvert. */
+const sansTransition = ref(false)
 
 const equipements = [
   { to: '/equipements/communication', label: 'Communication' },
@@ -57,8 +60,11 @@ function linkClass(to: string): string {
 }
 
 function onDesktopChange(event: MediaQueryListEvent) {
+  sansTransition.value = true
   isDesktop.value = event.matches
-  if (event.matches) open.value = false
+  open.value = false
+  // Deux images : la nouvelle position est peinte avant de rétablir l'animation.
+  requestAnimationFrame(() => requestAnimationFrame(() => { sansTransition.value = false }))
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -136,7 +142,7 @@ onUnmounted(() => {
   <aside
     id="app-sidebar"
     class="fixed top-0 left-0 z-50 flex h-dvh w-64 max-w-[85vw] flex-col border-r border-neutral-200 bg-white shadow-xl motion-safe:transition-transform motion-safe:duration-200 lg:z-30 lg:max-w-none lg:translate-x-0 lg:shadow-none"
-    :class="open ? 'translate-x-0' : '-translate-x-full'"
+    :class="[open ? 'translate-x-0' : '-translate-x-full', { 'transition-none!': sansTransition }]"
     :inert="!isDesktop && !open"
     aria-label="Navigation principale"
   >

@@ -1010,8 +1010,9 @@ correction de l'installateur (09.09.2026) condamnaient aussi les suivants
   correction, le solaire Loxone reste 10 à 17 % sous production −
   injection (probablement la **batterie**, ~600 kWh chargés et déchargés
   en 3 semaines). Relever `SEUIL_ECART_SOLAIRE_PCT` (vers 15-20 %) ferait
-  passer les mois corrigés sur les séries Loxone : **décision de
-  l'utilisateur en attente**. Le recalcul reste juste dans tous les cas.
+  passer les mois corrigés sur les séries Loxone. **Décision de
+  l'utilisateur (2026-10-29) : le seuil reste à 5 %**, les parts de Sequoia
+  restent recalculées pour l'instant. Le recalcul reste juste dans tous les cas.
 - `scripts/export_appartement.py` (CLI) garde son propre verdict sur la
   plage demandée, non modifié. (Script supprimé le 2026-10-28.)
 - **Synchro Statistics automatique** (2026-10-26) : thread `statistics-sync`
@@ -1515,6 +1516,9 @@ aux outils et à la liste de matériels. À partir
 de 1024 px elle reste affichée et le contenu est décalé d'autant. En
 dessous, une barre avec le bouton menu ouvre un tiroir (fermeture au
 clic dehors, à Échap, ou en changeant de page).
+Au passage du seuil de 1024 px, le tiroir se ferme sans animation
+(`sansTransition`, 2026-10-29) : avant, la barre glissait hors de l'écran
+pendant 200 ms et ressemblait à un tiroir resté ouvert.
 `/login` n'a pas cette barre. Le fond de page est forcé clair
 (`color-scheme: light` dans `style.css`) : l'app n'a pas de thème sombre.
 
@@ -1532,8 +1536,7 @@ d'autres clients restaient listés) et ne charge rien sans compte connecté.
 Le décompte RCP est branché, La Calbasse comprise (2026-10-27).
 Prochain point concret : suivre le renommage des autres sites dans
 Loxone Config et le retour d'Horizon (intervention du 2026-10-27).
-En attente : seuil `SEUIL_ECART_SOLAIRE_PCT` (batterie de Sequoia),
-installation physique de la PAC de La Calbasse, puis la liaison de
+En attente : installation physique de la PAC de La Calbasse, puis la liaison de
 compteurs dans l'interface (backlog). La suite du
 backlog, seulement si on la relance : compteurs de chauffage figés (hors périmètre électrique), ou le
 déploiement (Caddy, fallback SPA). Relancer `app.py` pour que l'API serve
