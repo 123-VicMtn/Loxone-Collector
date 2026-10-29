@@ -26,6 +26,7 @@ import type { DecomptePayload, Period, RepartitionInfo } from '../types/decompte
 import { fmtDay, fmtPeriodBounds } from '../utils/format'
 import { fmtDateTimeShort } from '@shared/format'
 import { useSiteActif } from '@shared/composables/useSiteActif'
+import { authState } from '@shared/auth'
 
 import Card from '../components/Card.vue'
 import GlobalBanner from '../components/GlobalBanner.vue'
@@ -144,6 +145,11 @@ const selectedPeriod = computed<Period | null>(() => {
 })
 
 /** Verdict de la période choisie : les messages ne parlent que d'elle. */
+/** Comment les parts réseau / solaire ont été obtenues : admin seulement.
+ * Pour les autres comptes, le décompte est établi d'un commun accord sur
+ * la base calculée, sans détail de méthode. */
+const estAdmin = computed(() => authState.role === 'admin')
+
 const repartitionMois = computed<RepartitionInfo>(() => {
   const rep = vueKey.value ? vuePayload.value?.repartition[vueKey.value] : undefined
   return rep || { source: 'loxone', confiance_verifiee: false, raisons: [] }
@@ -468,29 +474,31 @@ watch(siteActif, (name) => {
           <strong>achetés au réseau</strong> et les kWh
           <strong>solaires autoconsommés</strong>.
         </p>
-        <p v-if="repartitionMois.source === 'calculee'" class="mt-2 text-sm text-neutral-600">
-          Ces parts sont calculées. La consommation vient du compteur du lot,
-          répartie selon le mix du bâtiment (production moins réinjection).
-          Les séries Grid et Solaire du Miniserver ne servent pas à ce décompte.
-        </p>
-        <p v-else-if="repartitionMois.source === 'mixte'" class="mt-2 text-sm text-neutral-600">
-          Selon le mois, ces parts sont calculées (compteur du lot réparti
-          selon le mix du bâtiment) ou mesurées par le Miniserver. Le fichier
-          Excel donne le détail mois par mois.
-        </p>
-        <p
-          v-else-if="!repartitionMois.confiance_verifiee"
-          class="mt-2 text-sm text-neutral-600"
-        >
-          Ces parts sont les mesures du Miniserver. Le bilan du bâtiment ne
-          permet pas de les revérifier.
-        </p>
-        <ul
-          v-if="repartitionMois.source !== 'loxone' && repartitionMois.raisons.length"
-          class="mt-2 list-disc space-y-1 pl-5 text-sm text-neutral-500"
-        >
-          <li v-for="(raison, i) in repartitionMois.raisons" :key="i">{{ raison }}</li>
-        </ul>
+        <template v-if="estAdmin">
+          <p v-if="repartitionMois.source === 'calculee'" class="mt-2 text-sm text-neutral-600">
+            Ces parts sont calculées. La consommation vient du compteur du lot,
+            répartie selon le mix du bâtiment (production moins réinjection).
+            Les séries Grid et Solaire du Miniserver ne servent pas à ce décompte.
+          </p>
+          <p v-else-if="repartitionMois.source === 'mixte'" class="mt-2 text-sm text-neutral-600">
+            Selon le mois, ces parts sont calculées (compteur du lot réparti
+            selon le mix du bâtiment) ou mesurées par le Miniserver. Le fichier
+            Excel donne le détail mois par mois.
+          </p>
+          <p
+            v-else-if="!repartitionMois.confiance_verifiee"
+            class="mt-2 text-sm text-neutral-600"
+          >
+            Ces parts sont les mesures du Miniserver. Le bilan du bâtiment ne
+            permet pas de les revérifier.
+          </p>
+          <ul
+            v-if="repartitionMois.source !== 'loxone' && repartitionMois.raisons.length"
+            class="mt-2 list-disc space-y-1 pl-5 text-sm text-neutral-500"
+          >
+            <li v-for="(raison, i) in repartitionMois.raisons" :key="i">{{ raison }}</li>
+          </ul>
+        </template>
         <div
           v-if="affiche.reserves?.length"
           class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"

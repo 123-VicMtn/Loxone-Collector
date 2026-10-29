@@ -1300,6 +1300,16 @@ la raison d'Arlopy change (« bilan bouclé sur 3 mois sur 18 »). La
 protection porte sur l'avenir : un hiver de plus pouvait ramener le
 total d'Arlopy sous 15 %.
 
+## Méthode des parts réservée à l'admin — 2026-10-29
+
+Décision de l'utilisateur : sur `/decompte`, les messages sur la façon
+dont les parts réseau / solaire sont obtenues (« Ces parts sont
+calculées… », « mixte », « mesures du Miniserver » non revérifiées, et la
+liste des raisons) ne s'affichent qu'à un compte `admin` (`estAdmin` dans
+`DecomptePage.vue`). Pour un `user`, le décompte est établi d'un commun
+accord sur la base calculée, sans détail de méthode. L'API renvoie
+toujours `repartition` ; les notes du classeur Excel n'ont pas changé.
+
 ## Historique mensuel des graphiques — 2026-10-28
 
 Constat : sur la page Graphiques, l'historique mensuel était vide pour
