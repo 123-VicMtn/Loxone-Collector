@@ -260,6 +260,17 @@ def test_export_ouvert_a_un_user(client_user, fmt, mime):
     assert f"decompte-{ref.SITE}-2026-10.{fmt}" in res.headers["Content-Disposition"]
 
 
+@pytest.mark.parametrize("fmt", ["csv", "xlsx"])
+def test_nom_de_fichier_d_un_appartement(client_user, fmt):
+    """Le site, puis l'appartement : deux lots ne donnent jamais le même fichier."""
+    for zone in ("APP1", "APP2"):
+        res = client_user.get(f"/api/decompte/export.{fmt}?miniserver={ref.SITE}"
+                              f"&du=2026-09-01&au=2026-10-15&zone={zone}")
+        assert res.status_code == 200
+        assert (f"decompte-{ref.SITE}-{zone}-2026-09-01_2026-10-15.{fmt}"
+                in res.headers["Content-Disposition"])
+
+
 # --- Écritures : admin seulement ------------------------------------------------
 
 TARIF = {"miniserver": ref.SITE, "valid_from": "2026-01-01",

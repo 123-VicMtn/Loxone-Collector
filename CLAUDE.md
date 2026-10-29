@@ -640,10 +640,12 @@ fonctionnement d'abord, revenir sur la structure ensuite.
   `Solaire` font un saut le 2026-10-26 vers 16 h (`App 47 Réseau`
   +10 551 kWh, `App 37 Solaire` +4 986 kWh en octobre). À signaler à
   l'installateur ; le décompte recalcule à partir de `APPxx`.
-- **Horizon en panne depuis le 16.10.2026** : plus joignable par le
-  cloud Loxone (voir « Verdict de répartition par mois », 2026-10-26).
-  Intervention prévue le 2026-10-27. Ensuite : vérifier le poll et
-  combler le trou avec `scripts/backfill_statistics.py --since 2026-10-16`.
+- ~~**Horizon en panne du 16.10 au 28.10.2026**~~ : revenu le 28.10 vers
+  17 h 30, vérifié le 2026-10-29. Poll OK (57 séries), trou comblé :
+  Statistics du décompte et `readings_hourly` complets du 16.10 à
+  aujourd'hui (51 séries × 24 h par jour). Octobre : 17 lots relevés sur
+  17, l'historique mensuel n'est plus « arrêté ». Reste le rôle de
+  « Import Q125 » / « Compteur Général Oiken » (bilan qui ne boucle pas).
 - **Sequoia, RCP de nouveau fausse depuis le 07.10.2026** (même section).
 
 ### Nettoyage mineur, non bloquant
@@ -1261,6 +1263,11 @@ moteur de décompte).
   réserve » ne reste que si elle concerne cette zone. Titres « … — <site> —
   App 35 », ligne « Total » au lieu de « Total immeuble », fichier
   `decompte-<site>-APP35-<période>`. Zone inconnue : 400.
+  Le nom vient du `Content-Disposition` de Flask, sans guillemets quand il
+  n'a pas de caractère spécial : `shared/api/http.ts::downloadFile` le lit
+  avec ou sans, attache le lien à la page et ne révoque le fichier qu'au
+  bout d'une minute (2026-10-29 : l'utilisateur recevait des fichiers
+  tous du même nom).
 - **Page restreinte à un appartement** (même jour, sur demande) : liste
   « Zone » à côté du calendrier. Avec une zone choisie, toute la page ne
   porte que sur elle (KPI, tableau avec une ligne « Total », relevés
@@ -1535,7 +1542,7 @@ d'autres clients restaient listés) et ne charge rien sans compte connecté.
 
 Le décompte RCP est branché, La Calbasse comprise (2026-10-27).
 Prochain point concret : suivre le renommage des autres sites dans
-Loxone Config et le retour d'Horizon (intervention du 2026-10-27).
+Loxone Config (Horizon est revenu le 2026-10-28).
 En attente : installation physique de la PAC de La Calbasse, puis la liaison de
 compteurs dans l'interface (backlog). La suite du
 backlog, seulement si on la relance : compteurs de chauffage figés (hors périmètre électrique), ou le

@@ -71,13 +71,21 @@ export async function downloadFile(url: string, fallbackName: string): Promise<v
   handleUnauthorized(res, {})
   if (!res.ok) throw new ApiError(`Erreur API ${url}: ${res.status}`, res.status)
   const blob = await res.blob()
-  const quoted = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)
-  const name = quoted?.[1] || fallbackName
+  // Flask n'entoure le nom de guillemets que s'il contient des caractères
+  // spéciaux : `filename=decompte-Sequoia-APP02-2026-09.xlsx`.
+  const header = res.headers.get('Content-Disposition') ?? ''
+  const name = header.match(/filename="?([^";]+)"?/)?.[1]?.trim() || fallbackName
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = name
+  // Lien attaché à la page et révoqué plus tard : un fichier révoqué tout de
+  // suite après le clic peut perdre son nom (Safari, Arc) et prendre un nom
+  // générique, le même pour tous les téléchargements.
+  link.style.display = 'none'
+  document.body.appendChild(link)
   link.click()
-  URL.revokeObjectURL(link.href)
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(link.href), 60_000)
 }
 
 export async function deleteJSON<T>(url: string, opts: FetchOpts = {}): Promise<T> {
