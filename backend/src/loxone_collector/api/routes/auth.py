@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user, login_required, login_user, logout_user
 
 from loxone_collector.api import auth
@@ -45,6 +45,10 @@ def api_login():
     if user is None:
         return jsonify({"error": "identifiants invalides"}), 401
 
+    # Session permanente : cookie valable `app.SESSION_DUREE`, au lieu de
+    # tomber à la fermeture du navigateur. Pas de cookie « remember me »
+    # de Flask-Login (un an par défaut).
+    session.permanent = True
     login_user(user)
     return jsonify(_user_payload())
 

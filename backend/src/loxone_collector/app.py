@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import timedelta
 
 from flask import Flask
 
@@ -40,7 +41,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app")
 
+# Une session reste ouverte 7 jours sans activité (décision de l'utilisateur,
+# 2026-10-29) ; chaque requête repousse l'échéance.
+SESSION_DUREE = timedelta(days=7)
+
 app = Flask(__name__)
+app.config.update(
+    PERMANENT_SESSION_LIFETIME=SESSION_DUREE,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
 for _bp in (routes_auth.bp, routes_health.bp, routes_series.bp, routes_decompte.bp, routes_admin.bp):
     app.register_blueprint(_bp)
 register_error_handlers(app)
@@ -62,6 +72,8 @@ def create_app(config_path: str = "config.yaml") -> Flask:
             "python3 -c \"import secrets; print(secrets.token_hex(32))\""
         )
     app.secret_key = os.environ["SECRET_KEY"]
+    # Derrière HTTPS (prod) : le cookie ne part jamais en clair.
+    app.config["SESSION_COOKIE_SECURE"] = cfg.cookie_secure
     auth.login_manager.init_app(app)
 
     poller.start_background_poller(cfg)

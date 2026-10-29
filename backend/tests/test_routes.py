@@ -10,10 +10,13 @@ lui est pas accordé (fixtures dans conftest.py).
 """
 import io
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from unittest import mock
 
 import openpyxl
 import pytest
+from conftest import MOT_DE_PASSE
 
 import site_reference as ref
 from loxone_collector import db
@@ -360,3 +363,37 @@ def test_methode_des_parts_reservee_a_l_admin(client_admin, client_user, fmt):
         assert "Ces parts sont" in admin or "Selon le mois, ces parts" in admin
         assert "ces parts" not in user.lower()
         assert "« calculées »" not in user
+
+
+# --- Cookie de session ----------------------------------------------------------
+
+def test_cookie_de_session_sept_jours(app_test):
+    """Session de 7 jours, cookie HttpOnly et SameSite=Lax ; pas Secure par
+    défaut (HTTP sur le Mac)."""
+    client = app_test.test_client()
+    res = client.post("/api/login", json={"username": "client", "password": MOT_DE_PASSE})
+    assert res.status_code == 200
+    cookie = next(c for c in res.headers.getlist("Set-Cookie") if c.startswith("session="))
+    assert "HttpOnly" in cookie and "SameSite=Lax" in cookie and "Secure" not in cookie
+    expire = parsedate_to_datetime(cookie.split("Expires=")[1].split(";")[0])
+    reste = expire - datetime.now(timezone.utc)
+    assert timedelta(days=6, hours=23) < reste <= timedelta(days=7)
+    assert not any(c.startswith("remember_token=") for c in res.headers.getlist("Set-Cookie"))
+
+
+def test_cookie_secure_en_production(tmp_path, monkeypatch):
+    """`cookie_secure: true` (prod, derrière HTTPS) marque le cookie Secure."""
+    from loxone_collector import app as app_module
+    from loxone_collector.config import AppConfig
+    from loxone_collector.workers import poller
+    cfg = AppConfig(db_path=str(tmp_path / "prod.db"), cookie_secure=True)
+    monkeypatch.setenv("SECRET_KEY", "test")
+    monkeypatch.setattr(app_module, "load_config", lambda _chemin: cfg)
+    monkeypatch.setattr(poller, "start_background_poller", lambda _cfg: None)
+    # Déjà fait par les autres tests : Flask refuse un second init_app.
+    monkeypatch.setattr(app_module.auth.login_manager, "init_app", lambda _app: None)
+    precedent = app_module.app.config.get("SESSION_COOKIE_SECURE")
+    try:
+        assert app_module.create_app("config.yaml").config["SESSION_COOKIE_SECURE"] is True
+    finally:
+        app_module.app.config["SESSION_COOKIE_SECURE"] = precedent

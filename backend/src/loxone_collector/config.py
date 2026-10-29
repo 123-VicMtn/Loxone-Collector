@@ -94,6 +94,9 @@ class AppConfig:
     # les en-têtes X-Forwarded-For / -Proto. "*" dans Docker, où l'API n'est
     # joignable que par Caddy (port jamais publié). Vide : aucun en-tête cru.
     trusted_proxy: str = ""
+    # Cookie de session marqué Secure (envoyé seulement en HTTPS) : true en
+    # production derrière Caddy, false sur le Mac en HTTP.
+    cookie_secure: bool = False
 
     # Classification par appartement / type de ressource (voir classification.py).
     apartment_pattern: str = DEFAULT_APARTMENT_PATTERN
