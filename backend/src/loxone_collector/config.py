@@ -90,6 +90,10 @@ class AppConfig:
     miniservers: list[MiniserverConfig] = field(default_factory=list)
     host_bind: str = "0.0.0.0"
     port: int = 8080
+    # Production (serve.py) : adresse du reverse proxy dont waitress croit
+    # les en-têtes X-Forwarded-For / -Proto. "*" dans Docker, où l'API n'est
+    # joignable que par Caddy (port jamais publié). Vide : aucun en-tête cru.
+    trusted_proxy: str = ""
 
     # Classification par appartement / type de ressource (voir classification.py).
     apartment_pattern: str = DEFAULT_APARTMENT_PATTERN

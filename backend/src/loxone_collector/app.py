@@ -12,10 +12,8 @@ Lancement (dev), depuis backend/ (config, .env et data/ y sont lus) :
 ou, sans passer par le lanceur backend/app.py :
     python -m loxone_collector.app config.yaml
 
-Lancement (prod, sur le Pi) : voir scripts/loxone-collector.service
-(gunicorn n'est volontairement pas utilisé ici : le serveur de dev Flask,
-mono-process, suffit largement pour cette API sur quelques utilisateurs, et
-évite de multiplier les connexions SQLite/la RAM utilisée sur un Pi à 2 Go).
+Lancement (prod) : `python -m loxone_collector.serve config.yaml`
+(waitress, un seul process : voir serve.py).
 """
 
 from __future__ import annotations
