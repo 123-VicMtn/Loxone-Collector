@@ -264,7 +264,7 @@ def api_decompte_csv():
     eau chaude, buanderie). `zone` : une seule zone."""
     ms_name = resolve_miniserver(request.args.get("miniserver"))
     payload, cle, _titre, suffixe, zone = _export_demande(ms_name)
-    rows = decompte_export.export_csv_lignes(payload, cle)
+    rows = decompte_export.export_csv_lignes(payload, cle, methode=current_user.is_admin)
     buf = io.StringIO()
     csv.writer(buf, delimiter=";").writerows(rows)
     data = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
@@ -286,7 +286,8 @@ def api_decompte_xlsx():
     ms_name = resolve_miniserver(request.args.get("miniserver"))
     payload, cle, titre, suffixe, zone = _export_demande(ms_name)
     with closing(read_conn()) as conn:
-        wb = decompte_xlsx.build_decompte_workbook(payload, cle, titre, conn)
+        wb = decompte_xlsx.build_decompte_workbook(payload, cle, titre, conn,
+                                                   methode=current_user.is_admin)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

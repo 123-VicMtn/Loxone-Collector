@@ -8,9 +8,11 @@ comportement actuel avant le découpage d'app.py en Blueprints
 Le compte `client` n'a accès qu'au site « Ref » ; « Autre » existe mais ne
 lui est pas accordé (fixtures dans conftest.py).
 """
+import io
 from contextlib import closing
 from unittest import mock
 
+import openpyxl
 import pytest
 
 import site_reference as ref
@@ -324,3 +326,26 @@ def test_erreur_imprevue_sans_detail(client_user):
         res = client_user.get("/api/series")
     assert res.status_code == 500
     assert res.get_json() == {"error": errors.MESSAGE_ERREUR_INTERNE}
+
+
+def _textes_export(client, fmt: str) -> str:
+    """Tout le texte d'un export sur deux mois (onglet Détail par mois)."""
+    res = client.get(f"/api/decompte/export.{fmt}?miniserver={ref.SITE}&du=2026-09-01&au=2026-10-31")
+    assert res.status_code == 200
+    if fmt == "csv":
+        return res.data.decode("utf-8-sig")
+    wb = openpyxl.load_workbook(io.BytesIO(res.data))
+    return "\n".join(str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value)
+
+
+@pytest.mark.parametrize("fmt", ["csv", "xlsx"])
+def test_methode_des_parts_reservee_a_l_admin(client_admin, client_user, fmt):
+    """Comment les parts réseau / solaire sont obtenues : notes et colonne
+    du détail par mois pour un admin seulement (comme la page)."""
+    admin, user = _textes_export(client_admin, fmt), _textes_export(client_user, fmt)
+    assert "Parts réseau / solaire" in admin
+    assert "Parts réseau / solaire" not in user
+    if fmt == "xlsx":
+        assert "Ces parts sont" in admin or "Selon le mois, ces parts" in admin
+        assert "ces parts" not in user.lower()
+        assert "« calculées »" not in user

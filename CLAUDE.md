@@ -1308,7 +1308,13 @@ calculées… », « mixte », « mesures du Miniserver » non revérifiées, et
 liste des raisons) ne s'affichent qu'à un compte `admin` (`estAdmin` dans
 `DecomptePage.vue`). Pour un `user`, le décompte est établi d'un commun
 accord sur la base calculée, sans détail de méthode. L'API renvoie
-toujours `repartition` ; les notes du classeur Excel n'ont pas changé.
+toujours `repartition`. Même règle dans les exports (le même jour) :
+`build_decompte_workbook(..., methode=)` et `export_csv_lignes(...,
+methode=)`, à `current_user.is_admin` dans les routes. Pour un `user`,
+plus de note « Ces parts… » dans l'onglet Électricité, ni de colonne
+« Parts réseau / solaire » ni de légende « calculées / Miniserver » dans
+le détail par mois (classeur et CSV). La référence
+`reference_decompte.json` est prise en admin : inchangée.
 
 ## Historique mensuel des graphiques — 2026-10-28
 

@@ -202,7 +202,7 @@ def _releves_manquants(entries: list) -> list[str]:
 
 
 def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
-                    postes: dict | None = None) -> list[tuple[str, str]]:
+                    postes: dict | None = None, methode: bool = True) -> list[tuple[str, str]]:
     notes: list[tuple[str, str]] = [(
         "Chaque zone est scindée en kWh achetés au réseau et kWh solaires "
         "autoconsommés. La consommation totale est leur somme.",
@@ -221,7 +221,9 @@ def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
             "Buanderie : pas de décompte avant sa mise en service le 17.07.2026.",
             "note",
         ))
-    rep = repartition_du_mois(payload, period_key)
+    # Méthode des parts réseau / solaire : admin seulement (décision de
+    # l'utilisateur, 2026-10-29), comme sur la page.
+    rep = repartition_du_mois(payload, period_key) if methode else {}
     if rep.get("source") == "calculee":
         notes.append((
             "Ces parts sont calculées. La consommation vient du compteur du lot, "
@@ -689,8 +691,9 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
 
 
 def _ecrire_onglet_detail(wb: Workbook, payload: dict, site: str, label: str,
-                          couverture: str) -> None:
-    """Une ligne par mois et par zone, quand l'export couvre plusieurs mois."""
+                          couverture: str, methode: bool = True) -> None:
+    """Une ligne par mois et par zone, quand l'export couvre plusieurs mois.
+    Colonne « Parts réseau / solaire » seulement avec `methode`."""
     lignes = lignes_detail(payload)
     if not lignes:
         return
@@ -713,6 +716,10 @@ def _ecrire_onglet_detail(wb: Workbook, payload: dict, site: str, label: str,
         ("Le tableau peut se filtrer par zone : la somme de ses mois est sa ligne "
          "de l'onglet Électricité.", "note"),
     ]
+    if not methode:
+        del colonnes[5]
+        rows = [row[:5] + row[6:] for row in rows]
+        del notes[1]
     _ecrire_onglet_tableau(
         wb, "Détail par mois", f"Détail par mois — {site}" if site else "Détail par mois",
         f"{label}  ·  {couverture}", colonnes, rows, None, notes,
@@ -804,7 +811,8 @@ def _ecrire_onglet_frais(wb: Workbook, zones: list[tuple[str, int]], site: str,
     _mise_en_page(ws, ncol, last_row, header_row, site, label, "Frais supplémentaires · CHF")
 
 
-def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None) -> Workbook:
+def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None,
+                            methode: bool = True) -> Workbook:
     """Classeur du mois choisi, ouvrable tel quel.
 
     Onglets : Électricité (kWh, prix et montants, colonne buanderie si le
@@ -814,6 +822,9 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
 
     Les chiffres sont ceux de `export_lignes` (donc de la page), arrondis
     au centième de kWh pour que la somme des lignes égale le total affiché.
+    `methode` : dire comment les parts réseau / solaire sont obtenues
+    (notes, colonne du détail par mois) ; admin seulement.
+
     Lève KeyError si le mois n'a aucune zone.
     """
     entries = _zones_du_mois(payload, period_key)
@@ -1000,12 +1011,12 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
         ws.column_dimensions[get_column_letter(col[key])].width = width
 
     last_row = _ecrire_notes(
-        ws, rate_row + 2, _notes_classeur(payload, period_key, manquants, postes), ncol,
+        ws, rate_row + 2, _notes_classeur(payload, period_key, manquants, postes, methode), ncol,
         sum(largeurs.values()),
     )
     _mise_en_page(ws, ncol, last_row, _XLSX_HEADER_ROW, site, label, "Électricité · kWh et CHF")
 
-    _ecrire_onglet_detail(wb, payload, site, label, couverture)
+    _ecrire_onglet_detail(wb, payload, site, label, couverture, methode)
     if postes:
         _ecrire_onglets_postes(wb, postes, site, label, couverture, taux_tva,
                                libelle_total(payload))

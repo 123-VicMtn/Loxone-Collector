@@ -235,11 +235,12 @@ def _fr(value, decimales: int) -> str:
     return f"{float(value):.{decimales}f}".replace(".", ",")
 
 
-def export_csv_lignes(payload: dict, period_key: str) -> list[list[str]]:
+def export_csv_lignes(payload: dict, period_key: str, methode: bool = True) -> list[list[str]]:
     """CSV du mois : une section par tableau (électricité, chauffage, eau
     chaude, buanderie), séparées par une ligne vide. Point-virgule et
-    virgule décimale, déjà formatés. Lève KeyError si le mois n'est pas
-    dans le décompte."""
+    virgule décimale, déjà formatés. Colonne « Parts réseau / solaire » du
+    détail par mois seulement avec `methode` (admin). Lève KeyError si le
+    mois n'est pas dans le décompte."""
     elec = export_lignes(payload, period_key)
     mois_label = _mois_label(payload, period_key)
     out: list[list[str]] = [["Électricité"], elec[0]]
@@ -257,12 +258,12 @@ def export_csv_lignes(payload: dict, period_key: str) -> list[list[str]]:
     if detail:
         out += [[], ["Détail par mois"], [
             "Mois", "Zone", "Consommation totale (kWh)", "Solaire (kWh)", "Réseau (kWh)",
-            "Parts réseau / solaire", "État",
+            *(["Parts réseau / solaire"] if methode else []), "État",
         ]]
         for ln in detail:
             out.append([ln["mois"], ln["zone"], _fr(_arrondi(ln["total"], 2), 2),
                         _fr(_arrondi(ln["solaire"], 2), 2), _fr(_arrondi(ln["reseau"], 2), 2),
-                        ln["parts"], ln["etat"]])
+                        *([ln["parts"]] if methode else []), ln["etat"]])
 
     postes = _postes_du_mois(payload, period_key)
     if not postes:

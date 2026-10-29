@@ -56,8 +56,9 @@ def test_plusieurs_mois_additionnes(client_user):
     assert elec[2][-1] == "données incomplètes"
 
 
-def test_detail_par_mois_et_parts_de_chaque_mois(client_user):
-    detail = _section(_csv(client_user, "du=2026-09-01&au=2026-10-31"), "Détail par mois")
+def test_detail_par_mois_et_parts_de_chaque_mois(client_admin):
+    """Colonne « Parts réseau / solaire » : admin seulement."""
+    detail = _section(_csv(client_admin, "du=2026-09-01&au=2026-10-31"), "Détail par mois")
     lignes = {(row[0], row[1]): row for row in detail[1:]}
     assert lignes[("Septembre 2026", "App 1")][5] == "Miniserver"
     assert lignes[("Octobre 2026", "App 1")][5] == "calculées"
@@ -85,8 +86,8 @@ def test_depart_en_cours_de_mois(client_user):
     assert "decompte-Ref-2026-09-15_2026-10-15.csv" in res.headers["Content-Disposition"]
 
 
-def test_classeur_avec_onglet_detail(client_user):
-    res = client_user.get(URL.format("xlsx") + "&du=2026-09-01&au=2026-10-31")
+def test_classeur_avec_onglet_detail(client_admin, client_user):
+    res = client_admin.get(URL.format("xlsx") + "&du=2026-09-01&au=2026-10-31")
     assert res.status_code == 200
     wb = load_workbook(io.BytesIO(res.get_data()))
     assert wb.sheetnames[:2] == ["Électricité", "Détail par mois"]
