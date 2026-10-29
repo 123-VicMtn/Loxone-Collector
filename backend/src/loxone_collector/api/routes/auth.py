@@ -7,7 +7,7 @@ import logging
 from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user, login_required, login_user, logout_user
 
-from loxone_collector.api import auth
+from loxone_collector.api import auth, tentatives
 from loxone_collector.api.access import (
     allowed_miniservers,
 )
@@ -41,10 +41,23 @@ def api_login():
     if not username or not password:
         abort(400, "username et password requis")
 
+    cles = tentatives.cles(request.remote_addr, username)
+    attente = tentatives.limiteur.attente(cles)
+    if attente:
+        logger.warning("Connexion refusée (trop de tentatives) : %r depuis %s", username,
+                       request.remote_addr)
+        res = jsonify({"error": "trop de tentatives, réessayez dans quelques minutes"})
+        return res, 429, {"Retry-After": str(attente)}
+
     user = auth.verify_login(username, password)
     if user is None:
+        tentatives.limiteur.echec(cles)
+        logger.warning("Échec de connexion : %r depuis %s", username, request.remote_addr)
         return jsonify({"error": "identifiants invalides"}), 401
 
+    # Seul le compteur de l'identifiant repart à zéro : se connecter à son
+    # propre compte n'efface pas les échecs de cette IP sur d'autres comptes.
+    tentatives.limiteur.reussite([("identifiant", username.lower())])
     # Session permanente : cookie valable `app.SESSION_DUREE`, au lieu de
     # tomber à la fermeture du navigateur. Pas de cookie « remember me »
     # de Flask-Login (un an par défaut).

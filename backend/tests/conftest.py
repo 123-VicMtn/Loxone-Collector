@@ -19,7 +19,7 @@ from werkzeug.security import generate_password_hash
 import site_reference as ref
 from loxone_collector import app as app_module
 from loxone_collector import db
-from loxone_collector.api import access, auth
+from loxone_collector.api import access, auth, tentatives
 from loxone_collector.config import AppConfig, MiniserverConfig
 from loxone_collector.services import statistics_sync
 
@@ -60,6 +60,7 @@ def app_test(base_reference, tmp_path):
     flask_app.secret_key = "test"
     if not getattr(flask_app, "login_manager", None):
         auth.login_manager.init_app(flask_app)
+    tentatives.limiteur.vider()
 
     sync_ok = {"ok": True, "erreur": None, "series": 0, "points": 0}
     with mock.patch.object(statistics_sync, "sync_decompte", return_value=sync_ok), \

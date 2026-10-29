@@ -28,9 +28,12 @@ async function onSubmit() {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     router.push(redirect)
   } catch (err) {
-    error.value = err instanceof ApiError && err.status === 401
+    const status = err instanceof ApiError ? err.status : 0
+    error.value = status === 401
       ? 'Identifiant ou mot de passe incorrect.'
-      : 'Connexion impossible pour le moment. Réessayez dans quelques minutes.'
+      : status === 429
+        ? 'Trop de tentatives de connexion. Réessayez dans un quart d\'heure.'
+        : 'Connexion impossible pour le moment. Réessayez dans quelques minutes.'
   } finally {
     loading.value = false
   }
