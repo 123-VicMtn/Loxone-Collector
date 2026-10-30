@@ -97,6 +97,10 @@ class AppConfig:
     # Cookie de session marqué Secure (envoyé seulement en HTTPS) : true en
     # production derrière Caddy, false sur le Mac en HTTP.
     cookie_secure: bool = False
+    # false : ni poller ni synchro Statistics, et « Actualiser » n'interroge
+    # pas les Miniservers. Pour faire tourner une copie de la base de prod
+    # (répétition sur le VPS) sans doubler la collecte de l'instance en service.
+    collecte_active: bool = True
 
     # Classification par appartement / type de ressource (voir classification.py).
     apartment_pattern: str = DEFAULT_APARTMENT_PATTERN

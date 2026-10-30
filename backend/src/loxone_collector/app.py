@@ -76,7 +76,10 @@ def create_app(config_path: str = "config.yaml") -> Flask:
     app.config["SESSION_COOKIE_SECURE"] = cfg.cookie_secure
     auth.login_manager.init_app(app)
 
-    poller.start_background_poller(cfg)
+    if cfg.collecte_active:
+        poller.start_background_poller(cfg)
+    else:
+        logger.warning("Collecte désactivée (collecte_active: false) : les Miniservers ne sont pas interrogés.")
     return app
 
 

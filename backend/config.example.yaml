@@ -33,6 +33,11 @@ maintenance_hour_utc: 3
 # leur fraîcheur (bouton « Actualiser » pour forcer). 0 = désactivé.
 statistics_sync_hours: 1
 
+# false : ni poller ni synchro Statistics, et le bouton « Actualiser » du
+# décompte n'interroge pas les Miniservers. Pour faire tourner une copie de
+# la base de prod sans doubler la collecte de l'instance en service.
+collecte_active: true
+
 # Un site sans nouveau relevé depuis N minutes est signalé dans le
 # dashboard et par /health (status "degrade").
 stale_alert_minutes: 60

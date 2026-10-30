@@ -1413,6 +1413,18 @@ tuile Consommation (« relevés incomplets »).
   3 minutes de vie le 16.10) et « Valeurs Résiduelles (actual4) » de
   La Calbasse. La consommation du jour de Sequoia s'affiche de nouveau.
 
+## Collecte désactivable — 2026-10-30
+
+Phase A du plan de déploiement (`docs/plan-docker-vps.md`, § 9) :
+`collecte_active: false` dans la config lance l'API sans poller ni synchro
+Statistics (avertissement dans le log), et `POST /api/decompte/actualiser`
+répond depuis la base sans interroger le Miniserver. Pour faire tourner une
+copie de la base de prod (répétition sur le VPS, essais sur le Mac) sans
+doubler la collecte de l'instance en service. Défaut `true`. La maintenance
+quotidienne (downsampling, checkpoint WAL) vit dans la boucle du poller :
+elle ne tourne pas non plus. Seule `POST /api/apercu/puissance` lit encore
+le Miniserver (courbe du jour, en lecture seule, rien n'est écrit).
+
 ## Convention de nommage Loxone (La Calbasse) — 2026-10-26
 
 **La Calbasse est le premier site avec une configuration Loxone

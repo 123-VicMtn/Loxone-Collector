@@ -393,3 +393,19 @@ def test_cookie_secure_en_production(tmp_path, monkeypatch):
         assert app_module.create_app("config.yaml").config["SESSION_COOKIE_SECURE"] is True
     finally:
         app_module.app.config["SESSION_COOKIE_SECURE"] = precedent
+
+
+def test_collecte_desactivee_sans_poller(tmp_path, monkeypatch):
+    """`collecte_active: false` (copie de la prod) : aucune tâche de fond."""
+    from loxone_collector import app as app_module
+    from loxone_collector.config import AppConfig
+    from loxone_collector.workers import poller
+    demarrages = []
+    monkeypatch.setenv("SECRET_KEY", "test")
+    monkeypatch.setattr(poller, "start_background_poller", demarrages.append)
+    monkeypatch.setattr(app_module.auth.login_manager, "init_app", lambda _app: None)
+    for active in (True, False):
+        cfg = AppConfig(db_path=str(tmp_path / "copie.db"), collecte_active=active)
+        monkeypatch.setattr(app_module, "load_config", lambda _chemin, cfg=cfg: cfg)
+        app_module.create_app("config.yaml")
+    assert [c.collecte_active for c in demarrages] == [True]

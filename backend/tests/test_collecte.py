@@ -68,6 +68,15 @@ def test_actualiser_relit_le_site_demande(client_user):
     assert res.get_json()["statistiques_erreur"] is None
 
 
+def test_actualiser_sans_collecte_ne_relit_rien(app_test, client_user):
+    app_test.config["LOXONE_CFG"].collecte_active = False
+    with mock.patch.object(statistics_sync, "sync_decompte") as sync:
+        res = client_user.post("/api/decompte/actualiser", json={"miniserver": ref.SITE})
+    sync.assert_not_called()
+    assert res.status_code == 200
+    assert res.get_json()["statistiques_erreur"] is None
+
+
 def test_actualiser_controle_l_acces(client_user, client_anonyme):
     assert client_anonyme.post("/api/decompte/actualiser", json={"miniserver": ref.SITE}).status_code == 401
     assert client_user.post("/api/decompte/actualiser", json={"miniserver": ref.AUTRE}).status_code == 403

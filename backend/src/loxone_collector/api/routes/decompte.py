@@ -145,14 +145,17 @@ def api_decompte_actualiser():
     """Relit tout de suite les Statistics du site sur le Miniserver, sans
     attendre la synchro de fond. Ouvert à tout compte qui a accès au site :
     rien n'est modifié, seuls des index plus récents sont importés. Les
-    séries relues il y a moins d'une heure sont sautées."""
+    séries relues il y a moins d'une heure sont sautées. Collecte désactivée
+    (`collecte_active: false`) : rien n'est relu, la réponse vient de la base."""
     payload = request.get_json(force=True, silent=True) or {}
     ms_name = resolve_miniserver(payload.get("miniserver") or request.args.get("miniserver"))
     with closing(read_conn()) as conn:
-        res = statistics_sync.synchroniser_site(current_cfg(), conn, ms_name, access.maintenant())
+        ok = True
+        if current_cfg().collecte_active:
+            ok = statistics_sync.synchroniser_site(current_cfg(), conn, ms_name, access.maintenant())["ok"]
         return jsonify({
             "miniserver": ms_name,
-            "statistiques_erreur": None if res["ok"] else MESSAGE_STATISTIQUES_INJOIGNABLES,
+            "statistiques_erreur": None if ok else MESSAGE_STATISTIQUES_INJOIGNABLES,
             "statistiques_jusqu_au": statistics_sync.index_jusqu_au(
                 conn, _series_du_site(conn, ms_name),
             ),
