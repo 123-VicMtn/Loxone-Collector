@@ -1,0 +1,4 @@
+# Contexte de build de l'image du frontend (compose.yaml : build ./frontend).
+node_modules
+dist
+.env.local

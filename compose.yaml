@@ -1,0 +1,47 @@
+# Production sur le VPS : `docker compose up -d --build`.
+# Essai ou répétition en démo : ajouter `-f deploy/compose.demo.yaml`.
+name: loxone-collector
+
+services:
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    volumes:
+      - ./backend/config.yaml:/app/config.yaml:ro
+      - ./backend/data:/app/data
+    # Jamais de `ports:` ici : Docker contourne ufw pour un port publié,
+    # l'API serait joignable en HTTP depuis Internet. Seul Caddy la joint.
+    expose:
+      - "8000"
+    security_opt:
+      - no-new-privileges:true
+    # Laisse waitress finir les requêtes et SQLite fermer proprement.
+    stop_grace_period: 30s
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN manquant dans .env}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL manquant dans .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - api
+    logging: *logging
+
+volumes:
+  caddy_data:     # certificats : ne pas supprimer (limites de Let's Encrypt)
+  caddy_config:

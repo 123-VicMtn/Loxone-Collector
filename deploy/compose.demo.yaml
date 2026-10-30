@@ -1,0 +1,20 @@
+# Démo sans aucun Miniserver ni donnée réelle : essai sur le Mac
+# (DOMAIN=localhost) et répétition sur le VPS avant la bascule.
+#
+#   docker compose -f compose.yaml -f deploy/compose.demo.yaml up -d --build
+#   docker compose -f compose.yaml -f deploy/compose.demo.yaml exec api \
+#     python scripts/seed_demo_data.py config.yaml
+#
+# La base vit dans un volume à part (demo_data) : backend/data et sa base de
+# prod ne sont jamais montés. Tout supprimer : `... down -v`.
+services:
+  api:
+    environment:
+      LOXONE_DEMO_USER: demo
+      LOXONE_DEMO_PASSWORD: demo
+    volumes: !override
+      - ./deploy/config.demo.yaml:/app/config.yaml:ro
+      - demo_data:/app/data
+
+volumes:
+  demo_data:

@@ -1411,6 +1411,44 @@ tuile Consommation (« relevés incomplets »).
   3 minutes de vie le 16.10) et « Valeurs Résiduelles (actual4) » de
   La Calbasse. La consommation du jour de Sequoia s'affiche de nouveau.
 
+## Docker — 2026-10-30
+
+Phase B du plan (`docs/plan-docker-vps.md`), cible VPS Infomaniak (amd64,
+images construites sur le VPS). Fichiers versionnés :
+
+- `backend/Dockerfile` : Python 3.12-slim, étapes `base`, `test` (ruff +
+  pytest : `docker build --target test backend`, 261 tests verts en 3.12
+  sans correction) et `prod` (dernière, par défaut : uid 1000 `app`,
+  waitress sur 8000, healthcheck sur `/health`). `chmod -R a+rX /app` :
+  des fichiers du Mac sont en 600 et l'utilisateur de l'image ne les lisait
+  pas.
+- `frontend/Dockerfile` : build Vite puis `caddy:2-alpine` avec `dist/`.
+- `.dockerignore` **dans chaque contexte** (`backend/`, `frontend/`), pas
+  à la racine : Docker ne lit que celui du contexte. Jamais `.env`,
+  `config.yaml` ni `data/` dans une image.
+- `deploy/Caddyfile` : `/api/*` et `/health` vers `api:8000`, fallback
+  SPA, `/assets/*` en cache long, tout le reste en `no-cache`
+  (`@pages not path /assets/*` : le matcher porte sur le chemin demandé,
+  avant `try_files`, donc `/decompte` est bien couvert), HSTS.
+- `compose.yaml` (racine) : `api` sans `ports:` (Docker contourne ufw),
+  `web` sur 80/443. `DOMAIN` et `ACME_EMAIL` dans `.env` à la racine
+  (`.env.example`), distinct de `backend/.env`.
+- `deploy/compose.demo.yaml` + `deploy/config.demo.yaml` : démo sans
+  Miniserver (`collecte_active: false`) dans un volume à part ; la base de
+  prod n'est jamais montée. Essai sur le Mac avec `DOMAIN=localhost`,
+  répétition sur le VPS.
+- `deploy/backup.sh` : `.backup` SQLite, `integrity_check`, gzip, 14 jours
+  dans `backups/` (gitignored). restic : phase E.
+- `serve.py` gère SIGTERM : en PID 1, Python l'ignorait et `docker stop`
+  attendait les 30 s de `stop_grace_period` (redémarrage : 30 s → 0,3 s).
+
+Vérifié sur le Mac (Docker Desktop, arm64) : HTTP → HTTPS, `/health`,
+fallback de `/decompte` en `no-cache`, assets en cache long et gzip,
+cookie `Secure; HttpOnly; SameSite=Lax`, port 8000 injoignable de
+l'extérieur, IP du client lue derrière Caddy (limiteur), parcours
+navigateur (connexion, décompte, CSV et Excel, graphiques, matériels,
+rechargement avec session). Images : API 251 Mo, web 90 Mo.
+
 ## Collecte désactivable — 2026-10-30
 
 Phase A du plan de déploiement (`docs/plan-docker-vps.md`, § 9) :

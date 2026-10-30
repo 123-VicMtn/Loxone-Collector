@@ -1,0 +1,12 @@
+# Contexte de build de l'image de l'API (compose.yaml : build ./backend).
+# Ni secret ni base dans une image : config.yaml, .env et data/ sont montés
+# à l'exécution.
+.env
+config.yaml
+data
+build
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+.pytest_cache
+.ruff_cache

@@ -1,0 +1,20 @@
+# Config de l'API pour la démo Docker (deploy/compose.demo.yaml) : la même
+# que backend/config.demo.yaml, mais à l'écoute du réseau du compose et
+# derrière Caddy en HTTPS. Aucun Miniserver n'est interrogé.
+
+collecte_active: false
+statistics_sync_hours: 0
+db_path: "data/demo.db"
+host_bind: "0.0.0.0"
+port: 8000
+trusted_proxy: "*"
+cookie_secure: true
+include_types: ["Meter", "EFM"]
+
+miniservers:
+  - name: "demo"
+    host: "127.0.0.1"
+    port: 1
+    scheme: "http"
+    username: "${LOXONE_DEMO_USER}"
+    password: "${LOXONE_DEMO_PASSWORD}"

@@ -1,0 +1,40 @@
+# Reverse proxy et fichiers du frontend. DOMAIN et ACME_EMAIL viennent du
+# .env à la racine (voir .env.example). Certificat HTTPS et redirection
+# HTTP -> HTTPS automatiques ; avec DOMAIN=localhost, certificat local.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		# Fichiers à empreinte de Vite : cache long. Tout le reste (index.html,
+		# servi aussi pour /decompte via le fallback) est revalidé à chaque
+		# visite : après une mise à jour, le navigateur prend le nouveau bundle.
+		# Le matcher porte sur le chemin demandé, avant try_files.
+		@assets path /assets/*
+		@pages not path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header @pages Cache-Control "no-cache"
+		# Fallback SPA (vue-router en mode history).
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	log
+}

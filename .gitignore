@@ -16,3 +16,7 @@ frontend/.env.local
 frontend/dist/
 *.egg-info/
 build/
+
+# Docker (compose.yaml) : variables du compose et sauvegardes locales
+/.env
+/backups/
