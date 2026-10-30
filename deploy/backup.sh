@@ -2,8 +2,9 @@
 # Sauvegarde quotidienne de la base (cron de l'hôte, voir le plan § 7.3) :
 # copie cohérente application en marche, contrôle d'intégrité, gzip,
 # 14 jours en local, puis copie chiffrée hors du VPS avec restic si
-# ~/.config/restic/env existe (RESTIC_REPOSITORY, RESTIC_PASSWORD,
-# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY ; BACKUP_PING_URL facultatif).
+# ~/.config/restic/env existe (RESTIC_REPOSITORY, RESTIC_PASSWORD et les
+# identifiants OpenStack Swift de Swiss Backup, OS_* ; BACKUP_PING_URL
+# facultatif).
 set -eu
 cd "$(dirname "$0")/.."
 jour=$(date +%Y-%m-%d)
