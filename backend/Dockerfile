@@ -16,7 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 \
 
 WORKDIR /app
 COPY requirements.txt requirements-websocket.txt ./
-RUN pip install -r requirements.txt -r requirements-websocket.txt
+# pyloxone-api sans ses dépendances : sa contrainte websockets<10 ne marche
+# pas en Python 3.12 (voir requirements-websocket.txt).
+RUN pip install -r requirements.txt -r requirements-websocket.txt \
+    && pip install --no-deps pyloxone-api==0.2.4
 COPY pyproject.toml ./
 COPY src ./src
 # Versions déjà épinglées par requirements*.txt.

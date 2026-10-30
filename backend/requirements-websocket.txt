@@ -1,13 +1,17 @@
 # Dépendances optionnelles pour protocol: "websocket" dans config.yaml
 # (lecture live via le protocole Websocket chiffré Loxone — nécessaire pour
-# l'accès distant "Remote Connect", voir CLAUDE.md et loxone_ws_client.py).
+# l'accès distant "Remote Connect", voir CLAUDE.md et loxone/websocket.py).
 #
-# Volontairement séparées de requirements.txt : un déploiement Pi qui
-# n'interroge que des miniservers en LAN (protocol: "http", le défaut) n'a
-# pas besoin de ces dépendances (RSA/AES + Websocket ont un coût mémoire/CPU
-# non nul sur un Pi à 2 Go de RAM).
+# pyloxone-api 0.2.4 (dernière version publiée) exige websockets<10, qui
+# passe `loop=` à asyncio.Lock : refusé à partir de Python 3.10 (« Lock.__init__()
+# got an unexpected keyword argument 'loop' »). websockets 13.1 garde la même
+# API et marche en 3.9 comme en 3.12 (vérifié sur un Miniserver réel) : on
+# installe donc pyloxone-api sans ses dépendances, et les siennes ici.
 #
 # Installation (seulement si un miniserver utilise protocol: "websocket") :
 #   pip install -r requirements-websocket.txt
+#   pip install --no-deps pyloxone-api==0.2.4
 
-pyloxone-api==0.2.4
+httpx==0.19.0
+pycryptodome==3.23.0
+websockets==13.1

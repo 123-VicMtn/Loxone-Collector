@@ -30,6 +30,7 @@ Depuis la racine du dépôt :
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt -r backend/requirements-websocket.txt
+pip install --no-deps pyloxone-api==0.2.4   # voir backend/requirements-websocket.txt
 pip install -e backend
 
 npm --prefix frontend install
