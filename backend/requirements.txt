@@ -5,6 +5,9 @@ PyYAML==6.0.2
 python-dotenv==1.0.1
 openpyxl==3.1.5
 waitress==3.0.2
+# Fuseaux horaires (Europe/Zurich) pour zoneinfo : l'image Docker slim n'a
+# pas de base système.
+tzdata==2026.6
 
 # Pour protocol: "websocket" (accès distant, voir CLAUDE.md) :
 #   pip install -r requirements-websocket.txt

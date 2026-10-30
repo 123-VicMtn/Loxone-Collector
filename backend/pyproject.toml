@@ -16,6 +16,7 @@ dependencies = [
     "python-dotenv==1.0.1",
     "openpyxl==3.1.5",
     "waitress==3.0.2",
+    "tzdata==2026.6",
 ]
 
 [project.optional-dependencies]
