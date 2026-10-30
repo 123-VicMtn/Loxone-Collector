@@ -16,6 +16,7 @@ Le serveur de dev (`python app.py config.yaml`) reste pour le Mac.
 from __future__ import annotations
 
 import logging
+import signal
 import sys
 
 from waitress import serve
@@ -27,6 +28,11 @@ logger = logging.getLogger("serve")
 # Requêtes servies en parallèle. Un export Excel de plusieurs mois occupe
 # un thread quelques secondes ; quelques utilisateurs n'en demandent pas plus.
 THREADS = 8
+
+
+def _arreter(signum, _frame) -> None:
+    logger.info("Arrêt demandé (signal %d).", signum)
+    sys.exit(0)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -43,6 +49,10 @@ def main(argv: list[str] | None = None) -> None:
             "trusted_proxy_headers": {"x-forwarded-for", "x-forwarded-proto"},
             "clear_untrusted_proxy_headers": True,
         }
+    # Dans Docker, le process est le PID 1 : sans gestionnaire, SIGTERM
+    # (docker stop, mise à jour) est ignoré et Docker le tue au bout de
+    # stop_grace_period. SQLite en WAL ne perd rien d'écrit à un arrêt.
+    signal.signal(signal.SIGTERM, _arreter)
     logger.info("waitress sur %s:%s (%d threads)", cfg.host_bind, cfg.port, THREADS)
     serve(app, host=cfg.host_bind, port=cfg.port, threads=THREADS, ident=None, **options)
 
