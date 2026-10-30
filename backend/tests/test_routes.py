@@ -82,13 +82,9 @@ def test_logout_coupe_la_session(client_user):
 
 
 def test_health_public(client_anonyme):
-    data = client_anonyme.get("/health").get_json()
     # « Autre » : dernier relevé 2 h avant NOW, au-delà du seuil de 60 min.
-    assert data["status"] == "degrade"
-    assert {s["miniserver"]: s["en_retard"] for s in data["collecte"]} == {
-        ref.SITE: False, ref.AUTRE: True,
-    }
-    assert "last_error" not in data
+    # Le statut seul : ni noms de sites ni état des polls en public.
+    assert client_anonyme.get("/health").get_json() == {"status": "degrade"}
 
 
 # --- Sites et séries ---------------------------------------------------------

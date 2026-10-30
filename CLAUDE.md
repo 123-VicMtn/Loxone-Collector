@@ -1054,9 +1054,11 @@ Horizon est resté muet 11 jours (16-27.10) sans que rien ne le signale.
   `dernier_releve_ts` (lu en base par `db.last_reading_by_miniserver`, pas
   dans `_state`, vidé au redémarrage) et `en_retard` au-delà de
   `stale_alert_minutes` (config, défaut 60).
-- `/health` (public) : `status` `"ok"` / `"degrade"` et le même détail par
-  site, toujours en 200, pour une supervision externe. **Plus de
-  `last_error`** : il pouvait contenir l'adresse d'un Miniserver.
+- `/health` (public) : `{"status": "ok" | "degrade"}` seulement, toujours
+  en 200, pour une supervision externe et le healthcheck Docker. Plus de
+  `last_error` (adresse d'un Miniserver), et depuis le 2026-10-30 plus de
+  détail par site ni d'état des polls (noms des clients visibles de
+  tous) : le détail est dans `/api/collecte`.
 - Frontend : `shared/composables/useCollecte.ts` remplace
   `useHealthFooter` (qui lisait `/health` et montrait à tout compte les
   noms et erreurs de **tous** les sites). Bandeau

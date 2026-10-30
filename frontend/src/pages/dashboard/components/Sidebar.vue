@@ -115,7 +115,7 @@ const siteGroups = computed(() => sites.value.map((site) => {
     <p v-if="!allSeries.length" class="text-sm text-neutral-500">
       Aucun capteur en base pour l'instant. Le poller n'a peut-être pas
       encore terminé son premier cycle — recharge cette page dans
-      quelques instants, ou consulte <a href="/health" class="text-blue-600 hover:underline">/health</a>.
+      quelques instants.
     </p>
 
     <template v-else>

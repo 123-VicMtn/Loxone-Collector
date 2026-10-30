@@ -15,7 +15,6 @@ from loxone_collector.api.access import (
     current_cfg,
     read_conn,
 )
-from loxone_collector.workers import poller
 
 logger = logging.getLogger("app")
 
@@ -43,21 +42,13 @@ def _etat_collecte(sites: list[str], now: int) -> list[dict]:
 
 @bp.route("/health")
 def health():
-    """Public, pour une supervision externe : `status` passe à "degrade"
-    dès qu'un site ne remonte plus (voir _etat_collecte). La réponse reste
-    un 200 : l'API, elle, fonctionne. Pas de message d'erreur des polls
-    (adresse du Miniserver) : il est dans le log du serveur."""
+    """Public, pour une supervision externe et le healthcheck Docker :
+    `status` seul, qui passe à "degrade" dès qu'un site ne remonte plus
+    (voir _etat_collecte). La réponse reste un 200 : l'API, elle,
+    fonctionne. Ni noms de sites ni état des polls : le détail est dans
+    /api/collecte (connecté, sites du compte), les erreurs dans le log."""
     collecte = _etat_collecte([ms.name for ms in current_cfg().miniservers], access.maintenant())
-    return jsonify(
-        {
-            "status": "degrade" if any(s["en_retard"] for s in collecte) else "ok",
-            "collecte": collecte,
-            "started_at": poller.state["started_at"],
-            "last_poll_ts": poller.state["last_poll_ts"],
-            "last_poll_ok": poller.state["last_poll_ok"],
-            "series_count": poller.state["series_count"],
-        }
-    )
+    return jsonify({"status": "degrade" if any(s["en_retard"] for s in collecte) else "ok"})
 
 
 @bp.route("/api/collecte")
