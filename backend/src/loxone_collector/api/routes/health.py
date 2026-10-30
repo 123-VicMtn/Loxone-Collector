@@ -22,7 +22,7 @@ bp = Blueprint("health", __name__)
 
 
 def _etat_collecte(sites: list[str], now: int) -> list[dict]:
-    """Dernier relevé de chaque site, lu en base (pas dans `poller.state`, vidé à
+    """Dernier relevé de chaque site, lu en base (un état en mémoire serait vidé à
     chaque redémarrage), et retard au-delà de `stale_alert_minutes`.
     Jamais le message d'erreur du poll : il est dans le log du serveur."""
     seuil_s = current_cfg().stale_alert_minutes * 60

@@ -108,14 +108,14 @@ npm --prefix ../frontend run build   # vérifie aussi les types
 
 ## Production
 
-- **API** : service systemd, modèle dans `backend/scripts/loxone-collector.service`
-  (utilisateur et chemins à adapter).
+- **API** : `python -m loxone_collector.serve config.yaml` (waitress, un
+  seul process : le poller tourne dedans), derrière un reverse proxy HTTPS
+  (`trusted_proxy` et `cookie_secure: true` dans `config.yaml`).
 - **Frontend** : `npm --prefix frontend run build`, puis servir
   `frontend/dist/` comme un site statique. Le serveur doit renvoyer
   `index.html` pour toute route inconnue, et transmettre `/api` et
   `/health` à l'API.
-- `GET /health` (public) indique si chaque site remonte encore des données,
-  pour une supervision externe.
+- `GET /health` (public) répond `{"status": "ok"}` ou `"degrade"` si un
+  site ne remonte plus, pour une supervision externe.
 
-Le déploiement complet (reverse proxy Caddy, serveur WSGI) n'est pas
-encore en place.
+Le déploiement sur un VPS avec Docker et Caddy est en préparation.

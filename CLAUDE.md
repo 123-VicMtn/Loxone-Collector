@@ -516,8 +516,8 @@ dans le DOM.
 - **Déplacer ou renommer la base demande d'arrêter `app.py`** : Flask ouvre
   une nouvelle connexion SQLite à chaque requête sur un chemin relatif, et
   SQLite crée en silence un fichier vide s'il ne le trouve pas.
-- `backend/scripts/loxone-collector.service` garde `User=pi` et
-  `/home/pi/...`, à adapter par l'utilisateur au déploiement.
+- `backend/scripts/loxone-collector.service` (systemd, `User=pi`) a été
+  supprimé le 2026-10-30 : la cible est un VPS avec Docker.
 
 ### Leçons de validation
 
@@ -597,10 +597,8 @@ reprendre en bloc quand l'utilisateur relance le sujet :
 - Caddy comme reverse proxy devant Flask + fichiers statiques du frontend
   (avec le fallback SPA ci-dessus) + Docker -- portée complète du plan,
   jamais commencée dans ce dépôt.
-- `backend/scripts/loxone-collector.service` (systemd) garde son
-  `User=pi`/chemin `/home/pi/...` d'origine -- à adapter par l'utilisateur
-  au déploiement réel (PC Ubuntu Server) le moment venu, jamais fait à sa
-  place (voir "Nettoyage de la structure du backend", 2026-09-24).
+- ~~Service systemd `User=pi`~~ : supprimé le 2026-10-30 (cible VPS
+  Docker, voir `docs/plan-docker-vps.md`).
 
 ### Dette technique (structure du code -- pas avant que l'utilisateur ne le redemande)
 
@@ -1134,8 +1132,8 @@ section 7, règle « un commit déplace, un autre corrige »).
   `statistics.py`. Les noms de loggers n'ont pas changé.
 - Fait ensuite : `app.py` découpé (940 → 80 lignes, il ne garde que
   `create_app`, `main` et l'enregistrement des Blueprints).
-  `workers/poller.py` : poller, synchro Statistics, `state` (lu par
-  `/health`). `api/access.py` : `current_cfg`, `read_conn`,
+  `workers/poller.py` : poller, synchro Statistics (`state`, lu par
+  `/health`, retiré le 2026-10-30). `api/access.py` : `current_cfg`, `read_conn`,
   `allowed_miniservers`, `admin_required`, `check_series_access`,
   `resolve_miniserver`, et `maintenant()`, seule source de l'heure des
   routes (les tests la figent). `api/routes/` : `auth`, `health`
@@ -1630,13 +1628,9 @@ npm --prefix frontend run preview   # tester ce build localement (avec proxy API
 # Maintenance DB (mensuel, manuel) -- depuis backend/
 python3 scripts/vacuum_db.py config.yaml
 
-# Déploiement backend (systemd, PC Ubuntu Server -- anciennement Pi) --
-# depuis backend/ (le .service référence déjà les chemins backend/app.py
-# et backend/data, voir backend/scripts/loxone-collector.service)
-sudo cp scripts/loxone-collector.service /etc/systemd/system/
-sudo nano /etc/systemd/system/loxone-collector.service   # adapte User/chemins
-sudo systemctl daemon-reload && sudo systemctl enable --now loxone-collector
-journalctl -u loxone-collector -f
+# Serveur de prod (waitress, un seul process), depuis backend/ -- le
+# déploiement VPS Docker est décrit dans docs/plan-docker-vps.md
+python3 -m loxone_collector.serve config.yaml
 
 # Déploiement frontend : servir frontend/dist/ (fichiers statiques) via
 # n'importe quel serveur web, en configurant un fallback SPA (toute route

@@ -1,7 +1,6 @@
 """
 Tâches de fond : le poller (valeurs live de chaque Miniserver, écrites en
-base) et la synchro périodique des Statistics du décompte. `state` garde
-l'état du dernier cycle de chaque site, lu par /health.
+base) et la synchro périodique des Statistics du décompte.
 """
 
 from __future__ import annotations
@@ -24,15 +23,6 @@ from loxone_collector.loxone.websocket import LoxoneWsError, fetch_live_values
 from loxone_collector.services import classification, statistics_sync
 
 logger = logging.getLogger("app")
-
-
-state = {
-    "last_poll_ts": {},     # miniserver_name -> epoch
-    "last_poll_ok": {},     # miniserver_name -> bool
-    "last_error": {},       # miniserver_name -> str|None
-    "series_count": {},     # miniserver_name -> int
-    "started_at": time.time(),
-}
 
 
 # Délai avant la première synchro Statistics après le démarrage.
@@ -110,23 +100,14 @@ def poll_once(cfg: AppConfig, conn) -> None:
                     rows.append((series_id, now, None, str(v)))
             db.insert_readings_batch(conn, rows)
             conn.commit()
-
-            state["last_poll_ts"][ms_cfg.name] = now
-            state["last_poll_ok"][ms_cfg.name] = True
-            state["last_error"][ms_cfg.name] = None
-            state["series_count"][ms_cfg.name] = len(points)
             logger.info(
                 "[%s] poll OK: %d points, %d valeurs numériques écrites",
                 ms_cfg.name, len(points), len(rows),
             )
         except LoxoneAuthError as exc:
             logger.error(str(exc))
-            state["last_poll_ok"][ms_cfg.name] = False
-            state["last_error"][ms_cfg.name] = str(exc)
         except (LoxoneError, LoxoneWsError) as exc:
             logger.warning(str(exc))
-            state["last_poll_ok"][ms_cfg.name] = False
-            state["last_error"][ms_cfg.name] = str(exc)
         finally:
             client.close()
 

@@ -89,11 +89,20 @@ exclude_rooms: []       # ex: ["Technique", "Extérieur"]
 #   energie_consommee: "Énergie consommée"
 #   autre: "Autre"
 
-# Interface d'écoute de l'API backend (voir CLAUDE.md, "Backend 100% API" --
-# le frontend Vue tourne comme app séparée, ce port n'est consommé que par
-# elle/le reverse proxy, pas par un navigateur directement en prod).
+# Interface d'écoute de l'API (voir CLAUDE.md, "Backend 100% API" -- seuls
+# le frontend en dev et le reverse proxy en prod l'appellent, jamais un
+# navigateur directement). "0.0.0.0" est nécessaire dans Docker (Caddy
+# joint l'API par le réseau du compose) ; sur le Mac, "127.0.0.1" suffit.
 host_bind: "0.0.0.0"
-port: 5000
+port: 8000
+
+# Production derrière Caddy (voir serve.py) : waitress croit les en-têtes
+# X-Forwarded-For / -Proto de ce proxy ("*" dans Docker, où l'API n'est
+# joignable que par Caddy). Vide : aucun en-tête cru (dev).
+trusted_proxy: ""
+
+# Cookie de session envoyé seulement en HTTPS : true en production.
+cookie_secure: false
 
 # Un ou plusieurs Miniservers Loxone à interroger. Deux styles de connexion
 # selon où se trouve le Miniserver par rapport à cette machine :
