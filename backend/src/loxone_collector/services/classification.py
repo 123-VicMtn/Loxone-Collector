@@ -36,8 +36,9 @@ import unicodedata
 # est attendu. Reste volontairement best-effort : toute zone non reconnue
 # ici (ex: un compteur d'immeuble global comme "Réseau" ou "Production")
 # atterrit dans "Sans appartement" et peut être classée à la main via
-# /admin.
-DEFAULT_APARTMENT_PATTERN = r"(?i)(APP(?:ARTEMENT)?\s*\d+|Bureau\s*\d+|Commerce|Rez\s*Jardin|Commun)"
+# /admin. « Rez_Jardin » (tiret bas) : Arlopy depuis son renommage dans
+# Loxone Config (2026-11), à côté de « Rez Jardin Eau Chaude ».
+DEFAULT_APARTMENT_PATTERN = r"(?i)(APP(?:ARTEMENT)?\s*\d+|Bureau\s*\d+|Commerce|Rez[\s_]*Jardin|Commun)"
 
 # Règles appliquées dans l'ordre : la première dont le motif matche le nom
 # du capteur l'emporte. Chaque règle est un dict {"match": <regex>, "type": <clé>}.
@@ -89,7 +90,7 @@ def extract_apartment(text: str, pattern: str | None = None) -> str:
     if not m:
         return ""
     value = m.group(1) if m.groups() else m.group(0)
-    value = re.sub(r"\s+", "", value).upper()
+    value = re.sub(r"[\s_]+", "", value).upper()
     # "Appartement 1" et "App 1" doivent tomber dans la même zone.
     value = re.sub(r"^APPARTEMENT", "APP", value)
     return value

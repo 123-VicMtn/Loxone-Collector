@@ -33,6 +33,8 @@ class TestExtractApartment(unittest.TestCase):
     def test_non_numeric_zones(self):
         self.assertEqual(extract_apartment("Commerce"), "COMMERCE")
         self.assertEqual(extract_apartment("Rez Jardin"), "REZJARDIN")
+        # Arlopy depuis son renommage : « Rez_Jardin Elec », même zone.
+        self.assertEqual(extract_apartment("Rez_Jardin Elec"), "REZJARDIN")
         self.assertEqual(extract_apartment("Communs"), "COMMUN")
 
     def test_no_match(self):
