@@ -1624,12 +1624,15 @@ L'application tourne sur le VPS depuis environ 16 h 30.
 
 **Reste à faire (prochaine session)** :
 
-1. VPS : `./deploy/backup.sh` une fois à la main (premier envoi restic de
-   la base), puis cron `30 4 * * * /srv/loxone-collector/deploy/backup.sh
-   >> /srv/loxone-collector/backups/backup.log 2>&1`, puis test de
-   restauration (`restic restore`, `gunzip`, `integrity_check`).
-2. UptimeRobot (pas encore de compte) : moniteur Keyword sur `/health`,
-   mot-clé `"ok"`, 5 min, alerte e-mail.
+1. VPS : premier `./deploy/backup.sh` fait le 2026-11-03 (environ 5 min
+   pour 2,6 Go : ne pas l'interrompre ; snapshot restic envoyé), cron
+   `30 2 * * * /srv/loxone-collector/deploy/backup.sh >>
+   /srv/loxone-collector/backups/backup.log 2>&1` en place. **Reste le
+   test de restauration** (`restic restore`, `gunzip`, `integrity_check`)
+   dans `~/restore-test`, **pas dans `/tmp`** : « Disk quota exceeded »
+   en décompressant la base (2,6 Go) le 2026-11-03.
+2. UptimeRobot : compte créé le 2026-11-03 ; moniteur Keyword sur
+   `/health`, mot-clé `"ok"`, 5 min, alerte e-mail (vérifier qu'il est Up).
 3. Phase G : README (section Production), `docs/commandes.md`, plan
    marqué fait.
 4. Optionnel : ping healthchecks.io en fin de sauvegarde
