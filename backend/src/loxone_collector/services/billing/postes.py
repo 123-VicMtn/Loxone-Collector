@@ -33,6 +33,14 @@ CHAUFFAGE_RE = re.compile(r"(?i)(chauffage|c[ch]aleur)")
 VOLUME_RE = re.compile(r"(?i)\bvolume\b")
 
 
+# Arlopy, Commerce : « Commerce Chauffage » (Statistics depuis le
+# 27.10.2026) remplacera « Commerce Chauffage ancien » et « … ancien 2 ».
+# Décision de l'utilisateur (2026-11-02) : le chauffage du Commerce se lit
+# sur les deux anciens tant qu'ils ne sont pas abandonnés ; le nouveau
+# n'entre pas dans le décompte d'ici là. Retirer cette règle à la bascule.
+CHAUFFAGE_PAS_ENCORE_RE = re.compile(r"(?i)^commerce chauffage \(total\)$")
+
+
 # Buanderie de Sequoia (catégorie Loxone « Lessive ») : CEnergieAppXX est
 # l'électricité de la buanderie attribuée au lot par badge, CNrMachineAppXX
 # son nombre de cycles.
@@ -72,7 +80,7 @@ def _role_poste(s: dict) -> str | None:
     if BUANDERIE_KWH_RE.search(label):
         return "buanderie"
     if CHAUFFAGE_RE.search(label):
-        if VOLUME_RE.search(label):
+        if VOLUME_RE.search(label) or CHAUFFAGE_PAS_ENCORE_RE.match(label):
             return None
         if s.get("resource_type") in ("energie_reseau", "energie_solaire"):
             return None

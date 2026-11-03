@@ -210,12 +210,14 @@ class TestResolutionDesSeries(unittest.TestCase):
         conn.close()
 
     def test_solaire_et_batterie_ne_remplace_pas_la_production(self):
-        # Arlopi : « Solaire & Batterie » n'est pas le compteur de production.
+        # Arlopy : « Solaire & Batterie » est un calcul de Loxone (lots −
+        # import + export), la production est « Compteur PV » (2026-11-02).
         series = [
             s("bat", "Solaire & Batterie (total)", "energie_batterie", ""),
-            s("p", "Production (total)", "energie_consommee", ""),
+            s("pv", "Compteur PV (total)", "energie_solaire", ""),
         ]
-        self.assertEqual(billing.resolve_batiment(series)["production"]["series_id"], "p")
+        self.assertEqual(billing.resolve_batiment(series)["production"]["series_id"], "pv")
+        self.assertEqual([c["series_id"] for c in billing.candidats_production(series)], ["pv"])
 
     def test_batiment_convention_la_calbasse(self):
         series = [
@@ -229,9 +231,12 @@ class TestResolutionDesSeries(unittest.TestCase):
         self.assertEqual(b["reseau_export"]["series_id"], "e")
 
     def test_compteurs_pv_dhorizon_ne_sont_pas_la_production(self):
+        # Horizon : sa production est la somme des deux champs (historique
+        # des graphiques) ; son « Compteur PV » ne sert pas encore.
         series = [
             s("ppe", "Compteur PV PPE (total)", "energie_solaire", ""),
             s("gar", "Compteur PV garages (total)", "energie_solaire", ""),
+            s("pv", "Compteur PV (total)", "energie_solaire", ""),
         ]
         self.assertIsNone(billing.resolve_batiment(series)["production"])
 
@@ -942,6 +947,15 @@ class TestPostes(unittest.TestCase):
 
     def test_tous_les_compteurs_d_une_zone_sont_gardes(self):
         self.assertEqual(self.ids(self.postes()["COMMERCE"]["chauffage"]), ["com1", "com2"])
+
+    def test_nouveau_chauffage_du_commerce_pas_encore_decompte(self):
+        series = [
+            s("anc", "Commerce Chauffage ancien (total)", "energie_consommee", "COMMERCE"),
+            s("anc2", "Commerce Chauffage ancien 2 (total)", "energie_consommee", "COMMERCE"),
+            s("neuf", "Commerce Chauffage (total)", "energie_consommee", "COMMERCE"),
+        ]
+        p = {z["zone"]: z["compteurs"] for z in billing.resolve_postes(series)}
+        self.assertEqual(self.ids(p["COMMERCE"]["chauffage"]), ["anc", "anc2"])
 
     def test_releves_du_mois(self):
         start, end = billing.period_bounds(2026, 8)

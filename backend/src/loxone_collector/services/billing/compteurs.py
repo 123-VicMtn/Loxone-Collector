@@ -80,11 +80,22 @@ RESERVES_ZONES = {
 # À Sequoia, « Production Solaire » s'arrête le 2026-09-09. Le compteur
 # qui avance ensuite s'appelle exactement « Solaire (total) » (depuis le
 # 2026-09-24, index différent : ce n'est pas la suite du précédent).
-# « Solaire & Batterie » (Arlopi) ne doit pas prendre sa place.
 # Sur une fenêtre passée, production_couvrante choisit celui qui a des
 # heures dans la fenêtre — sinon le bilan n'a aucune production et le
 # décompte reste sur les séries Grid/Solaire.
 SOLAIRE_BATIMENT_RE = re.compile(r"(?i)^solaire \(total\)$")
+
+
+# Arlopy : « Solaire & Batterie » n'est pas un compteur mais un calcul de
+# Loxone (somme des lots − import + export, à 0,01 kWh près chaque heure ;
+# 38 kWh la nuit du 10 au 20.09.2026, sans soleil ni batterie). Il ne
+# doit pas prendre la place de « Compteur PV », la sortie de l'onduleur
+# (batterie comprise) depuis le recâblage du 21.09.2026 à 2 h.
+# Horizon : production = somme des deux champs. Son « Compteur PV » ne
+# servira que plus tard (utilisateur, 2026-11-02) : écarté tant que ces deux
+# compteurs existent. Le décompte n'a pas de production pour Horizon (pas
+# de compteur unique), seul l'historique des graphiques les additionne.
+PV_CHAMPS_RE = re.compile(r"(?i)^compteur pv (ppe|garages) \(total\)$")
 
 
 def series_du_decompte(series: list[dict]) -> list[dict]:
@@ -173,6 +184,19 @@ def resolve_zones(series: list[dict]) -> list[dict]:
     return out
 
 
+def candidats_production(series: list[dict]) -> list[dict]:
+    """Compteurs `total` du bâtiment qui peuvent être sa production :
+    « Solaire » et les libellés de BATIMENT_PRODUCTION_RE, sans « Compteur
+    PV » quand le site a ses champs séparés (Horizon)."""
+    totals = series_total([s for s in series if not (s.get("apartment") or "").strip()])
+    par_champs = any(PV_CHAMPS_RE.search(s.get("label", "")) for s in totals)
+    return [
+        s for s in totals
+        if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))
+        or (BATIMENT_PRODUCTION_RE.search(s.get("label", "")) and not par_champs)
+    ]
+
+
 def resolve_batiment(series: list[dict]) -> dict:
     """Compteurs d'immeuble. `production` est la production photovoltaïque
     totale. `reseau_import`/`reseau_export` sont conservés à titre indicatif
@@ -184,10 +208,10 @@ def resolve_batiment(series: list[dict]) -> dict:
     comparables, et l'injection réelle se déduit de
     `production - autoconsommation`."""
     globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
-    totals = series_total(globals_)
-    prod = _pick([s for s in totals if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))])
+    candidats = candidats_production(series)
+    prod = _pick([s for s in candidats if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))])
     if not prod:
-        prod = _pick([s for s in totals if BATIMENT_PRODUCTION_RE.search(s.get("label", ""))])
+        prod = _pick(candidats)
     imp = _pick([s for s in series_total(globals_) if BATIMENT_RESEAU_RE.search(s.get("label", ""))])
     exp = _pick([
         s for s in globals_
@@ -207,12 +231,7 @@ def production_couvrante(conn, series: list[dict], start_ts: int, end_ts: int,
     Ici on garde le candidat qui couvre la fenêtre. À égalité d'heures,
     « Solaire (total) » l'emporte.
     """
-    globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
-    candidats = [
-        s for s in series_total(globals_)
-        if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))
-        or BATIMENT_PRODUCTION_RE.search(s.get("label", ""))
-    ]
+    candidats = candidats_production(series)
     if not candidats:
         return None
     scored = []
@@ -247,12 +266,7 @@ def productions_sur_fenetre(conn, series: list[dict], start_ts: int, end_ts: int
     seul. Les deux restent, dans l'ordre, pour que les heures se relaient
     au lieu d'abandonner le début du mois.
     """
-    globals_ = [s for s in series if not (s.get("apartment") or "").strip()]
-    candidats = [
-        s for s in series_total(globals_)
-        if SOLAIRE_BATIMENT_RE.search(s.get("label", ""))
-        or BATIMENT_PRODUCTION_RE.search(s.get("label", ""))
-    ]
+    candidats = candidats_production(series)
     scored = []
     for s in candidats:
         if statistics:
