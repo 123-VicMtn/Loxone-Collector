@@ -20,6 +20,11 @@ les raisons historiques de minimalisme (Pi 2 Go, SD card) ne s'appliquent
 plus, seule la simplicité de maintenance pour un développeur solo reste un
 critère valable.
 
+**En production depuis le 2026-10-30 sur un VPS Infomaniak, avec Docker**
+(voir « Déploiement VPS — 2026-10-30 »). Le PC Ubuntu Server n'est plus
+la cible. **Le Mac ne collecte plus** : ne jamais y relancer `app.py
+config.yaml` contre les vrais Miniservers (deux collecteurs).
+
 **Structure du dépôt (mise à jour 2026-10-27)** : le code Python est un
 paquet, `backend/src/loxone_collector/` (`app.py`, `db.py`, `config.py`,
 etc.), installé en mode éditable dans le venv (`pip install -e backend`) ;
@@ -78,8 +83,8 @@ datées ci-dessous, écrites avant ce déplacement) désigne le fichier sous
   accorder-retirer un site/changer de rôle), pas d'interface web de
   gestion (voir sections "Authentification backend" / "Authentification
   frontend" / "Rôles utilisateurs", 2026-09-24).
-- Déployé et validé en production sur le Pi de l'utilisateur (réseau local),
-  firmware Miniserver 17.1.7.27.
+- En production sur le VPS (Docker, Caddy, HTTPS) depuis le 2026-10-30,
+  après le Pi puis le Mac de l'utilisateur. Firmware Miniserver 17.1.7.27.
 - Accès externe (URL DynDNS Loxone) **entièrement fonctionnel** : structure
   en HTTP simple + lecture des valeurs live via `protocol: "websocket"`
   (voir `loxone_ws_client.py` et la section dédiée ci-dessous). Validé en
@@ -577,28 +582,12 @@ mesuré aussi ?` de Sequoia, `DOUBLON_RE`, `PAC_BATIMENT_RE`,
 `RESERVES_ZONES`. Probablement une table en base (comme les
 classifications manuelles), éditable depuis `/admin`. Pas commencé.
 
-### Déploiement (explicitement différé -- "garde Caddy pour plus tard")
+### Déploiement
 
-Tout regroupé dans `docs/plan-installation-auth-frontend-docker.md`, à
-reprendre en bloc quand l'utilisateur relance le sujet :
-
-- **Fallback SPA** côté serveur de prod pour `vue-router` en mode
-  `createWebHistory()` -- toute route inconnue (`/admin`, `/decompte` en
-  accès direct) doit renvoyer `index.html`, sinon 404 sur un serveur
-  statique naïf (`vite preview` le fait automatiquement, un vrai Caddy/
-  nginx de prod ne le fait pas sans configuration explicite -- voir
-  "Backend 100% API + frontend fusionné en une seule SPA", 2026-09-24).
-- **CORS / cookies cross-origin** si jamais frontend et backend finissent
-  sur des domaines réellement différents sans reverse proxy unificateur
-  (`flask-cors` + `SameSite=None; Secure`, donc HTTPS) -- volontairement
-  pas ajouté tant que l'architecture de déploiement (Caddy en reverse
-  proxy unique) n'est pas confirmée (voir "Authentification backend",
-  2026-09-24).
-- Caddy comme reverse proxy devant Flask + fichiers statiques du frontend
-  (avec le fallback SPA ci-dessus) + Docker -- portée complète du plan,
-  jamais commencée dans ce dépôt.
-- ~~Service systemd `User=pi`~~ : supprimé le 2026-10-30 (cible VPS
-  Docker, voir `docs/plan-docker-vps.md`).
+Fait le 2026-10-30 (VPS Docker, Caddy en reverse proxy unique, fallback
+SPA, HTTPS : CORS inutile). Plan : `docs/plan-docker-vps.md`. Reste, voir
+« Déploiement VPS — 2026-10-30 » : première sauvegarde et cron, test de
+restauration, UptimeRobot, phase G (documentation).
 
 ### Dette technique (structure du code -- pas avant que l'utilisateur ne le redemande)
 
@@ -1588,16 +1577,140 @@ Avant, plus aucun écran ne permettait de changer de site
 des sites quand le compte change sans rechargement (sinon les sites
 d'autres clients restaient listés) et ne charge rien sans compte connecté.
 
+## Déploiement VPS — 2026-10-30
+
+Phases C à F du plan (`docs/plan-docker-vps.md`) faites le même jour.
+L'application tourne sur le VPS depuis environ 16 h 30.
+
+- **VPS** : Infomaniak VPS Lite, Ubuntu 26.04 amd64, 4 CPU, 4 Go, 80 Go,
+  IPv4 179.237.66.11, IPv6 2001:1600:18:203::203, utilisateur `ubuntu`
+  (clé SSH seule, root interdit), ufw (22, 80, 443 tcp/udp), swap 2 Go,
+  fuseau Europe/Zurich, mises à jour de sécurité automatiques, Docker
+  officiel (`live-restore`, logs limités). Dépôt cloné dans
+  `/srv/loxone-collector` avec une clé de déploiement GitHub en lecture
+  seule (`git pull` pour mettre à jour).
+- **Domaine** : `https://loxone-collector.123-soleil.ch` (DNS A/AAAA chez
+  Infomaniak), certificat Let's Encrypt gardé dans le volume
+  `loxone-collector_caddy_data` : **ne pas le supprimer** (limites de
+  Let's Encrypt).
+- **Config du VPS** : `backend/config.yaml` = celui du Mac avec `port: 8000`,
+  `trusted_proxy: "*"`, `cookie_secure: true`. `backend/.env` : une
+  `SECRET_KEY` propre au VPS (les sessions du Mac n'y valent rien) et les
+  six `LOXONE_*` de prod. `.env` à la racine : `DOMAIN`, `ACME_EMAIL`.
+- **Bascule** : base copiée par `.backup` (`integrity_check` ok), gardée
+  sur le Mac en `backend/data/loxone-bascule.db` (archive). Totaux du
+  décompte identiques sur le VPS (septembre 2026 : Arlopy 1 281,44 kWh,
+  Sequoia 3 287,34 ; La Calbasse 16-28.10 : 2 659,27).
+- **Piège rencontré** : `pyloxone-api` 0.2.4 (dernière version) exige
+  `websockets<10`, qui passe `loop=` à `asyncio.Lock` : refusé dès Python
+  3.10 (« Lock.__init__() got an unexpected keyword argument 'loop' »),
+  donc aucun poll dans l'image 3.12. Les tests ne l'ont pas vu (aucun ne
+  passe par le websocket). Correctif : `websockets==13.1`, et
+  `pyloxone-api` installé avec `--no-deps` (`requirements-websocket.txt`,
+  Dockerfile, README). Vérifié sur un Miniserver réel, puis en prod.
+- **Sauvegardes** : restic vers Infomaniak Swiss Backup en **OpenStack
+  Swift** (appareil « espace de stockage libre » `vas-loxone-collector`,
+  200 Go), dépôt `swift:loxone-collector-backup:/`, identifiants dans
+  `~/.config/restic/env` sur le VPS (chmod 600, apostrophes droites : des
+  apostrophes typographiques collées depuis le Mac ont vidé
+  `OS_AUTH_URL`). `OS_AUTH_URL` =
+  `https://swiss-backup02.infomaniak.com/identity/v3`, domaines `default`,
+  région `RegionOne`. Le mot de passe restic est gardé aussi hors du VPS.
+  Dépôt initialisé, sauvegarde et restauration d'essai validées.
+- Les avertissements `Unclosed <httpx.AsyncClient>` dans les logs viennent
+  de `pyloxone-api`, sans effet. Des `waitress.queue: Task queue depth`
+  sont apparus au premier affichage des graphiques (base pas encore en
+  cache ?) : à surveiller.
+
+**Reste à faire (prochaine session)** :
+
+1. VPS : `./deploy/backup.sh` une fois à la main (premier envoi restic de
+   la base), puis cron `30 4 * * * /srv/loxone-collector/deploy/backup.sh
+   >> /srv/loxone-collector/backups/backup.log 2>&1`, puis test de
+   restauration (`restic restore`, `gunzip`, `integrity_check`).
+2. UptimeRobot (pas encore de compte) : moniteur Keyword sur `/health`,
+   mot-clé `"ok"`, 5 min, alerte e-mail.
+3. Phase G : README (section Production), `docs/commandes.md`, plan
+   marqué fait.
+4. Optionnel : ping healthchecks.io en fin de sauvegarde
+   (`BACKUP_PING_URL`, déjà prévu dans `backup.sh`).
+
+## Renommage d'Arlopy et d'Horizon, décomptes sept.-oct. — 2026-11-02
+
+Arlopy et Horizon ont été renommés dans Loxone Config (convention de La
+Calbasse). Décomptes de septembre et octobre produits en local (Statistics
+jusqu'au 02.11) : `docs/decomptes-2026-09-10/` (un classeur par site et
+par mois, vue client, prix vides), écarts dans
+`docs/ecarts-decompte-<site>-2026-09-10.md`. Pas de décompte pour Horizon
+(demande de l'utilisateur).
+
+- **Rez_Jardin** (tiret bas) : `DEFAULT_APARTMENT_PATTERN` accepte
+  `Rez[\s_]*Jardin`, `extract_apartment` retire aussi `_`. Sans ça la zone
+  disparaissait du décompte. Rattachée en prod au poll suivant le
+  déploiement.
+- **Chauffage du Commerce d'Arlopy** : seulement `Commerce Chauffage ancien`
+  et `… ancien 2` ; `Commerce Chauffage` (depuis le 27.10) est écarté
+  (`billing/postes.CHAUFFAGE_PAS_ENCORE_RE`) jusqu'à l'abandon des anciens.
+- **Arlopy, recâblage le 21.09.2026 à 2 h** (mise en service de la
+  batterie) : avant, `Compteur Intro` était à l'onduleur (la nuit, −80 %
+  par rapport aux lots) et `Compteur PV` ne mesurait qu'une partie du champ ;
+  depuis, `Compteur Intro` = raccordement du bâtiment et `Compteur PV` =
+  sortie AC de l'onduleur, décharge de la batterie comprise. Bilan
+  d'octobre : −6,9 % par rapport aux lots.
+- **`Solaire & Batterie` d'Arlopy est un calcul de Loxone** (lots − import +
+  export, à 0,01 kWh près chaque heure, 38 kWh la nuit sans soleil ni
+  batterie) : jamais la production. Production d'Arlopy = `Compteur PV`
+  (décision de l'utilisateur).
+- **Batterie d'Arlopy** : `total` = décharge, `totalNeg` = charge ; octobre
+  28,6 kWh de pertes (7,8 %). Batterie côté continu de l'onduleur hybride
+  (elle reçoit plus que ce que sort `Compteur PV` pendant la charge) : ses
+  pertes sont en amont de `Compteur PV`, rien à ajouter.
+- **Écart bâtiment − lots d'Arlopy (91 kWh en octobre, 6,9 %)** : environ
+  24 W permanents la nuit (vraie consommation en amont des lots : veille
+  de l'onduleur, local technique) ; le reste n'apparaît que quand
+  l'onduleur produit (~5 % de `Compteur PV`) : surestimation de ce compteur
+  (son index s'écarte de sa propre puissance, les autres non) ou charge
+  alimentée seulement en production. À vérifier sur place.
+- **Arlopy facturé sur les compteurs des lots** dans les classeurs du
+  02.11 (recalcul RCP), l'écart bâtiment − lots versé aux Communs (réseau et
+  solaire séparément, décision de l'utilisateur : consommation du
+  bâtiment) ; plus sur Réseau + Solaire du Miniserver : ces
+  séries répartissent l'écart sur les zones (+8,8 % en octobre, plus de
+  réseau facturé que d'import mesuré). L'application facture encore ces
+  séries (l'audit ne compare pas leur total aux lots) : à décider.
+- **La Calbasse** : aucun historique avant le 14.10 sur le Miniserver
+  (malgré `activeSince` au 01.10, début du fichier mensuel). Accord avec le
+  client (02.11) : octobre décompté à partir de la pose du compteur de
+  production (14.10 16 h), rien avant ; `Commun` lu depuis son premier
+  relevé (15.10 9 h).
+- **Horizon** : production = `Compteur PV PPE` + `Compteur PV garages`
+  (`billing.PV_CHAMPS_RE`, `historique._production_repli`,
+  `pickProductions` dans `dayBalance.ts`) ; son `Compteur PV` ne servira que
+  plus tard et est écarté de `billing.candidats_production` tant que les
+  deux champs existent.
+- **Aperçu du jour** : `Réseau` vaut `Grid` pour les parts par zone
+  (`GRID_ZONE`) ; La Calbasse est écartée comme Sequoia de `usesZoneSplit`
+  (ses `APPxx Réseau / Solaire` sont faux).
+- **La Calbasse, chauffage en Wh** malgré l'unité `kWhth` (APP37 +401 000 en
+  17 jours) : divisé par 1 000 dans les classeurs de ce jour seulement ;
+  l'application affiche encore 1 000 fois trop. À corriger dans Loxone
+  Config.
+- Méthodes ponctuelles des classeurs (pas dans l'application) : Arlopy
+  septembre = compteur du lot × proportion des séries du Miniserver du 01.09
+  au 21.09 2 h, puis recalcul RCP ; comparabilité d'Arlopy jugée depuis
+  le recâblage. La Calbasse octobre = du 14.10 16 h au 31.10. La page
+  `/decompte` ne fait pas ces découpages (voir les fichiers d'écarts).
+- **Sequoia** : le recalcul RCP heure par heure n'attribue pas aux lots le
+  solaire stocké dans la batterie (405 kWh en septembre, 492 en octobre).
+  `Production Solaire` a de nouveau des Statistics jusqu'au 02.11 (3 %
+  d'écart avec `Solaire` en octobre). À décider.
+
 ## Prochaine étape prévue
 
-Le décompte RCP est branché, La Calbasse comprise (2026-10-27).
-Prochain point concret : suivre le renommage des autres sites dans
-Loxone Config (Horizon est revenu le 2026-10-28).
-En attente : installation physique de la PAC de La Calbasse, puis la liaison de
-compteurs dans l'interface (backlog). La suite du
-backlog, seulement si on la relance : compteurs de chauffage figés (hors périmètre électrique), ou le
-déploiement (Caddy, fallback SPA). Relancer `app.py` pour que l'API serve
-ce calcul (`use_reloader=False`).
+Finir le déploiement (liste ci-dessus). Ensuite, la liste numérotée de
+l'utilisateur : renommage des sites dans Loxone Config (point 12),
+installateur (point 11), PAC de La Calbasse (point 8), liaison de
+compteurs (point 1).
 
 ## Commandes utiles
 
@@ -1645,9 +1758,14 @@ python3 scripts/check_statistics.py config.yaml MS-Arlopi
 python3 scripts/backfill_statistics.py config.yaml MS-Arlopi --dry-run
 python3 scripts/backfill_statistics.py config.yaml MS-Arlopi --since 2026-09-24
 
-# Lancer le backend (API JSON seule, prod ou config alternative)
-python3 app.py                     # config.yaml
+# Lancer le backend sur le Mac : démo seulement. La prod tourne sur le VPS,
+# jamais `python3 app.py config.yaml` ici (deux collecteurs).
 python3 app.py config.demo.yaml    # API de démo, données synthétiques
+
+# Sur le VPS (ssh ubuntu@179.237.66.11), depuis /srv/loxone-collector :
+#   git pull && docker compose up -d --build     # mise à jour
+#   docker compose logs -f api                   # polls, synchro Statistics
+#   docker compose exec api python scripts/backfill_statistics.py config.yaml <site> --since <jour>
 
 # Démo / test sans Loxone réel
 python3 scripts/seed_demo_data.py config.demo.yaml && python3 app.py config.demo.yaml
