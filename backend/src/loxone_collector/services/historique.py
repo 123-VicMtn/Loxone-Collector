@@ -26,15 +26,11 @@ qu'un axe vide) :
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from loxone_collector.services import billing
-
-# Production d'un site que `billing` ne reconnaît pas : « Compteur PV
-# Production » d'Horizon (le même que l'aperçu du jour, dayBalance.ts).
-PRODUCTION_REPLI_RE = re.compile(r"(?i)\bpv production \(total\)$")
+from loxone_collector.services.billing.compteurs import PV_CHAMPS_RE
 
 # Un mois dont les relevés s'arrêtent plus d'un jour avant sa fin (ou avant
 # maintenant) est signalé comme incomplet (Horizon, muet depuis le 16.10.2026).
@@ -112,18 +108,29 @@ def _zone_mesuree(entree: dict) -> bool:
 
 
 def _production_repli(conn, series: list[dict], p: dict, now_ts: int) -> float | None:
-    src = next((s for s in billing.series_total(series)
-                if not s.get("apartment") and PRODUCTION_REPLI_RE.search(s.get("label", ""))), None)
-    if not src:
+    """Production d'un site dont `billing` n'a pas de compteur unique :
+    somme des champs d'Horizon (« Compteur PV PPE » + « Compteur PV
+    garages », le même que l'aperçu du jour, dayBalance.ts). Rien si l'un
+    des deux manque : jamais une production trop basse en silence."""
+    sources = [s for s in billing.series_total(series)
+               if not s.get("apartment") and PV_CHAMPS_RE.search(s.get("label", ""))]
+    if not sources:
         return None
-    # Statistics d'abord, sinon les relevés du collecteur (les Statistics
-    # d'un compteur hors décompte ne sont pas importées).
-    for statistics in (True, False):
-        lecture = billing.reading_delta(conn, src["series_id"], p["start"], p["end"], now_ts,
-                                        statistics=statistics)
-        if lecture["kwh"] is not None:
-            return lecture["kwh"]
-    return None
+    total = 0.0
+    for src in sources:
+        kwh = None
+        # Statistics d'abord, sinon les relevés du collecteur (les Statistics
+        # d'un compteur hors décompte ne sont pas importées).
+        for statistics in (True, False):
+            lecture = billing.reading_delta(conn, src["series_id"], p["start"], p["end"], now_ts,
+                                            statistics=statistics)
+            if lecture["kwh"] is not None:
+                kwh = lecture["kwh"]
+                break
+        if kwh is None:
+            return None
+        total += kwh
+    return total
 
 
 def _derniers_mois(now_ts: int, tz_name: str) -> list[dict]:

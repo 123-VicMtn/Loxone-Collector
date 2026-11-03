@@ -87,3 +87,32 @@ def test_site_sans_part_reseau_solaire(app_test, client_user):
 
 def test_historique_site_non_accorde_403(client_user):
     assert client_user.get(f"/api/historique?miniserver={ref.AUTRE}").status_code == 403
+
+
+def test_production_d_horizon_somme_des_deux_champs():
+    """Horizon : production = « Compteur PV PPE » + « Compteur PV garages »,
+    son « Compteur PV » n'entre pas ; rien si un champ manque."""
+    import sqlite3
+
+    from loxone_collector.services import billing, historique
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(db.SCHEMA)
+    start, end = billing.period_bounds(2026, 10)
+    conn.executemany(
+        "INSERT INTO statistic_samples (series_id, ts, value) VALUES (?, ?, ?)",
+        [("ppe", start - 900, 100.0), ("ppe", end - 900, 160.0),
+         ("gar", start - 900, 10.0), ("gar", end - 900, 25.0),
+         ("pv", start - 900, 0.0), ("pv", end - 900, 999.0)],
+    )
+    series = [
+        {"series_id": sid, "label": label, "state_name": "total", "apartment": ""}
+        for sid, label in (("ppe", "Compteur PV PPE (total)"),
+                           ("gar", "Compteur PV garages (total)"),
+                           ("pv", "Compteur PV (total)"))
+    ]
+    p = {"start": start, "end": end}
+    assert historique._production_repli(conn, series, p, end + 86400) == 75.0
+    conn.execute("DELETE FROM statistic_samples WHERE series_id = 'gar'")
+    assert historique._production_repli(conn, series, p, end + 86400) is None
+    conn.close()
