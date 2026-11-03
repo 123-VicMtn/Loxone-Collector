@@ -28,8 +28,8 @@ export function kwhCovering(delta: ReadingDelta | null, from: number, to: number
  *   solaire des zones : l'ajouter à part doublerait le compte)
  *
  * Le solaire sur place n'est pas le même compteur selon le site :
- * - zones Grid + Solaire (Arlopi) : somme des index « Solaire » / « Sol »
- * - pas de split par zone (Horizon, Sequoia) : production − export,
+ * - zones Réseau (ou Grid) + Solaire (Arlopy) : somme des index « Solaire » / « Sol »
+ * - pas de split par zone (Horizon, Sequoia, La Calbasse) : production − export,
  *   seulement si l'export ne dépasse pas la production
  */
 export interface DayBalance {
@@ -42,17 +42,27 @@ export interface DayBalance {
 }
 
 const SOLAR_ZONE = /solaire|\bsol\b/i
-const GRID_ZONE = /\bgrid\b/i
+// « Grid » : anciens noms d'Arlopi ; « Réseau » : depuis son renommage
+// (convention de La Calbasse, 2026-11).
+const GRID_ZONE = /\bgrid\b|r[ée]seau/i
 // « Compteur PV » : La Calbasse (51,7 kWh le 26.10.2026, comme sur place).
-const PRODUCTION = /^(production\b|.*pv production|compteur pv \(total\)$)/i
-export function pickProduction(series: Series[]): Series | null {
+const PRODUCTION = /^(production\b|compteur pv \(total\)$)/i
+// Horizon : la production est la somme des deux champs. Son « Compteur PV »
+// ne servira que plus tard (utilisateur, 2026-11-02).
+const PV_CHAMPS = /^compteur pv (ppe|garages) \(total\)$/i
+
+/** Compteurs dont la somme est la production du bâtiment. */
+export function pickProductions(series: Series[]): Series[] {
   const totals = series.filter((s) => !s.apartment && s.state_name === 'total')
   // À Sequoia, « Production Solaire » est figé. Le compteur qui avance
   // s'appelle « Solaire » (11,5 kWh le 25.09.2026). « Solaire & Batterie »
-  // (Arlopi) ne doit pas prendre sa place.
+  // d'Arlopy est un calcul de Loxone, pas la production : « Compteur PV ».
   const solaire = totals.find((s) => /^solaire \(total\)$/i.test(s.label))
-  if (solaire) return solaire
-  return totals.find((s) => PRODUCTION.test(s.label)) || null
+  if (solaire) return [solaire]
+  const champs = totals.filter((s) => PV_CHAMPS.test(s.label))
+  if (champs.length) return champs
+  const production = totals.find((s) => PRODUCTION.test(s.label))
+  return production ? [production] : []
 }
 
 export function pickExport(series: Series[]): Series | null {
@@ -182,6 +192,8 @@ export function stackPower(
 
 export function usesZoneSplit(series: Series[]): boolean {
   const site = series[0]?.miniserver || ''
-  if (/sequoia/i.test(site)) return false
+  // Sequoia et La Calbasse : les parts réseau / solaire des lots calculées
+  // par le Miniserver sont fausses (voir CLAUDE.md).
+  if (/sequoia|calbasse/i.test(site)) return false
   return zoneSolarSeries(series).length > 0 && zoneGridSeries(series).length > 0
 }

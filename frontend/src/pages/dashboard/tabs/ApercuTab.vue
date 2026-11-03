@@ -22,7 +22,7 @@ import {
   kwhCovering,
   lotConsumptionSeries,
   pickExport,
-  pickProduction,
+  pickProductions,
   stackPower,
   usesZoneSplit,
   zoneGridSeries,
@@ -145,8 +145,8 @@ async function refresh() {
   const [from, to] = todayBounds()
   axisFrom.value = from
   axisTo.value = to
-  const productionSeries = pickProduction(series)
-  const solarActual = actualsOf(series, productionSeries ? [productionSeries] : [])
+  const productionSeries = pickProductions(series)
+  const solarActual = actualsOf(series, productionSeries)
   const consumerActual = actualsOf(series, buildingConsumerSeries(series))
   const seriesIds = [...solarActual, ...consumerActual].map((s) => s.series_id)
   powerLoading.value = true
@@ -158,9 +158,7 @@ async function refresh() {
     ? fetchMiniserverPower(site.value, seriesIds, from, to)
     : Promise.resolve(emptyPower)
 
-  const production = productionSeries
-    ? await coveredKwh(fetchRange(productionSeries.series_id, from, to), from, to)
-    : null
+  const production = await sumCovered(productionSeries, from, to)
 
   let solarOnSite: number | null
   let consumption: number | null
