@@ -204,7 +204,18 @@ def solar_fraction(conn, batiment: dict, start_ts: int, end_ts: int,
             "injection": tot_inj, "import_reseau": tot_imp}
 
 
-def split_zone(conn, conso_series_id: str, frac: dict, start_ts: int, end_ts: int,
+def deltas_compteur(conn, src: dict, start_ts: int, end_ts: int,
+                    statistics: bool = False) -> dict[int, float]:
+    """`hourly_deltas` d'un compteur de zone, moins son sous-compteur
+    `src["moins"]` s'il en a un (billing.compteurs.PAC_DANS_COMMUNS_RE)."""
+    d = hourly_deltas(conn, src["series_id"], start_ts, end_ts, statistics)
+    if src.get("moins"):
+        m = hourly_deltas(conn, src["moins"]["series_id"], start_ts, end_ts, statistics)
+        d = {h: v - m.get(h, 0.0) for h, v in d.items()}
+    return d
+
+
+def split_zone(conn, conso: str | dict, frac: dict, start_ts: int, end_ts: int,
                statistics: bool = False) -> dict:
     """Scinde la consommation mesurée d'une zone en part réseau et part
     solaire, heure par heure, selon la part solaire du bâtiment.
@@ -214,7 +225,9 @@ def split_zone(conn, conso_series_id: str, frac: dict, start_ts: int, end_ts: in
     heures) : elle n'est PAS silencieusement versée au réseau, elle est
     remontée à part pour que l'appelant décide quoi en faire.
     """
-    conso = hourly_deltas(conn, conso_series_id, start_ts, end_ts, statistics)
+    if isinstance(conso, str):
+        conso = {"series_id": conso}
+    conso = deltas_compteur(conn, conso, start_ts, end_ts, statistics)
     total = reseau = solaire = non_reparti = 0.0
     heures_sans_part = 0
     for h, kwh in conso.items():
@@ -253,7 +266,7 @@ def qualite_bilan(conn, zones: list[dict], batiment: dict, frac_info: dict,
         src = z["sources"].get("controle")
         if not src:
             continue
-        d = hourly_deltas(conn, src["series_id"], start_ts, end_ts, statistics)
+        d = deltas_compteur(conn, src, start_ts, end_ts, statistics)
         conso_zones += sum(d.values())
 
     conso_batiment = (frac_info.get("import_reseau", 0.0)
@@ -336,7 +349,7 @@ def audit_series_loxone(conn, zones: list[dict], batiment: dict,
     grids, solaires, controles = [], [], []
     for z in zones:
         if z["sources"].get("controle"):
-            controles.append(hourly_deltas(conn, z["sources"]["controle"]["series_id"], start_ts, end_ts, statistics))
+            controles.append(deltas_compteur(conn, z["sources"]["controle"], start_ts, end_ts, statistics))
         if z["sources"].get("reseau"):
             grids.append(hourly_deltas(conn, z["sources"]["reseau"]["series_id"], start_ts, end_ts, statistics))
         if z["sources"].get("solaire"):

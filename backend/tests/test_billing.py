@@ -282,11 +282,30 @@ class TestResolutionDesSeries(unittest.TestCase):
         self.assertEqual(pac["sources"]["reseau"]["series_id"], "pr")
         self.assertEqual(pac["sources"]["solaire"]["series_id"], "ps")
 
-    def test_pac_deja_mesuree_de_sequoia_reste_hors_zone(self):
-        # Comprise dans le compteur des Communs : en faire une zone la
-        # compterait deux fois.
-        series = [s("pac", "PAC déjà mesuré (total)", "energie_consommee", "")]
-        self.assertEqual(billing.resolve_zones(series), [])
+    def test_pac_deja_mesuree_de_sequoia_deduite_des_communs(self):
+        # Étape 6 (décision B) : la PAC de Sequoia est une ligne, déduite des
+        # Communs ; « Communs sans PAC » (même chiffre, depuis le 16.10.2026
+        # seulement) n'est pas lu.
+        series = [
+            s("pac", "PAC déjà mesuré (total)", "energie_consommee", ""),
+            s("com", "Communs (total)", "energie_consommee", "COMMUN"),
+            s("sp", "Communs sans PAC (total)", "energie_consommee", "COMMUN"),
+        ]
+        zones = {z["zone"]: z for z in billing.resolve_zones(series)}
+        self.assertEqual(sorted(zones), ["COMMUN", "PAC"])
+        self.assertEqual(zones["PAC"]["sources"]["controle"]["series_id"], "pac")
+        commun = zones["COMMUN"]["sources"]["controle"]
+        self.assertEqual((commun["series_id"], commun["moins"]["series_id"]), ("com", "pac"))
+        self.assertEqual(zones["COMMUN"]["ambigus"]["controle"], [])
+        self.assertNotIn("moins", zones["PAC"]["sources"]["controle"])
+
+    def test_pac_de_la_calbasse_pas_deduite(self):
+        series = [
+            s("pac", "PAC (total)", "energie_consommee", ""),
+            s("com", "Commun (total)", "energie_consommee", "COMMUN"),
+        ]
+        zones = {z["zone"]: z for z in billing.resolve_zones(series)}
+        self.assertNotIn("moins", zones["COMMUN"]["sources"]["controle"])
 
 
 class TestTaux(unittest.TestCase):
@@ -740,6 +759,40 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
         self.assertEqual(e["reseau"]["kwh"] + e["solaire"]["kwh"], e["total"])
         self.assertTrue(e["facturable"])
         self.assertEqual(e["reseau"]["alertes"], [])
+
+    def test_pac_de_sequoia_ligne_a_part_et_deduite_des_communs(self):
+        # Bâtiment : 8 puis 9 kWh. Lot 3 + 4, Communs 5 + 5 dont PAC 3 + 3.
+        t0 = ts(2026, 1, 1)
+        h = lambda a, b: [(t0, 0.0), (t0 + 3600, a), (t0 + 7200, a + b)]  # noqa: E731
+        self.index("prod", h(10.0, 6.0))
+        self.index("imp", h(0.0, 4.0))
+        self.index("exp", h(2.0, 1.0))
+        self.index("lot", h(3.0, 4.0))
+        self.index("grid", h(2.0, 1.0))  # achat sans import : séries condamnées
+        self.index("sol", h(0.0, 3.0))
+        self.index("com", h(5.0, 5.0))
+        self.index("pac", h(3.0, 3.0))
+        series = [
+            s("prod", "Solaire (total)", "energie_solaire", ""),
+            s("imp", "Réseau (total)", "energie_reseau", ""),
+            s("exp", "Réseau (totalNeg)", "energie_reseau", "", state_name="totalNeg"),
+            s("lot", "Appartement 1 (total)", "energie_consommee", "APP1"),
+            s("grid", "App 1 Grid (total)", "energie_reseau", "APP1"),
+            s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
+            s("com", "Communs (total)", "energie_consommee", "COMMUN"),
+            s("pac", "PAC déjà mesuré (total)", "energie_consommee", ""),
+        ]
+        payload = billing.compute_decompte(
+            self.conn, series, billing.periods_covering(t0, t0 + 7200), ts(2026, 6, 1),
+        )
+        self.assertEqual(payload["repartition"]["2026-01"]["source"], "calculee")
+        e = {z["zone"]: z["periodes"]["2026-01"] for z in payload["zones"]}
+        self.assertEqual((e["APP1"]["total"], e["COMMUN"]["total"], e["PAC"]["total"]), (7.0, 4.0, 6.0))
+        for z in e.values():
+            self.assertTrue(z["facturable"])
+            self.assertAlmostEqual(z["reseau"]["kwh"] + z["solaire"]["kwh"], z["total"])
+        # Bilan : les zones (PAC comprise une seule fois) bouclent sur le bâtiment.
+        self.assertAlmostEqual(sum(z["total"] for z in e.values()), 17.0)
 
     def test_bilan_non_exploitable_garde_les_series_du_miniserver(self):
         # Le compteur réseau du bâtiment ne mesure pas la même chose que

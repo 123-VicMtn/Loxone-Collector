@@ -258,7 +258,19 @@ def _lecture_zone(conn, src: dict, p: dict, now_ts: int) -> dict:
                 "alertes": [],
             }
         start = max(start, WALLBOX_VALID_FROM)
-    return reading_delta(conn, src["series_id"], start, p["end"], now_ts, statistics=True)
+    r = reading_delta(conn, src["series_id"], start, p["end"], now_ts, statistics=True)
+    if not src.get("moins"):
+        return r
+    # Sous-compteur à déduire (« PAC déjà mesuré » des Communs de Sequoia,
+    # compteurs.PAC_DANS_COMMUNS_RE) : les index restent ceux du compteur.
+    m = reading_delta(conn, src["moins"]["series_id"], start, p["end"], now_ts, statistics=True)
+    alertes = [*r["alertes"], *(f"{src['moins']['label']} : {a}" for a in m["alertes"])]
+    if r["kwh"] is None or m["kwh"] is None:
+        kwh = None
+    else:
+        kwh = r["kwh"] - m["kwh"]
+        alertes.append(f"{src['moins']['label']} déduit ({m['kwh']:.2f} kWh, ligne PAC)")
+    return {**r, "kwh": kwh, "alertes": alertes}
 
 
 def _zone_period(conn, zone: dict, p: dict, now_ts: int) -> dict:
@@ -393,7 +405,7 @@ def _zone_period_calculee(conn, zone: dict, p: dict, now_ts: int, evaluation: di
         for a in controle["alertes"]:
             alertes.append(f"compteur : {a}")
         split = repartition.split_zone(
-            conn, src["controle"]["series_id"],
+            conn, src["controle"],
             evaluation["fraction"]["fraction"], p["start"], p["end"],
             statistics=True,
         )

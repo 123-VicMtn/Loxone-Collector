@@ -681,6 +681,22 @@ Avancement :
   globale héritée, location « Aucune », suppression, frais, mobile
   390 px sans débordement) ; `data/demo.db` restaurée ensuite. La démo
   n'a pas de Statistics : son décompte n'exporte rien (limite ancienne).
+- Étape 6 (fait, 2026-11-24) : **Sequoia**, décision B du plan
+  (§ 3.5 bis) : `PAC déjà mesuré` devient la zone `PAC`
+  (`compteurs.PAC_DANS_COMMUNS_RE`) et il est **déduit des Communs**
+  (`sources["controle"]["moins"]`, lu par `decompte._lecture_zone` et
+  par `repartition.deltas_compteur` : bilan, audit, `split_zone`). Index
+  affichés = ceux du compteur `Communs`, une alerte donne les kWh déduits.
+  `Communs sans PAC` n'est pas lu (`COMMUNS_SANS_PAC_RE`) : il vaut
+  exactement `Communs` − `PAC déjà mesuré` (écart 0,00 kWh vérifié du
+  17.10 au 02.11) mais n'existe que depuis le 16.10.2026. Janv.-mai 2026
+  (copie de la base) : PAC 8 100,60 kWh, Communs 10 950,91 (19 051,51
+  avant), somme des 25 zones inchangée. Limite : en répartition
+  « mesures du Miniserver » (jamais le cas de Sequoia aujourd'hui), la
+  PAC n'aurait ni réseau ni solaire. Wallbox (§ 3.4 bis) : `Wallbox
+  Energizähler` toujours à 0, le double comptage éventuel avec les lots
+  reste invérifiable. Arlopy, Horizon : pas de PAC, message existant
+  (« Pas de compteur de PAC »).
 
 ### Fonctionnalité demandée pour plus tard : liaison de compteurs
 
@@ -1526,8 +1542,9 @@ tuile Consommation (« relevés incomplets »).
   d'ambiguïté des Communs de Sequoia disparaît) ; aperçu de Sequoia du
   2026-10-28 : consommation 101,1 kWh au lieu de « — ».
 - **Reste à faire par l'utilisateur dans Loxone Config** : poser la
-  catégorie (Sequoia : `Communs sans PAC`, `PAC déjà mesuré`, `Boiler ecs
-  mesuré aussi ?`, `M1`-`M6 Zähler`). Ensuite seulement, retirer du code les
+  catégorie (Sequoia : `Communs sans PAC`, `Boiler ecs mesuré aussi ?`,
+  `M1`-`M6 Zähler`). **Pas `PAC déjà mesuré`** : depuis l'étape 6 de la
+  page Paramètres (2026-11-24), c'est la ligne PAC de Sequoia. Ensuite seulement, retirer du code les
   règles de nom devenues inutiles (`déjà mesuré`, `mesuré aussi`, `zähler`
   dans `dayBalance.ts`).
 - **Compteurs supprimés de Loxone Config** (fait le même jour) :

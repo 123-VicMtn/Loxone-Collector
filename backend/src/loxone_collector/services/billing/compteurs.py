@@ -54,8 +54,24 @@ BATIMENT_RESEAU_RE = re.compile(r"(?i)^(r[ée]seau|compteur intro)\b")
 # Communs, avec ses parts réseau / solaire. Elle devient une ligne du
 # décompte, comme les Communs, sinon ses kWh ne sont facturés nulle part et
 # le bilan ne boucle pas. « PAC déjà mesuré » de Sequoia, compris dans les
-# Communs, n'est pas concerné.
+# Communs, a sa propre règle (PAC_DANS_COMMUNS_RE).
 PAC_BATIMENT_RE = re.compile(r"(?i)^pac( r[ée]seau| solaire)? \(total\)$")
+
+
+# Sequoia (étape 6 de la page Paramètres, décision B de l'utilisateur du
+# 2026-11-24) : « PAC déjà mesuré » est un sous-compteur de « Communs ».
+# Il devient la ligne PAC (son coût est celui de la chaleur) et il est
+# déduit des Communs : Communs = « Communs » − « PAC déjà mesuré ».
+# « Communs sans PAC » (Loxone, depuis le 16.10.2026) donne exactement le
+# même chiffre (écart 0,00 kWh vérifié) mais ne couvre pas les mois
+# d'avant : il n'est pas lu.
+PAC_DANS_COMMUNS_RE = re.compile(r"(?i)^pac d[ée]j[àa] mesur[ée] \(total\)$")
+
+
+COMMUNS_SANS_PAC_RE = re.compile(r"(?i)\bcommuns? sans pac\b")
+
+
+ZONE_COMMUN = "COMMUN"
 
 
 ZONE_PAC = "PAC"
@@ -123,11 +139,16 @@ def resolve_zones(series: list[dict]) -> list[dict]:
     le dos de l'utilisateur.
     """
     zones: dict[str, list[dict]] = {}
+    pac_dans_communs = None
     for s in series_total(series):
         apt = (s.get("apartment") or "").strip()
-        if not apt and PAC_BATIMENT_RE.match(s.get("label", "")):
+        label = s.get("label", "")
+        if not apt and PAC_DANS_COMMUNS_RE.match(label):
+            pac_dans_communs = s
             apt = ZONE_PAC
-        if not apt:
+        elif not apt and PAC_BATIMENT_RE.match(label):
+            apt = ZONE_PAC
+        if not apt or COMMUNS_SANS_PAC_RE.search(label):
             continue
         zones.setdefault(apt, []).append(s)
 
@@ -165,6 +186,10 @@ def resolve_zones(series: list[dict]) -> list[dict]:
                 "controle": [s["label"] for s in controle_c if controle and s["series_id"] != controle["series_id"]],
             },
         })
+    if pac_dans_communs is not None:
+        for z in out:
+            if z["zone"].upper() == ZONE_COMMUN and z["sources"]["controle"]:
+                z["sources"]["controle"]["moins"] = source_ref(pac_dans_communs)
     return out
 
 
