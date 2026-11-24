@@ -282,30 +282,6 @@ class TestResolutionDesSeries(unittest.TestCase):
         self.assertEqual(pac["sources"]["reseau"]["series_id"], "pr")
         self.assertEqual(pac["sources"]["solaire"]["series_id"], "ps")
 
-    def test_pac_affichee_sous_reserve(self):
-        # Sous-compteur des Communs ou non : à confirmer sur place
-        # (utilisateur, 2026-10-27). La réserve suit le payload et le classeur.
-        conn = sqlite3.connect(":memory:")
-        conn.executescript(db.SCHEMA)
-        series = [
-            s("pac", "PAC (total)", "energie_consommee", ""),
-            s("c", "Commun (total)", "energie_consommee", "COMMUN"),
-        ]
-        payload = billing.compute_decompte(conn, series, [], ts(2026, 10, 27))
-        conn.close()
-        self.assertEqual(payload["reserves"], [billing.RESERVES_ZONES["PAC"]])
-        notes = [texte for texte, _ in decompte_xlsx._notes_classeur(payload, "2026-10", [])]
-        self.assertIn("Sous réserve", notes)
-        self.assertIn(billing.RESERVES_ZONES["PAC"], notes)
-
-    def test_pas_de_reserve_sans_pac(self):
-        conn = sqlite3.connect(":memory:")
-        conn.executescript(db.SCHEMA)
-        series = [s("c", "Commun (total)", "energie_consommee", "COMMUN")]
-        payload = billing.compute_decompte(conn, series, [], ts(2026, 10, 27))
-        conn.close()
-        self.assertEqual(payload["reserves"], [])
-
     def test_pac_deja_mesuree_de_sequoia_reste_hors_zone(self):
         # Comprise dans le compteur des Communs : en faire une zone la
         # compterait deux fois.
@@ -968,6 +944,36 @@ class TestPostes(unittest.TestCase):
         self.assertAlmostEqual(b["energie"]["kwh"], 4.5)
         self.assertAlmostEqual(b["cycles"]["kwh"], 3.0)
         self.assertIsNone(r["buanderie_depuis"])
+
+    def test_chauffage_de_la_calbasse_en_wh_jusqu_au_20_novembre(self):
+        # Dette technique (postes.CHAUFFAGE_EN_WH_JUSQU_AU) : index en Wh
+        # jusqu'à l'enregistrement du 20.11.2026, puis remise à zéro en kWh.
+        from loxone_collector.services.billing import postes as postes_mod
+        bascule = postes_mod.CHAUFFAGE_EN_WH_JUSQU_AU["La Calbasse"]
+        cal = "La Calbasse:app35:total"
+        series = [s(cal, "APP35 Chauffage (total)", "energie_consommee", "APP35")]
+        start, end = billing.period_bounds(2026, 11)
+        self.index(cal, [(start - 600, 236000.0), (bascule - 800, 418000.0),
+                         (bascule, 0.0), (end - 600, 87.0)])
+        lire = lambda a, b: billing.compute_postes(  # noqa: E731
+            self.conn, billing.resolve_postes(series), {"key": "x", "start": a, "end": b}, end + 86400,
+        )["chauffage"][0]
+        nov = lire(start, end)
+        self.assertAlmostEqual(nov["kwh"], 182.0 + 87.0)
+        self.assertEqual((nov["releve_debut"], nov["releve_fin"]), (236.0, 87.0))
+        self.assertNotIn("ruptures", nov)
+        self.assertTrue(any("divisés par 1 000" in a for a in nov["alertes"]))
+        self.assertAlmostEqual(lire(start, bascule - 1)["kwh"], 182.0)  # avant : en kWh aussi
+        self.assertAlmostEqual(lire(bascule, end)["kwh"], 87.0)
+
+    def test_chauffage_des_autres_sites_inchange(self):
+        start, end = billing.period_bounds(2026, 11)
+        self.index("ch", [(start - 600, 236000.0), (end - 600, 236500.0)])
+        r = billing.compute_postes(
+            self.conn, billing.resolve_postes(self.SERIES),
+            {"key": "x", "start": start, "end": end}, end + 86400,
+        )
+        self.assertAlmostEqual(next(x for x in r["chauffage"] if x["zone"] == "APP01")["kwh"], 500.0)
 
     def test_buanderie_comptee_depuis_sa_mise_en_service(self):
         start, end = billing.period_bounds(2026, 7)

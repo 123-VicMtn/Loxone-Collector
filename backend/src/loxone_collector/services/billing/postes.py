@@ -59,6 +59,17 @@ ZONES_FANTOMES = {"APP100"}
 BUANDERIE_VALID_FROM = int(datetime(2026, 7, 17, tzinfo=ZoneInfo(TIMEZONE)).timestamp())
 
 
+# DETTE TECHNIQUE, à retirer une fois le décompte de novembre 2026 de
+# La Calbasse terminé : jusqu'à l'enregistrement de la configuration Loxone
+# du 20.11.2026 à 15:13:19, ses compteurs de chaleur comptaient en Wh
+# (malgré l'unité « kWhth ») ; ils sont alors repartis de 0, en kWh.
+# Décision de l'utilisateur (2026-11-24) : les index d'avant sont divisés
+# par 1 000, et la remise à zéro n'est pas une rupture.
+CHAUFFAGE_EN_WH_JUSQU_AU = {
+    "La Calbasse": int(datetime(2026, 11, 20, 15, 13, 19, tzinfo=ZoneInfo(TIMEZONE)).timestamp()),
+}
+
+
 RUPTURE_MIN_DROP_CYCLES = 0.9
 
 
@@ -127,6 +138,19 @@ def compute_postes(conn, postes: list[dict], p: dict, now_ts: int) -> dict:
         return reading_delta(conn, src["series_id"], start, p["end"], now_ts,
                              min_drop=_POSTE_MIN_DROP[role], statistics=True)
 
+    def lire_chauffage(src):
+        site = src["series_id"].split(":", 1)[0]
+        bascule = CHAUFFAGE_EN_WH_JUSQU_AU.get(site)
+        if bascule is None or not p["start"] < bascule < p["end"]:
+            r = lire(src, "chauffage", p["start"])
+            if bascule is not None and p["end"] <= bascule:
+                r = _wh_en_kwh(r)
+            return r
+        avant = _wh_en_kwh(reading_delta(conn, src["series_id"], p["start"], bascule, now_ts,
+                                         min_drop=RUPTURE_MIN_DROP_KWH, statistics=True))
+        apres = lire(src, "chauffage", bascule)
+        return _assembler(avant, apres)
+
     out = {
         "chauffage": [], "eau_chaude": [], "buanderie": [],
         "en_cours": en_cours,
@@ -139,7 +163,8 @@ def compute_postes(conn, postes: list[dict], p: dict, now_ts: int) -> dict:
                 out[role].append({
                     "zone": z["zone"], "label": z["label"],
                     "compteur": src["label"], "series_id": src["series_id"],
-                    "en_cours": en_cours, **lire(src, role, p["start"]),
+                    "en_cours": en_cours,
+                    **(lire_chauffage(src) if role == "chauffage" else lire(src, role, p["start"])),
                 })
         kwh_src = (z["compteurs"]["buanderie"] or [None])[0]
         cycles_src = (z["compteurs"]["buanderie_cycles"] or [None])[0]
@@ -153,4 +178,37 @@ def compute_postes(conn, postes: list[dict], p: dict, now_ts: int) -> dict:
             "energie": lire(kwh_src, "buanderie", buanderie_start) if kwh_src else lecture_absente(),
             "cycles": lire(cycles_src, "buanderie_cycles", buanderie_start) if cycles_src else lecture_absente(),
         })
+    return out
+
+
+def _wh_en_kwh(r: dict) -> dict:
+    """Relevé d'un compteur qui comptait en Wh, ramené en kWh
+    (`CHAUFFAGE_EN_WH_JUSQU_AU`)."""
+    out = dict(r)
+    for cle in ("kwh", "releve_debut", "releve_fin"):
+        if out.get(cle) is not None:
+            out[cle] = out[cle] / 1000
+    out["ruptures"] = [{**x, "avant": x["avant"] / 1000, "apres": x["apres"] / 1000}
+                       for x in r.get("ruptures") or []]
+    return out
+
+
+def _assembler(avant: dict, apres: dict) -> dict:
+    """Consommation de part et d'autre de la remise à zéro du 20.11.2026
+    (`CHAUFFAGE_EN_WH_JUSQU_AU`) : les deux morceaux s'additionnent."""
+    kwh = None if avant["kwh"] is None or apres["kwh"] is None else avant["kwh"] + apres["kwh"]
+    alertes = [*avant["alertes"], *apres["alertes"]]
+    alertes.append("index en Wh jusqu'au 20.11.2026 15:13 (divisés par 1 000), "
+                   "puis compteur remis à zéro en kWh")
+    out = {
+        "kwh": kwh,
+        "releve_debut": avant["releve_debut"],
+        "releve_fin": apres["releve_fin"],
+        "releve_debut_ts": avant["releve_debut_ts"],
+        "releve_fin_ts": apres["releve_fin_ts"],
+        "alertes": alertes,
+    }
+    ruptures = [*(avant.get("ruptures") or []), *(apres.get("ruptures") or [])]
+    if ruptures:
+        out["ruptures"] = ruptures
     return out

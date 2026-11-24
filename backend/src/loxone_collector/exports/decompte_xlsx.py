@@ -275,9 +275,6 @@ def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
             "la période n'est jamais incomplet en silence.",
             "note",
         ))
-    if payload.get("reserves"):
-        notes.append(("Sous réserve", "head"))
-        notes.extend((ligne, "note") for ligne in payload["reserves"])
     notes.append((
         "Une case vide n'est pas un zéro : le relevé manque, et le total "
         "ne compte que les relevés présents.",

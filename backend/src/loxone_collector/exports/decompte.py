@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 
 from loxone_collector.services.billing import (
-    RESERVES_ZONES,
     parse_period_key,
     period_label,
 )
@@ -32,8 +31,6 @@ def restreindre_a_zone(payload: dict, zone: str) -> dict:
     if not garder:
         raise KeyError(zone)
     out = {**payload, "zones": garder, "zone_unique": garder[0]["label"]}
-    out["reserves"] = [RESERVES_ZONES[zone]] if zone in RESERVES_ZONES else []
-    out["reserves_zones"] = [zone] if zone in RESERVES_ZONES else []
     if payload.get("detail"):
         detail = payload["detail"]
         out["detail"] = {**detail, "zones": [z for z in detail["zones"] if z["zone"] == zone]}

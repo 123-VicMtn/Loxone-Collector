@@ -646,6 +646,15 @@ Avancement :
   une seule fois par `db._creer_parametres`. Les sections plus anciennes
   qui citent `/api/tarifs` ou « le seul moyen de saisir les prix » sont
   dépassées : les prix se saisissent dans `parametres`.
+- Analyse du 2026-11-24 contre le tableau du client (Sequoia, janv.-mai
+  2026, prix du tableau ramenés en HT, compteur `Communs` pris comme PAC
+  comme le tableau) : électricité de chaque lot identique à 2 centimes
+  près, mêmes kWh th et m³ ; les écarts de total (7 179,12 contre
+  6 366,37 pour les lots) sont tous expliqués par les corrections
+  décidées et par la part de chaleur des Communs et Salles Communes.
+  **Décision de l'utilisateur (2026-11-24) : les compteurs de chaleur des
+  Salles Communes (et des Communs) prennent aussi leur part du coût de la
+  PAC**, contrairement au tableau (lots seulement) ; c'est déjà le calcul.
 - Étape 5 (fait) : page `/parametres` (`frontend/src/pages/parametres/`),
   lien « Paramètres » dans Outils, ouverte à tout compte (pas
   `adminOnly`). Une carte par thème du catalogue (Électricité et TVA,
@@ -682,6 +691,20 @@ Fait le 2026-10-30 (VPS Docker, Caddy en reverse proxy unique, fallback
 SPA, HTTPS : CORS inutile). Plan : `docs/plan-docker-vps.md`. Reste, voir
 « Déploiement VPS — 2026-10-30 » : première sauvegarde et cron, test de
 restauration, UptimeRobot, phase G (documentation).
+
+### Dette technique : chauffage de La Calbasse en Wh (à retirer)
+
+**À retirer une fois le décompte de novembre 2026 de La Calbasse
+terminé** (décision de l'utilisateur, 2026-11-24) :
+`billing/postes.CHAUFFAGE_EN_WH_JUSQU_AU`, `_wh_en_kwh`, `_assembler`,
+`lire_chauffage` dans `compute_postes`, et les deux tests
+`test_chauffage_de_la_calbasse_en_wh_jusqu_au_20_novembre` /
+`test_chauffage_des_autres_sites_inchange`. Jusqu'au 20.11.2026 15:13:19,
+les compteurs de chaleur de La Calbasse comptaient en Wh ; ils sont alors
+repartis de 0, en kWh. Ce code divise les index d'avant par 1 000 et
+additionne les deux morceaux au lieu d'y voir une rupture. Une fois
+retiré, une période qui chevauche le 20.11 redevient « rupture de
+compteur » (c'est voulu : plus personne ne la décomptera).
 
 ### Dette technique (structure du code -- pas avant que l'utilisateur ne le redemande)
 
@@ -1878,8 +1901,19 @@ Reste à faire / à vérifier :
   ambigu ») ; rejeu de la RCP contre les nouvelles séries après 24 h ;
   date de validité du chauffage de La Calbasse (comme
   `BUANDERIE_VALID_FROM`) à l'heure de l'enregistrement.
-- Décisions en attente : retirer ou reformuler la note « Sous réserve »
-  de la PAC (`RESERVES_ZONES`) ; refaire le décompte du 01-10.11 avec la
+- **Enregistrement de la config : le 20.11.2026 à 15:13:19** (trouvé
+  dans les Statistics le 2026-11-24) : tous les compteurs de chaleur
+  repartent de 0, en kWh (avant : Wh). Pris en compte par
+  `CHAUFFAGE_EN_WH_JUSQU_AU` (dette technique, voir le backlog).
+- Relevé dans les données le 2026-11-24 : **APP43 Chauffage reste à 0
+  depuis le 20.11** ; APP48 a un nouveau compteur (nouvel UUID, Statistics
+  depuis le 20.11 14:58, rien avant) et l'ancien s'arrête le 10.11 ;
+  APP36 (+111 kWh th) et APP41 (+366 kWh th, index depuis la pose) sautent
+  le 10.11 à 9 h 30 (correction des registres). Novembre ne se répartit
+  pas tant qu'APP48 n'a pas de relevé au 01.11.
+- La note « Sous réserve » de la PAC (`RESERVES_ZONES`, `reserves`) est
+  retirée le 2026-11-24 (démentie par les mesures du 10.11). Décisions
+  en attente : refaire le décompte du 01-10.11 avec la
   règle exacte du PicoC (résiduel en réseau des Communs) ; relevé physique
   du chauffage d'APP48.
 

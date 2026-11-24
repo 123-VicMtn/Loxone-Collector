@@ -124,13 +124,7 @@ watch(zonesDisponibles, (zones) => {
 const affiche = computed<DecomptePayload | null>(() => {
   const p = vuePayload.value
   if (!p || !zoneChoisie.value) return p
-  const zones = p.reserves_zones ?? []
-  return {
-    ...p,
-    zones: p.zones.filter((z) => z.zone === zoneChoisie.value),
-    reserves: p.reserves.filter((_, i) => zones[i] === zoneChoisie.value),
-    reserves_zones: zones.filter((z) => z === zoneChoisie.value),
-  }
+  return { ...p, zones: p.zones.filter((z) => z.zone === zoneChoisie.value) }
 })
 
 const dateMin = computed(() => {
@@ -499,13 +493,6 @@ watch(siteActif, (name) => {
             <li v-for="(raison, i) in repartitionMois.raisons" :key="i">{{ raison }}</li>
           </ul>
         </template>
-        <div
-          v-if="affiche.reserves?.length"
-          class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
-        >
-          <p class="font-semibold">Sous réserve</p>
-          <p v-for="(reserve, i) in affiche.reserves" :key="i" class="mt-1">{{ reserve }}</p>
-        </div>
       </Card>
 
     </template>

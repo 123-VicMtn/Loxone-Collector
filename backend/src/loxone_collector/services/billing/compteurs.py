@@ -61,22 +61,6 @@ PAC_BATIMENT_RE = re.compile(r"(?i)^pac( r[ée]seau| solaire)? \(total\)$")
 ZONE_PAC = "PAC"
 
 
-# Réserves affichées sous le décompte (page et classeur) quand une zone
-# repose sur un compteur dont la place dans l'installation reste à
-# confirmer. La PAC de La Calbasse serait un sous-compteur du Commun
-# (utilisateur, 2026-10-27), alors que les données disent le contraire
-# (octobre 2026 : PAC 1 328 kWh, Commun 171 kWh ; bilan à +2,6 % avec la
-# PAC comptée à part). Elle reste une ligne à part, sous réserve.
-RESERVES_ZONES = {
-    ZONE_PAC: (
-        "PAC : sa consommation est une ligne à part, en plus des Communs. "
-        "Ces chiffres sont sous réserve de l'installation physique : si le "
-        "compteur de la PAC est un sous-compteur des Communs, ses kWh sont "
-        "déjà dans ceux des Communs et le total les compte deux fois."
-    ),
-}
-
-
 # À Sequoia, « Production Solaire » s'arrête le 2026-09-09. Le compteur
 # qui avance ensuite s'appelle exactement « Solaire (total) » (depuis le
 # 2026-09-24, index différent : ce n'est pas la suite du précédent).

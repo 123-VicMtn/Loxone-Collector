@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 
 from loxone_collector.services import repartition
 from loxone_collector.services.billing.compteurs import (
-    RESERVES_ZONES,
     production_couvrante,
     productions_sur_fenetre,
     resolve_batiment,
@@ -110,10 +109,6 @@ def compute_decompte(conn, series: list[dict], periods: list[dict], now_ts: int,
         "batiment": batiment,
         "generated_at": now_ts,
         "repartition": {k: _repartition_payload(ev) for k, ev in evaluations.items()},
-        "reserves": [RESERVES_ZONES[z["zone"]] for z in zones if z["zone"] in RESERVES_ZONES],
-        # Zone de chaque note de `reserves`, dans le même ordre : la page
-        # filtrée sur une zone n'affiche que la sienne.
-        "reserves_zones": [z["zone"] for z in zones if z["zone"] in RESERVES_ZONES],
     }
 
 
