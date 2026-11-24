@@ -13,6 +13,7 @@ import type { EditableRow } from '../types/series'
 import { compareApartments } from '@shared/format'
 import { useSiteActif } from '@shared/composables/useSiteActif'
 import ClassificationTable from '../components/ClassificationTable.vue'
+import Chargement from '@shared/components/Chargement.vue'
 
 const { site, loaded: siteLoaded } = useSiteActif()
 
@@ -61,7 +62,7 @@ onMounted(async () => {
         Le bouton ↺ repasse une ligne en devinette automatique.
       </p>
 
-      <p v-if="loading || !siteLoaded" class="text-sm text-neutral-500">Chargement…</p>
+      <Chargement v-if="loading || !siteLoaded" />
       <p v-else-if="errored" class="text-sm text-red-600">Impossible de charger les capteurs : {{ errorMessage }}</p>
       <p v-else-if="!site" class="text-sm text-neutral-500">Aucun site n'est accessible avec ce compte.</p>
       <ClassificationTable v-else :rows="shown" :labels="labels" :known-apartments="knownApartments" />

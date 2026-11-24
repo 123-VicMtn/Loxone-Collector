@@ -33,6 +33,7 @@ import GlobalBanner from '../components/GlobalBanner.vue'
 import PeriodeKpis from '../components/PeriodeKpis.vue'
 import PeriodPicker, { type Plage } from '../components/PeriodPicker.vue'
 import ZoneTable from '../components/ZoneTable.vue'
+import Chargement from '@shared/components/Chargement.vue'
 
 const SITE_STORAGE_KEY = 'decompte-site'
 
@@ -52,7 +53,7 @@ const chargementPlage = ref(false)
 const erreurPlage = ref('')
 let requetePlage = 0
 
-const downloading = ref(false)
+const downloading = ref<'xlsx' | 'csv' | null>(null)
 const downloadError = ref('')
 const confirmFormat = ref<'xlsx' | 'csv' | null>(null)
 /** Code de la zone affichée seule (départ d'un locataire), '' = tout l'immeuble. */
@@ -313,7 +314,7 @@ async function confirmDownload() {
 
 async function runDownload(format: 'xlsx' | 'csv') {
   if (!currentSite.value || !vueKey.value) return
-  downloading.value = true
+  downloading.value = format
   downloadError.value = ''
   try {
     if (moisChoisi.value) {
@@ -327,7 +328,7 @@ async function runDownload(format: 'xlsx' | 'csv') {
     console.error(err)
     downloadError.value = 'Le fichier n\'a pas pu être préparé. Réessayez dans quelques minutes.'
   } finally {
-    downloading.value = false
+    downloading.value = null
   }
 }
 
@@ -375,7 +376,27 @@ watch(siteActif, (name) => {
       :period-key="affiche ? vueKey : periodeKey"
     />
 
-    <p v-if="loading || empty" class="text-sm text-neutral-500">{{ loadingMessage }}</p>
+    <div v-if="loading" class="space-y-6" aria-busy="true">
+      <Chargement :texte="loadingMessage" />
+      <div class="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+        <div class="flex flex-wrap items-end gap-4">
+          <div class="skeleton h-14 w-56" />
+          <div class="skeleton h-14 w-40" />
+          <div class="skeleton h-14 w-44 sm:ml-auto" />
+        </div>
+        <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div v-for="i in 4" :key="i" class="skeleton h-[5.75rem] rounded-lg" />
+        </div>
+      </div>
+      <div class="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+        <div class="skeleton mb-4 h-5 w-48" />
+        <div class="flex flex-col gap-3">
+          <div v-for="i in 6" :key="i" class="skeleton h-6 w-full" />
+        </div>
+      </div>
+    </div>
+
+    <p v-else-if="empty" class="text-sm text-neutral-500">{{ loadingMessage }}</p>
 
     <template v-else-if="payload && !errored">
       <Card>
@@ -407,17 +428,25 @@ watch(siteActif, (name) => {
               <span class="font-medium text-neutral-900">{{ aJourAu }}</span>
               <button
                 type="button"
-                class="rounded border border-neutral-300 px-2 py-0.5 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+                class="inline-flex items-center gap-1.5 rounded border border-neutral-300 px-2 py-0.5 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
                 :disabled="actualisation"
                 @click="actualiser"
-              >{{ actualisation ? 'Actualisation…' : 'Actualiser' }}</button>
+              >
+                <span v-if="actualisation" class="loading loading-spinner loading-xs" aria-hidden="true" />
+                {{ actualisation ? 'Actualisation…' : 'Actualiser' }}
+              </button>
             </span>
           </div>
         </div>
         <p v-if="actualisationErreur" class="mt-2 text-sm text-red-600">{{ actualisationErreur }}</p>
 
         <div class="mt-6">
-          <p v-if="chargementPlage" class="text-sm text-neutral-500">Calcul du décompte sur ces dates…</p>
+          <div v-if="chargementPlage" class="flex flex-col gap-3" aria-busy="true">
+            <Chargement texte="Calcul du décompte sur ces dates…" />
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div v-for="i in 4" :key="i" class="skeleton h-[5.75rem] rounded-lg" />
+            </div>
+          </div>
           <p v-else-if="erreurPlage" class="text-sm text-red-600" role="alert">{{ erreurPlage }}</p>
           <PeriodeKpis v-else-if="affiche" :payload="affiche" :period-key="vueKey" />
         </div>
@@ -431,16 +460,22 @@ watch(siteActif, (name) => {
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="rounded border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
-            :disabled="downloading"
+            class="inline-flex items-center gap-1.5 rounded border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+            :disabled="!!downloading"
             @click="download('xlsx')"
-          >Télécharger Excel</button>
+          >
+            <span v-if="downloading === 'xlsx'" class="loading loading-spinner loading-xs" aria-hidden="true" />
+            Télécharger Excel
+          </button>
           <button
             type="button"
-            class="rounded border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
-            :disabled="downloading"
+            class="inline-flex items-center gap-1.5 rounded border border-neutral-300 px-3 py-1 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+            :disabled="!!downloading"
             @click="download('csv')"
-          >Télécharger CSV</button>
+          >
+            <span v-if="downloading === 'csv'" class="loading loading-spinner loading-xs" aria-hidden="true" />
+            Télécharger CSV
+          </button>
           <span v-if="downloadError" class="text-sm text-red-600">{{ downloadError }}</span>
         </div>
         <ZoneTable

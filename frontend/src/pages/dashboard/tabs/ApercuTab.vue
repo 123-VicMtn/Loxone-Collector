@@ -7,6 +7,7 @@
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
+import Chargement from '@shared/components/Chargement.vue'
 import { useSiteActif } from '@shared/composables/useSiteActif'
 import { Line } from 'vue-chartjs'
 import type { ChartOptions } from 'chart.js'
@@ -219,7 +220,13 @@ watch(site, (name) => {
 
 <template>
   <div>
-    <p v-if="loading" class="text-sm text-neutral-500">Calcul depuis minuit…</p>
+    <div v-if="loading" class="flex flex-col gap-4" aria-busy="true">
+      <div class="grid w-full grid-cols-2 gap-3 sm:grid-cols-4">
+        <Chargement texte="Calcul depuis minuit…" class="col-span-2 sm:col-span-4" />
+        <div v-for="i in 4" :key="i" class="skeleton h-[5.25rem] rounded-lg" />
+      </div>
+      <div class="skeleton h-[36rem] w-full rounded-lg" />
+    </div>
     <p v-else-if="erreur" class="text-sm text-red-700">{{ erreur }}</p>
 
     <div v-else-if="balance" class="flex flex-col gap-4">
@@ -251,7 +258,10 @@ watch(site, (name) => {
       <div class="w-full rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
         <h2 class="mb-1 text-sm font-semibold text-neutral-700">Puissance depuis minuit</h2>
         <p class="mb-2 text-sm text-neutral-500">Enregistrée par le Miniserver.</p>
-        <p v-if="powerLoading" class="text-sm text-neutral-500">Lecture de la puissance sur le Miniserver…</p>
+        <div v-if="powerLoading" class="relative h-[32rem] w-full">
+          <div class="skeleton absolute inset-0 rounded-md" />
+          <Chargement texte="Lecture de la puissance sur le Miniserver…" class="absolute inset-0 justify-center" />
+        </div>
         <p v-else-if="powerError" class="text-sm text-red-700">{{ powerError }}</p>
         <div v-else class="h-[32rem] w-full">
           <Line v-if="chartData && power.length" :data="chartData as never" :options="areaOptions" />

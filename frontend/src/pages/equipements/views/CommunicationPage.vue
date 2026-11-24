@@ -7,6 +7,7 @@
 import { useCollecte } from '@shared/composables/useCollecte'
 import { useSiteActif } from '@shared/composables/useSiteActif'
 import { fmtDateTimeShort } from '@shared/format'
+import Chargement from '@shared/components/Chargement.vue'
 
 const { collecte, indisponible } = useCollecte()
 const { site } = useSiteActif()
@@ -24,7 +25,18 @@ const { site } = useSiteActif()
       </p>
 
       <p v-if="indisponible" class="text-sm text-neutral-500">La vérification n'a pas abouti. Réessayez dans quelques minutes.</p>
-      <p v-else-if="!collecte" class="text-sm text-neutral-500">Vérification en cours…</p>
+      <div v-else-if="!collecte" class="flex flex-col gap-4" aria-busy="true">
+        <Chargement texte="Vérification en cours…" />
+        <ul class="divide-y divide-neutral-200 rounded-lg border border-neutral-200">
+          <li v-for="i in 3" :key="i" class="flex items-center justify-between gap-3 px-4 py-3">
+            <div class="flex min-w-0 flex-col gap-2">
+              <div class="skeleton h-4 w-40" />
+              <div class="skeleton h-3 w-56 max-w-full" />
+            </div>
+            <div class="skeleton h-5 w-28 rounded-full" />
+          </li>
+        </ul>
+      </div>
       <ul v-else class="divide-y divide-neutral-200 rounded-lg border border-neutral-200">
         <li
           v-for="s in collecte.sites"

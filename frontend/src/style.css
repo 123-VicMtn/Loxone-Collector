@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* DaisyUI : seulement les squelettes et les indicateurs de chargement.
+   Le reste de l'app est en Tailwind pur ; inclure d'autres composants
+   restylerait des classes existantes (`collapse`, `list`, `table`…).
+   Thème clair seul : l'app n'a pas de thème sombre. */
+@plugin "daisyui" {
+  themes: light --default;
+  include: skeleton, loading;
+}
+
 /* L'app est claire (pas de thème sombre). Sans ça, un navigateur en
    mode sombre peint le canvas en noir derrière le fond transparent. */
 html {

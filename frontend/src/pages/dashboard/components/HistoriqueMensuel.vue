@@ -15,6 +15,7 @@ import { fetchHistorique } from '../api/historique'
 import type { HistoriqueMois } from '../types/historique'
 import EvolutionChart from './EvolutionChart.vue'
 import SolaireChart from './SolaireChart.vue'
+import Chargement from '@shared/components/Chargement.vue'
 
 const { site } = useSiteActif()
 const mois = ref<HistoriqueMois[] | null>(null)
@@ -61,7 +62,14 @@ const devenirCalculable = computed(() => (mois.value || []).some((m) => m.autoco
 <template>
   <section class="mt-6 flex flex-col gap-4">
     <h2 class="text-base font-semibold text-neutral-800">Historique mensuel</h2>
-    <p v-if="chargement && !mois" class="text-sm text-neutral-500">Chargement de l'historique…</p>
+    <template v-if="chargement && !mois">
+      <Chargement texte="Chargement de l'historique…" />
+      <div v-for="i in 2" :key="i" class="w-full rounded-lg border border-neutral-200 bg-white p-4 shadow-sm" aria-busy="true">
+        <div class="skeleton mb-2 h-4 w-64 max-w-full" />
+        <div class="skeleton mb-4 h-3 w-48 max-w-full" />
+        <div class="skeleton h-72 w-full rounded-md" />
+      </div>
+    </template>
     <p v-else-if="erreur" class="text-sm text-red-700">{{ erreur }}</p>
     <p v-else-if="mois && mois.every((m) => m.vide)" class="text-sm text-neutral-500">
       Pas de relevés sur les 12 derniers mois pour ce site.

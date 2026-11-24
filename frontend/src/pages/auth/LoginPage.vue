@@ -74,8 +74,11 @@ async function onSubmit() {
         <button
           type="submit"
           :disabled="loading"
-          class="w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >{{ loading ? 'Connexion…' : 'Se connecter' }}</button>
+          class="inline-flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          <span v-if="loading" class="loading loading-spinner loading-xs" aria-hidden="true" />
+          {{ loading ? 'Connexion…' : 'Se connecter' }}
+        </button>
       </form>
     </div>
   </div>

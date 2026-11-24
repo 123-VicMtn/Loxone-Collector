@@ -429,6 +429,15 @@ injection)`, appliquée à la consommation mesurée du lot.
 - Export Excel côté serveur (`openpyxl`), par une route Flask.
 - Chart.js en dépendance npm (`chart.js` + `vue-chartjs`,
   `Chart.register(...registerables)` dans `main.ts`).
+- **DaisyUI** (2026-11-24, demande de l'utilisateur) : seulement
+  `skeleton` et `loading` (`@plugin "daisyui" { include: skeleton,
+  loading; }` dans `style.css`, thème `light` seul). N'en inclure
+  d'autres qu'en vérifiant les collisions : `collapse`, `list`, `table`
+  sont déjà des classes Tailwind utilisées. `shared/components/Chargement.vue`
+  = spinner + texte. Squelettes au premier chargement de Graphiques
+  (tuiles, courbe, historique), Matériels, Communication, Décompte (et
+  pendant un calcul sur dates libres), Paramètres ; spinners sur
+  Actualiser, les téléchargements et la connexion.
 
 **Structure** (depuis la fusion du 2026-09-24 ; avant, trois builds
 indépendants servis par Flask depuis `static/*-app/`, supprimés) :

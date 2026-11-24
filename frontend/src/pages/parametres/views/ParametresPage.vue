@@ -15,6 +15,7 @@ import { fetchCatalogue, fetchFrais, fetchParametres } from '../api/parametres'
 import ParametreLigne from '../components/ParametreLigne.vue'
 import FraisCarte from '../components/FraisCarte.vue'
 import { fmtNombre } from '../utils/format'
+import Chargement from '@shared/components/Chargement.vue'
 
 const { site } = useSiteActif()
 
@@ -113,7 +114,18 @@ watch(site, (nom) => {
       </p>
 
       <p v-if="erreur" class="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{{ erreur }}</p>
-      <p v-else-if="chargement && !etat" class="text-sm text-neutral-500">Chargement…</p>
+      <div v-else-if="chargement && !etat" class="flex flex-col gap-4" aria-busy="true">
+        <Chargement texte="Chargement des paramètres…" />
+        <div v-for="i in 3" :key="i" class="rounded-lg border border-neutral-200 bg-white p-4 sm:p-5">
+          <div class="skeleton mb-4 h-5 w-48" />
+          <div class="flex flex-col gap-3">
+            <div v-for="j in 2" :key="j" class="flex flex-wrap items-center justify-between gap-3">
+              <div class="skeleton h-4 w-56 max-w-full" />
+              <div class="skeleton h-8 w-32" />
+            </div>
+          </div>
+        </div>
+      </div>
 
       <template v-if="etat">
         <div v-if="estAdmin" class="mb-4 flex gap-1 border-b border-neutral-200" role="tablist">

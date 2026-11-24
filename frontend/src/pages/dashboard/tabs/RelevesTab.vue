@@ -6,6 +6,7 @@
  */
 
 import { computed, onMounted, ref, watch } from 'vue'
+import Chargement from '@shared/components/Chargement.vue'
 import { fetchJSON } from '@shared/api/http'
 import { useSiteActif } from '@shared/composables/useSiteActif'
 import { compareApartments, fmtNumber, zoneLabel } from '@shared/format'
@@ -204,7 +205,17 @@ onMounted(async () => {
 </script>
 
 <template>
-  <p v-if="loading" class="text-sm text-neutral-500">Chargement des relevés…</p>
+  <div v-if="loading" class="flex flex-col gap-4" aria-busy="true">
+    <Chargement texte="Chargement des relevés…" />
+    <div class="skeleton h-[6.5rem] w-full rounded-lg" />
+    <div class="overflow-hidden rounded-lg border border-neutral-200">
+      <div v-for="i in 8" :key="i" class="flex items-center gap-4 border-b border-neutral-100 px-4 py-3 last:border-b-0">
+        <div class="skeleton h-4 w-24" />
+        <div class="skeleton h-4 flex-1" />
+        <div class="skeleton h-4 w-20" />
+      </div>
+    </div>
+  </div>
   <p v-else-if="error" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ error }}</p>
   <p v-else-if="!rows.length" class="rounded-lg border border-dashed border-neutral-300 px-4 py-8 text-center text-sm text-neutral-500">Aucun relevé pour le moment.</p>
 
