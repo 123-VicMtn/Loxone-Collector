@@ -59,6 +59,17 @@ def admin_required(fn):
     return wrapper
 
 
+def peut_modifier_parametres(site: str) -> bool:
+    """Paramètres et frais du décompte (page Paramètres) : le compte `user`
+    est le responsable de son site et les modifie lui-même ; l'admin (le
+    développeur) modifie tout. Les valeurs globales (site '') restent à
+    l'admin (décision de l'utilisateur, 2026-11-24). Seule exception à la
+    lecture seule d'un `user`."""
+    if current_user.is_admin:
+        return True
+    return site != "" and site in allowed_miniservers()
+
+
 def check_series_access(conn, series_id: str) -> None:
     """403 si la série n'appartient pas à un site que le compte courant
     peut voir -- utilisé par les 3 routes qui servent les données d'UNE

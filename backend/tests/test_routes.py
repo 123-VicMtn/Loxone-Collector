@@ -44,6 +44,13 @@ ROUTES_CONNECTEES = [
     ("get", "/api/tarifs"),
     ("post", "/api/tarifs"),
     ("delete", "/api/tarifs/1"),
+    ("get", "/api/parametres/catalogue"),
+    ("get", "/api/parametres"),
+    ("post", "/api/parametres"),
+    ("delete", "/api/parametres/1"),
+    ("get", "/api/frais"),
+    ("post", "/api/frais"),
+    ("delete", "/api/frais/1"),
     ("post", f"/api/series/{SERIE_REF}/classify"),
     ("post", "/api/logout"),
 ]

@@ -31,6 +31,7 @@ from loxone_collector.api.routes import admin as routes_admin
 from loxone_collector.api.routes import auth as routes_auth
 from loxone_collector.api.routes import decompte as routes_decompte
 from loxone_collector.api.routes import health as routes_health
+from loxone_collector.api.routes import parametres as routes_parametres
 from loxone_collector.api.routes import series as routes_series
 from loxone_collector.config import ConfigError, load_config
 from loxone_collector.workers import poller
@@ -51,7 +52,8 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
 )
-for _bp in (routes_auth.bp, routes_health.bp, routes_series.bp, routes_decompte.bp, routes_admin.bp):
+for _bp in (routes_auth.bp, routes_health.bp, routes_series.bp, routes_decompte.bp,
+            routes_parametres.bp, routes_admin.bp):
     app.register_blueprint(_bp)
 register_error_handlers(app)
 

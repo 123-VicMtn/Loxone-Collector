@@ -600,7 +600,19 @@ chaude ; les Communs (ascenseur, éclairage) restent de l'électricité.
 **Site de référence : La Calbasse** (site en ordre), pas Sequoia ni le
 tableau du client (dont la ligne « PAC » est en fait tout le compteur
 `Communs`). Plan d'implémentation en 6 étapes au § 11, développé et
-validé sur La Calbasse avant les autres sites. Rien n'est codé.
+validé sur La Calbasse avant les autres sites.
+
+Avancement :
+
+- Étape 1 (fait) : tables `parametres` (versions datées, site `''` =
+  global, créée par `db._creer_parametres` qui recopie `tarifs` une seule
+  fois) et `frais_accessoires` ; `services/parametres.py` (catalogue,
+  validation, `valeurs_au`, `parametres_periode`, `ajouter_frais`).
+- Étape 2 (fait) : `api/routes/parametres.py` (`/api/parametres`,
+  `/catalogue`, `/api/frais`) ; `access.peut_modifier_parametres` : un
+  `user` modifie les paramètres et frais de ses sites (seule exception à
+  sa lecture seule), l'admin seul les valeurs globales. `/api/tarifs` est
+  laissé tel quel jusqu'à l'étape 4 (le décompte lit encore `tarifs`).
 
 ### Fonctionnalité demandée pour plus tard : liaison de compteurs
 
