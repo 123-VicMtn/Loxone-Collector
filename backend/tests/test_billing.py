@@ -953,18 +953,50 @@ class TestPostes(unittest.TestCase):
         cal = "La Calbasse:app35:total"
         series = [s(cal, "APP35 Chauffage (total)", "energie_consommee", "APP35")]
         start, end = billing.period_bounds(2026, 11)
-        self.index(cal, [(start - 600, 236000.0), (bascule - 800, 418000.0),
+        gel = postes_mod.CALBASSE_GEL_DEPUIS
+        self.index(cal, [(start - 600, 236000.0), (gel - 600, 418000.0), (bascule - 800, 418000.0),
                          (bascule, 0.0), (end - 600, 87.0)])
         lire = lambda a, b: billing.compute_postes(  # noqa: E731
             self.conn, billing.resolve_postes(series), {"key": "x", "start": a, "end": b}, end + 86400,
         )["chauffage"][0]
         nov = lire(start, end)
-        self.assertAlmostEqual(nov["kwh"], 182.0 + 87.0)
+        # Index M-Bus au redémarrage (607), pas l'index figé du 10.11 (418).
+        self.assertAlmostEqual(nov["kwh"], 607.0 - 236.0 + 87.0)
         self.assertEqual((nov["releve_debut"], nov["releve_fin"]), (236.0, 87.0))
         self.assertNotIn("ruptures", nov)
         self.assertTrue(any("divisés par 1 000" in a for a in nov["alertes"]))
-        self.assertAlmostEqual(lire(start, bascule - 1)["kwh"], 182.0)  # avant : en kWh aussi
+        self.assertTrue(any("compteur M-Bus" in a for a in nov["alertes"]))
+        self.assertAlmostEqual(lire(start, gel)["kwh"], 182.0)  # avant le gel : en kWh aussi
+        self.assertIsNone(lire(start, bascule - 1)["kwh"])      # fin pendant le gel
+        self.assertIsNone(lire(gel + 3600, end)["kwh"])         # début pendant le gel
         self.assertAlmostEqual(lire(bascule, end)["kwh"], 87.0)
+
+    def test_chauffage_de_la_calbasse_index_reconstitues(self):
+        # APP41 / APP48 : index du 01.11 reconstitué (dette technique) ;
+        # l'ancien compteur d'APP48, sans relevé après le 20.11, disparaît.
+        from loxone_collector.services.billing import postes as postes_mod
+        bascule = postes_mod.CHAUFFAGE_EN_WH_JUSQU_AU["La Calbasse"]
+        series = [
+            s("La Calbasse:a41:total", "APP41 Chauffage (total)", "energie_consommee", "APP41"),
+            s("La Calbasse:a48old:total", "APP48 Chauffage (total)", "energie_consommee", "APP48"),
+            s("La Calbasse:a48:total", "APP48 Chauffage (total)", "energie_consommee", "APP48"),
+        ]
+        start, end = billing.period_bounds(2026, 11)
+        self.index("La Calbasse:a41:total", [(start - 600, 0.0), (bascule - 800, 366000.0),
+                                             (bascule, 0.0), (end - 600, 100.0)])
+        self.index("La Calbasse:a48old:total", [(start - 600, 0.0), (bascule - 900000, 1.0)])
+        self.index("La Calbasse:a48:total", [(bascule, 0.0), (end - 600, 40.0)])
+        lire = lambda a, b: billing.compute_postes(  # noqa: E731
+            self.conn, billing.resolve_postes(series), {"key": "x", "start": a, "end": b}, end + 86400,
+        )["chauffage"]
+        nov = {x["zone"]: x for x in lire(start, end)}
+        self.assertEqual(len(lire(start, end)), 2)
+        self.assertAlmostEqual(nov["APP41"]["kwh"], 443 - 254.4 + 100.0)
+        self.assertAlmostEqual(nov["APP48"]["kwh"], 298 - 127.4 + 40.0)
+        self.assertEqual(nov["APP48"]["series_id"], "La Calbasse:a48:total")
+        self.assertTrue(any(a.startswith("estimé") for a in nov["APP48"]["alertes"]))
+        # Début autre que le 01.11 : l'index reconstitué ne vaut pas.
+        self.assertIsNone(next(x for x in lire(start + 86400, end) if x["zone"] == "APP41")["kwh"])
 
     def test_chauffage_des_autres_sites_inchange(self):
         start, end = billing.period_bounds(2026, 11)

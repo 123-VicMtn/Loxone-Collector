@@ -69,6 +69,48 @@ CHAUFFAGE_EN_WH_JUSQU_AU = {
     "La Calbasse": int(datetime(2026, 11, 20, 15, 13, 19, tzinfo=ZoneInfo(TIMEZONE)).timestamp()),
 }
 
+# DETTE TECHNIQUE (même échéance) : le 10.11.2026 vers 9 h, l'entrée M-Bus
+# est passée de Wh à kWh ; le bloc Compteur (mesure absolue) a refusé cette
+# baisse et ses index sont restés figés jusqu'au 20.11. Les index M-Bus
+# physiques, eux, ont continué : l'index au redémarrage du 20.11 est
+# l'« écart index » (index M-Bus − index du bloc) relevé en LiveView le
+# 24.11.2026 à 11:34 (docs/La_Calbasse_chauffage_novembre_2026.md), à
+# 1 kWh th près (valeurs entières). Il remplace l'index figé comme fin du
+# morceau en Wh. Contrôle : rythme du 10 au 20.11 / rythme du 01 au 10.11
+# entre 0,89 et 1,06 sur les 12 lots mesurés.
+CALBASSE_GEL_DEPUIS = int(datetime(2026, 11, 10, 9, 0, tzinfo=ZoneInfo(TIMEZONE)).timestamp())
+
+CALBASSE_INDEX_A_LA_REPRISE = {
+    "APP35": 607, "APP36": 230, "APP37": 1127, "APP38": 696, "APP39": 326,
+    "APP40": 747, "APP41": 443, "APP42": 365, "APP43": 245, "APP44": 723,
+    "APP45": 440, "APP46": 713, "APP47": 988, "APP48": 298, "APP49": 865,
+}
+
+# Index du 01.11.2026 00:00 que les Statistics ne donnent pas (kWh th).
+#  - APP36 : son registre d'index était faux ; l'index était sur la sortie
+#    « actual » (24 000 Wh à minuit, Statistics et sauvegarde du 19.11).
+#  - APP41 : registre à 0 jusqu'au 10.11, puis 366 kWh th lus le 10.11 vers
+#    9 h 30 (seule lecture acceptée avant le gel) ; 01-10.11 estimé par la
+#    puissance mesurée × 1,0496 (rapport index / puissance des 11 lots,
+#    décompte du 10.11) = 111,6 → 366 − 111,6.
+#  - APP48 : aucun index avant le 20.11 ; 01-10.11 estimé par la puissance
+#    (82,4, décompte du 10.11), 10-20.11 au rythme des autres lots (rythme
+#    du gel / rythme du 01 au 10.11 = 0,9785 sur 11 lots) = 88,2
+#    → 298 − 82,4 − 88,2.
+CALBASSE_INDEX_AU_1ER_NOVEMBRE = {
+    "APP36": (24.0, "index du 01.11 lu sur la sortie de puissance (registre d'index faux)"),
+    "APP41": (254.4, "estimé : index du 01.11 reconstitué (366 kWh th lus le 10.11 − "
+                     "111,6 estimés par la puissance du 01 au 10.11)"),
+    "APP48": (127.4, "estimé : index du 01.11 reconstitué (puissance du 01 au 10.11, "
+                     "puis rythme des autres lots du 10 au 20.11 ; aucun index avant le 20.11)"),
+}
+CALBASSE_1ER_NOVEMBRE = int(datetime(2026, 11, 1, tzinfo=ZoneInfo(TIMEZONE)).timestamp())
+
+# Signalé, sans correction (décision de l'utilisateur en attente).
+CALBASSE_A_VERIFIER = {
+    "APP43": "compteur M-Bus bloqué à 245 kWh th depuis le 10.11 : à vérifier",
+}
+
 
 RUPTURE_MIN_DROP_CYCLES = 0.9
 
@@ -138,18 +180,28 @@ def compute_postes(conn, postes: list[dict], p: dict, now_ts: int) -> dict:
         return reading_delta(conn, src["series_id"], start, p["end"], now_ts,
                              min_drop=_POSTE_MIN_DROP[role], statistics=True)
 
-    def lire_chauffage(src):
+    def lire_chauffage(src, zone):
+        """Relevé de chauffage ; None si la ligne ne doit pas apparaître."""
         site = src["series_id"].split(":", 1)[0]
         bascule = CHAUFFAGE_EN_WH_JUSQU_AU.get(site)
-        if bascule is None or not p["start"] < bascule < p["end"]:
-            r = lire(src, "chauffage", p["start"])
-            if bascule is not None and p["end"] <= bascule:
-                r = _wh_en_kwh(r)
+        if bascule is None or p["end"] <= p["start"] or not p["start"] < bascule:
+            return lire(src, "chauffage", p["start"])
+        calbasse = site == "La Calbasse"
+        if p["end"] <= bascule:
+            r = _wh_en_kwh(lire(src, "chauffage", p["start"]))
+            if calbasse and p["end"] > CALBASSE_GEL_DEPUIS:
+                r = {**r, "kwh": None,
+                     "alertes": [*r["alertes"], "index figés du 10.11 au 20.11.2026 15:13"]}
             return r
-        avant = _wh_en_kwh(reading_delta(conn, src["series_id"], p["start"], bascule, now_ts,
-                                         min_drop=RUPTURE_MIN_DROP_KWH, statistics=True))
         apres = lire(src, "chauffage", bascule)
-        return _assembler(avant, apres)
+        fin = CALBASSE_INDEX_A_LA_REPRISE.get(zone) if calbasse else None
+        if fin is None:
+            avant = _wh_en_kwh(reading_delta(conn, src["series_id"], p["start"], bascule, now_ts,
+                                             min_drop=RUPTURE_MIN_DROP_KWH, statistics=True))
+            return _assembler(avant, apres)
+        if _sans_releve_depuis(conn, src, bascule):
+            return None  # ancien compteur remplacé le 20.11 (APP48)
+        return _assembler(_avant_calbasse(conn, src, zone, p["start"], bascule, fin, now_ts), apres)
 
     out = {
         "chauffage": [], "eau_chaude": [], "buanderie": [],
@@ -160,11 +212,14 @@ def compute_postes(conn, postes: list[dict], p: dict, now_ts: int) -> dict:
     for z in postes:
         for role in ("chauffage", "eau_chaude"):
             for src in z["compteurs"][role]:
+                r = lire_chauffage(src, z["zone"]) if role == "chauffage" else lire(src, role, p["start"])
+                if r is None:
+                    continue
                 out[role].append({
                     "zone": z["zone"], "label": z["label"],
                     "compteur": src["label"], "series_id": src["series_id"],
                     "en_cours": en_cours,
-                    **(lire_chauffage(src) if role == "chauffage" else lire(src, role, p["start"])),
+                    **r,
                 })
         kwh_src = (z["compteurs"]["buanderie"] or [None])[0]
         cycles_src = (z["compteurs"]["buanderie_cycles"] or [None])[0]
@@ -191,6 +246,46 @@ def _wh_en_kwh(r: dict) -> dict:
     out["ruptures"] = [{**x, "avant": x["avant"] / 1000, "apres": x["apres"] / 1000}
                        for x in r.get("ruptures") or []]
     return out
+
+
+def _sans_releve_depuis(conn, src: dict, ts: int) -> bool:
+    """Compteur sans aucun index Statistics depuis `ts` (remplacé)."""
+    return conn.execute(
+        "SELECT 1 FROM statistic_samples WHERE series_id = ? AND ts >= ? LIMIT 1",
+        (src["series_id"], ts),
+    ).fetchone() is None
+
+
+def _avant_calbasse(conn, src: dict, zone: str, start: int, bascule: int,
+                    fin: float, now_ts: int) -> dict:
+    """Morceau en Wh du chauffage de La Calbasse (`CALBASSE_INDEX_A_LA_REPRISE`) :
+    index M-Bus au redémarrage − index du début de période."""
+    alertes = ["index du 20.11 pris sur le compteur M-Bus (index Loxone figés du 10 au 20.11)"]
+    connu = CALBASSE_INDEX_AU_1ER_NOVEMBRE.get(zone)
+    if connu is not None:
+        debut, alerte = connu
+        alertes.append(alerte)
+        if start != CALBASSE_1ER_NOVEMBRE:
+            debut = None
+            alertes.append("index connu seulement au 01.11.2026 00:00")
+    elif start > CALBASSE_GEL_DEPUIS:
+        debut = None
+        alertes.append("index figés du 10.11 au 20.11.2026 15:13")
+    else:
+        r = _wh_en_kwh(reading_delta(conn, src["series_id"], start, bascule, now_ts,
+                                     min_drop=RUPTURE_MIN_DROP_KWH, statistics=True))
+        debut = r["releve_debut"]
+        alertes += r["alertes"]
+    if zone in CALBASSE_A_VERIFIER:
+        alertes.append(CALBASSE_A_VERIFIER[zone])
+    return {
+        "kwh": None if debut is None else round(fin - debut, 3),
+        "releve_debut": debut,
+        "releve_fin": float(fin),
+        "releve_debut_ts": start,
+        "releve_fin_ts": bascule,
+        "alertes": alertes,
+    }
 
 
 def _assembler(avant: dict, apres: dict) -> dict:

@@ -697,14 +697,30 @@ restauration, UptimeRobot, phase G (documentation).
 **À retirer une fois le décompte de novembre 2026 de La Calbasse
 terminé** (décision de l'utilisateur, 2026-11-24) :
 `billing/postes.CHAUFFAGE_EN_WH_JUSQU_AU`, `_wh_en_kwh`, `_assembler`,
-`lire_chauffage` dans `compute_postes`, et les deux tests
-`test_chauffage_de_la_calbasse_en_wh_jusqu_au_20_novembre` /
+`lire_chauffage` dans `compute_postes` (et le `None` qu'il peut renvoyer),
+les constantes `CALBASSE_*`, `_sans_releve_depuis`, `_avant_calbasse`, et
+les trois tests `test_chauffage_de_la_calbasse_en_wh_jusqu_au_20_novembre`,
+`test_chauffage_de_la_calbasse_index_reconstitues`,
 `test_chauffage_des_autres_sites_inchange`. Jusqu'au 20.11.2026 15:13:19,
 les compteurs de chaleur de La Calbasse comptaient en Wh ; ils sont alors
 repartis de 0, en kWh. Ce code divise les index d'avant par 1 000 et
 additionne les deux morceaux au lieu d'y voir une rupture. Une fois
 retiré, une période qui chevauche le 20.11 redevient « rupture de
 compteur » (c'est voulu : plus personne ne la décomptera).
+
+Index figés du 10.11 vers 9 h au 20.11 (entrée M-Bus passée de Wh à
+kWh, baisse refusée par les blocs en mesure absolue ; confirmé par la
+sauvegarde du Miniserver du 19.11, qui n'a rien de plus) : la fin du
+morceau en Wh est l'**index M-Bus au redémarrage** (« écart index » du
+relevé du 24.11, `docs/La_Calbasse_chauffage_novembre_2026.md`), pas
+l'index figé. Index du 01.11 : APP36 = 24 (sur `actual`), APP41 = 254,4
+et APP48 = 127,4 **estimés** (méthode dans le code), utilisables
+seulement pour une période qui commence le 01.11 00:00. L'ancien
+compteur d'APP48 (sans relevé après le 20.11) n'a plus de ligne. Une
+période qui commence ou finit pendant le gel n'a pas de kWh. APP43 :
+compteur M-Bus bloqué à 245 depuis le 10.11, signalé « à vérifier »
+(22 kWh th comptés) ; l'utilisateur se renseigne (logement vide,
+chauffage coupé ?). Sur la copie du 24.11, 01-23.11 : 6 109 kWh th.
 
 ### Dette technique (structure du code -- pas avant que l'utilisateur ne le redemande)
 
@@ -1909,8 +1925,11 @@ Reste à faire / à vérifier :
   depuis le 20.11** ; APP48 a un nouveau compteur (nouvel UUID, Statistics
   depuis le 20.11 14:58, rien avant) et l'ancien s'arrête le 10.11 ;
   APP36 (+111 kWh th) et APP41 (+366 kWh th, index depuis la pose) sautent
-  le 10.11 à 9 h 30 (correction des registres). Novembre ne se répartit
-  pas tant qu'APP48 n'a pas de relevé au 01.11.
+  le 10.11 à 9 h 30 (correction des registres). **Corrigé le même
+  jour** : tous les compteurs de chaleur sont figés du 10.11 vers 9 h
+  au 20.11 (pas seulement APP36 / APP41) ; avant le 10.11, l'index
+  d'APP36 était sur sa sortie `actual`. Novembre se répartit grâce aux
+  index M-Bus (voir la dette technique du backlog).
 - La note « Sous réserve » de la PAC (`RESERVES_ZONES`, `reserves`) est
   retirée le 2026-11-24 (démentie par les mesures du 10.11). Décisions
   en attente : refaire le décompte du 01-10.11 avec la
