@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import DashboardPage from './pages/dashboard/views/DashboardPage.vue'
 import AdminPage from './pages/admin/views/AdminPage.vue'
 import DecomptePage from './pages/decompte/views/DecomptePage.vue'
+import ParametresPage from './pages/parametres/views/ParametresPage.vue'
 import CommunicationPage from './pages/equipements/views/CommunicationPage.vue'
 import MaterielsPage from './pages/equipements/views/MaterielsPage.vue'
 import LoginPage from './pages/auth/LoginPage.vue'
@@ -20,6 +21,10 @@ const router = createRouter({
     // un 'user', ce meta évite en plus d'afficher une page inutilisable).
     { path: '/admin', component: AdminPage, meta: { adminOnly: true } },
     { path: '/decompte', component: DecomptePage },
+    // Ouverte à tout compte : le responsable du site (`user`) modifie les
+    // paramètres de ses sites ; les valeurs globales sont réservées à
+    // l'admin (contrôlé par le backend, onglet masqué ici).
+    { path: '/parametres', component: ParametresPage },
     { path: '/login', component: LoginPage },
   ],
 })

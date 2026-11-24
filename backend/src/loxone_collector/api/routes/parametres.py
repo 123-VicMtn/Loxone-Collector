@@ -18,6 +18,7 @@ from flask_login import current_user, login_required
 from loxone_collector import db
 from loxone_collector.api import access
 from loxone_collector.api.access import read_conn, resolve_miniserver
+from loxone_collector.services import billing
 from loxone_collector.services import parametres as par
 from loxone_collector.services.billing import TIMEZONE
 
@@ -32,10 +33,17 @@ def _versions(lignes: list[dict]) -> list[dict]:
     return [{**v, "valeur": par.depuis_texte(v["cle"], v["valeur"])} for v in lignes]
 
 
+def _zones(conn, ms_name: str) -> list[dict]:
+    """Zones du décompte du site (lots, Communs, PAC), pour les frais."""
+    series = billing.series_du_decompte([s for s in db.list_series(conn) if s["miniserver"] == ms_name])
+    return [{"zone": z["zone"], "label": z["label"]} for z in billing.resolve_zones(series)]
+
+
 def _etat(conn, ms_name: str) -> dict:
     """Réponse commune à la lecture et aux modifications."""
     versions = db.list_parametres(conn, [ms_name, par.GLOBAL])
     return {
+        "zones": _zones(conn, ms_name),
         "miniserver": ms_name,
         "aujourdhui": _aujourdhui(),
         "en_vigueur": par.valeurs_au(conn, ms_name, _aujourdhui()),

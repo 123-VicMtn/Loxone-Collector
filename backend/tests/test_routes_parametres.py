@@ -39,6 +39,8 @@ def test_user_modifie_les_parametres_de_son_site(client_user):
     # Lecture : valeur en vigueur au jour figé des tests.
     lu = client_user.get(f"/api/parametres?miniserver={ref.SITE}").get_json()
     assert lu["aujourdhui"] == "2026-11-05"
+    assert lu["zones"] == [{"zone": "APP1", "label": "App 1"}, {"zone": "APP2", "label": "App 2"},
+                           {"zone": "COMMUN", "label": "Communs"}]
     assert lu["en_vigueur"]["prix_reseau"] == {
         "valeur": 0.25, "depuis": "2026-11-01", "origine": "site", "id": v["id"]}
 

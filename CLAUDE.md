@@ -646,6 +646,23 @@ Avancement :
   une seule fois par `db._creer_parametres`. Les sections plus anciennes
   qui citent `/api/tarifs` ou « le seul moyen de saisir les prix » sont
   dépassées : les prix se saisissent dans `parametres`.
+- Étape 5 (fait) : page `/parametres` (`frontend/src/pages/parametres/`),
+  lien « Paramètres » dans Outils, ouverte à tout compte (pas
+  `adminOnly`). Une carte par thème du catalogue (Électricité et TVA,
+  Pompe à chaleur, Location, Buanderie) + Frais accessoires ; par
+  paramètre : valeur en vigueur et origine (« depuis le … », « valeur
+  commune à tous les sites », « non renseigné »), « Nouvelle valeur » (date
+  du jour par défaut, avertissement si la date est passée : « modifie les
+  décomptes déjà produits »), historique, suppression en deux clics (pas de
+  `confirm()`). Clé PAC : un champ, l'eau chaude en complément. Location :
+  case « Aucune ». Onglet « Valeurs globales » pour l'admin seulement.
+  `GET /api/parametres` renvoie aussi `zones` (pour le formulaire des
+  frais). Messages d'erreur : celui du serveur pour un 400
+  (`messageErreur`). Validé en navigateur headless contre la démo (admin
+  et compte `user` temporaire, saisie invalide, rétroactivité, TVA
+  globale héritée, location « Aucune », suppression, frais, mobile
+  390 px sans débordement) ; `data/demo.db` restaurée ensuite. La démo
+  n'a pas de Statistics : son décompte n'exporte rien (limite ancienne).
 
 ### Fonctionnalité demandée pour plus tard : liaison de compteurs
 

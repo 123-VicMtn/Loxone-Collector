@@ -3,7 +3,7 @@
  * Navigation de l'app, à gauche de toutes les pages sauf /login.
  * En tête, le site affiché (SiteSwitcher), commun à toutes les pages ;
  * sur petit écran, son nom est aussi dans la barre du haut. Deux parties : Équipements (communication, matériels) et Outils
- * (graphiques, décompte). Sur grand écran elle reste affichée. En dessous
+ * (graphiques, décompte, paramètres). Sur grand écran elle reste affichée. En dessous
  * de lg (1024 px) elle devient un tiroir. Classification est masquée
  * (`SHOW_CLASSIFICATION`) : la page `/admin` reste accessible par son URL,
  * pour un admin.
@@ -41,6 +41,7 @@ const SHOW_CLASSIFICATION = false
 const outils = computed(() => [
   { to: '/', label: 'Graphiques' },
   { to: '/decompte', label: 'Décompte' },
+  { to: '/parametres', label: 'Paramètres' },
   ...(SHOW_CLASSIFICATION && authState.role === 'admin'
     ? [{ to: '/admin', label: 'Classification' }]
     : []),
