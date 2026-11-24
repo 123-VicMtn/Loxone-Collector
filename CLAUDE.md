@@ -570,6 +570,38 @@ plusieurs endroits du fichier se contredire sur ce qui reste à faire.
   périmètre du décompte électrique actuel, à signaler seulement si le
   chauffage doit être facturé un jour.
 
+### Phase 2 : page Paramètres (2026-11-06)
+
+Prix par type d'énergie, TVA, clé PAC (coût de la PAC réparti entre
+chauffage et eau chaude, ex. 80/20, puis au prorata des kWh th et des m³),
+location des compteurs, factures du fournisseur, saisis dans une page
+admin. Modèle de calcul tiré du tableau du client
+(`docs/tableau-exemple.xlsx`, Sequoia janv.-mai 2026). Décisions du
+2026-11-09 : prix réseau **fixe** et paramétrable (pas le prix moyen de
+la facture) ; les erreurs du tableau sont **corrigées, pas reprises**
+(Communs et parts réseau / solaire selon le calcul de l'application) ;
+Sequoia : réseau 0,25, solaire 0,17 CHF/kWh ; buanderie = 2,20 CHF par
+cycle (sans TVA) + kWh au prix réseau (ses kWh dans les
+Communs : plus tard) ; pas de TVA sur le solaire sauf paramètre
+`tva_solaire` (mélange voulu) ; bornes sans calcul (Wallbox déjà dans
+le compteur du lot) ; Communs dans le décompte quel que soit le payeur ;
+location de compteurs = forfait facultatif, lots seulement ; frais accessoires
+saisis à la main, sans calcul ; **pas de factures du fournisseur** avant plusieurs versions.
+Analyse, options et questions ouvertes :
+`docs/plan-page-parametres.md`, document de travail à compléter au fil
+des décisions. Décisions du 2026-11-24 : prix HT ; location au prorata
+des jours ; locataires hors phase ; montants dans Excel seulement ;
+décompte figé reporté (avertir si une valeur prend effet dans le
+passé) ; TVA globale surchargeable par site ; **le `user` est le
+responsable de son site et modifie les paramètres et frais de ses sites**
+(l'admin = le développeur, qui supervise ; valeurs globales à l'admin).
+**Coût de la chaleur = compteur de la PAC seul**, réparti chauffage / eau
+chaude ; les Communs (ascenseur, éclairage) restent de l'électricité.
+**Site de référence : La Calbasse** (site en ordre), pas Sequoia ni le
+tableau du client (dont la ligne « PAC » est en fait tout le compteur
+`Communs`). Plan d'implémentation en 6 étapes au § 11, développé et
+validé sur La Calbasse avant les autres sites. Rien n'est codé.
+
 ### Fonctionnalité demandée pour plus tard : liaison de compteurs
 
 Demande de l'utilisateur (2026-10-27), « dans un deuxième temps » : un
@@ -1708,12 +1740,138 @@ par mois, vue client, prix vides), écarts dans
   `Production Solaire` a de nouveau des Statistics jusqu'au 02.11 (3 %
   d'écart avec `Solaire` en octobre). À décider.
 
+## Décomptes Horizon sept.-oct. — 2026-11-04
+
+Demande de l'utilisateur (revient sur « pas de décompte pour Horizon ») :
+`docs/decomptes-2026-09-10/decompte-Horizon-2026-09.xlsx` et `…-10.xlsx`,
+onglet Électricité seul, prix vides. Script ponctuel (pas dans
+l'application, qui ne sait toujours pas décompter Horizon). Décisions de
+l'utilisateur :
+
+- **Compteurs Q125 inversés** : « Compteur Alimentation **Export** Q125 » =
+  achat au réseau (la nuit, 1,02 × la consommation des lots), « **Import**
+  Q125 » = injection. **Oiken ignoré** (~51 × la consommation la nuit, sans
+  rapport constant).
+- Production **nette** : `Compteur PV PPE` + `Compteur PV garages`, en
+  `totalNeg` (production) − `total` (consommation propre, ~50 kWh/mois).
+- Bilan : achat + production nette − injection = lots + Commun à −0,1 %
+  (sept. 5 716,93 contre 5 722,52 ; oct. 6 949,36 contre 6 955,93).
+- RCP heure par heure sur le compteur de chaque lot (APP1-15, APP17
+  Bureau ; **pas d'APP16**, normal) et du Commun ; écart bâtiment − zones
+  imputé aux Communs (réseau +18 / +45, solaire −24 / −52 kWh).
+- Résultat : sept. 5 716,94 kWh (réseau 2 645,91, solaire 3 071,03) ;
+  oct. 6 949,35 (réseau 4 710,05, solaire 2 239,30). Le Commun pèse plus
+  de la moitié (2 462 / 3 659 kWh), en forte hausse en octobre.
+
+## La Calbasse, décompte de mise en service et corrections Loxone — 2026-11-10
+
+**Décompte du 01.11 00:00 au 10.11 09:00** (mise en service officielle,
+demande de l'utilisateur) :
+`docs/decomptes-2026-11/decompte-La_Calbasse-2026-11-01_au_2026-11-10-09h.xlsx`,
+vue client, prix vides. Script ponctuel (scratchpad de la session), pas
+dans l'application.
+
+- Électricité : bâtiment = import 1 554,36 + PV 602,27 − injection 7,92 =
+  2 148,72 kWh ; zones 2 122,54 (−1,2 %). Répartition recalculée (séries
+  `APPxx Réseau / Solaire` rejetées), écart bâtiment − zones versé aux
+  Communs (réseau +28,22, solaire −2,05).
+- Chauffage 2 478 kWh th : index ÷ 1 000 (registres en Wh). APP36 lu sur
+  `actual` ; APP41 (111,6) et APP48 (82,4) **estimés** par la puissance
+  intégrée × k = 1,0496 (rapport index / puissance intégrée sur 11 lots).
+  APP41 : le registre de 366 kWh th est l'index depuis la pose. Eau chaude
+  12,743 m³.
+- La fin de période est exclusive dans `periodes_plage` : pour inclure le
+  relevé de 09:00, passer 09:00 + 1 s.
+
+**Diagnostic de la RCP Loxone** (rejeu du programme PicoC de
+l'utilisateur, `docs/RCP_LOXONE.md`) : entrées virtuelles plafonnées à 100
+(maximum par défaut) ; APP37 Solaire et APP47 Réseau figés (lecture
+interne du bug du 26.10) ; APP46 Réseau, COMMUNS et PAC sans valeur
+(probablement le même plafond) ; pas de statistique sur APP49 Réseau ;
+solaire Loxone 6 à 15 % trop haut (AI3 probablement incomplète).
+Liste des corrections : `docs/modifications-loxone-calbasse-2026-11.md`.
+
+**PAC** : sur le terrain, la PAC (et le Boiler) sont derrière les communs,
+mais le compteur `Commun` ne mesure pas la PAC (01-10.11 : Commun 178 kWh,
+PAC 1 290 ; Commun 0,81 kWh/h PAC en marche, 0,57 PAC arrêtée ; le bilan
+ne boucle qu'avec les deux). Les deux restent des lignes séparées et dans
+AI3 ; pas de « Communs net ». `Boiler` est un compteur de chaleur.
+
+**Fait par l'utilisateur dans Loxone Config (avant le 2026-11-24, date et
+heure de l'enregistrement non communiquées)** : compteurs de chaleur
+remplacés, 34 compteurs virtuels RCP remplacés, maximum des entrées
+virtuelles relevé, statistique du chauffage d'APP39 activée. **Rien n'a
+encore été vérifié dans les données.**
+
+Reste à faire / à vérifier :
+
+- Obtenir la date et l'heure de l'enregistrement de la config.
+- Wh → kWh fait dans les capteurs MBus (pas seulement les blocs neufs) ?
+- APP48 chauffage (registre vide), statistique du Boiler (arrêtée au
+  02.11), statistique d'APP49 Réseau et des 34 blocs neufs.
+- APP46 Réseau, COMMUNS, PAC : alimentés depuis le relèvement du maximum ?
+- AI3 = les 17 compteurs (AQ5 ≈ Σ Txt2 des deux programmes).
+- Côté application : nouveaux blocs de même nom que les anciens (deux
+  séries par libellé : choisir selon la période, sans « compteur
+  ambigu ») ; rejeu de la RCP contre les nouvelles séries après 24 h ;
+  date de validité du chauffage de La Calbasse (comme
+  `BUANDERIE_VALID_FROM`) à l'heure de l'enregistrement.
+- Décisions en attente : retirer ou reformuler la note « Sous réserve »
+  de la PAC (`RESERVES_ZONES`) ; refaire le décompte du 01-10.11 avec la
+  règle exacte du PicoC (résiduel en réseau des Communs) ; relevé physique
+  du chauffage d'APP48.
+
+## Accès Loxone Cloud bloqué, fiabilité de la collecte — 2026-11-24
+
+Entre le 11 et le 24.11, l'annuaire Loxone
+(`dns.loxonecloud.com/?getip`) a répondu **418** pour les quatre sites :
+« Access through Loxone Remote Connect is only possible with the Loxone
+App or Loxone Config ». Connexion refusée, `/health` du VPS en
+`degrade`. L'accès HTTP est rouvert le 2026-11-24, sans garantie qu'il le
+reste. Le décompte se rattrape seul (synchro Statistics) ; les courbes
+(`readings_hourly`) du trou demandent `backfill_statistics.py --since`
+sur chaque site (pas encore fait).
+
+**Plan proposé à l'utilisateur, à faire après la page Paramètres** :
+
+1. **Deux chemins d'accès par site** : tunnel WireGuard en principal,
+   cloud Loxone en secours. Un Raspberry Pi (ou un routeur avec WireGuard)
+   par site, **simple passerelle, pas collecteur** (le VPS reste l'unique
+   collecteur, une seule base). Le VPS est le point central (port UDP dans
+   ufw), le Pi s'y connecte de lui-même (traverse NAT et CGNAT, rien
+   d'ouvert chez le client) et redirige un port vers l'IP fixe du
+   Miniserver (réservation DHCP) : deux sites au même `192.168.1.x` ne se
+   gênent pas. Tunnel limité au port HTTP du Miniserver, compte Loxone en
+   lecture seule, Pi sur Ethernet avec carte industrielle ou système en
+   lecture seule. Routage Docker du conteneur `api` vers le tunnel à
+   valider. Premier site : La Calbasse. Environ 100-150 CHF par site.
+2. **Bascule automatique dans le code** : liste `acces:` par miniserver
+   dans `config.yaml` (ordre de préférence), essayée par `client_for`,
+   poll et synchro Statistics ; l'ancienne forme `host`/`port` reste
+   valable. Chemin utilisé affiché sur la page Communication.
+3. **Rattrapage automatique** de `readings_hourly` après un trou de plus
+   d'une heure (aujourd'hui manuel).
+4. **Contrôle** : signaler tout compteur du décompte sans Statistics
+   (oubli constaté sur APP39 Chauffage et APP49 Réseau).
+5. **Alertes** : confirmer le moniteur UptimeRobot sur `/health` (créé le
+   03.11, jamais vérifié) ; alerte quand un site passe sur son chemin de
+   secours.
+
+Questions ouvertes : durée de conservation des Statistics sur la carte SD
+des Miniservers (limite d'une coupure rattrapable) ; Pi ou routeur
+WireGuard selon le matériel de chaque site ; accord des clients et de
+l'installateur pour poser un appareil sur leur réseau.
+
 ## Prochaine étape prévue
 
-Finir le déploiement (liste ci-dessus). Ensuite, la liste numérotée de
-l'utilisateur : renommage des sites dans Loxone Config (point 12),
-installateur (point 11), PAC de La Calbasse (point 8), liaison de
-compteurs (point 1).
+1. **Page Paramètres** (phase 2, `docs/plan-page-parametres.md`), choix de
+   l'utilisateur du 2026-11-24 : à faire en premier.
+2. Fiabilité de la collecte (section du 2026-11-24) et vérifications de
+   La Calbasse (section du 2026-11-10).
+3. Finir le déploiement (test de restauration, UptimeRobot, phase G).
+4. La liste numérotée de l'utilisateur : renommage des sites dans Loxone
+   Config (point 12), installateur (point 11), liaison de compteurs
+   (point 1).
 
 ## Commandes utiles
 
