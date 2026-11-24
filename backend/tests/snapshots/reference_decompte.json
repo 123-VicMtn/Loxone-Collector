@@ -239,7 +239,6 @@
   "reserves_zones": [],
   "statistiques_erreur": null,
   "statistiques_jusqu_au": 1793494800,
-  "tarifs": [],
   "timezone": "Europe/Zurich",
   "zones": [
    {
@@ -267,13 +266,6 @@
       },
       "en_cours": false,
       "facturable": false,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [
         "pas de relevé avant le début de la période"
@@ -294,7 +286,6 @@
        "releve_fin": 1500.0,
        "releve_fin_ts": 1788210000
       },
-      "tarif": null,
       "taux_autoproduction": null,
       "total": null
      },
@@ -310,13 +301,6 @@
       },
       "en_cours": false,
       "facturable": true,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [],
        "kwh": 204.14800000000014,
@@ -333,7 +317,6 @@
        "releve_fin": 1628.452,
        "releve_fin_ts": 1790802000
       },
-      "tarif": null,
       "taux_autoproduction": 38.620565243535765,
       "total": 332.60000000000014
      },
@@ -349,13 +332,6 @@
       },
       "en_cours": false,
       "facturable": true,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [],
        "kwh": 226.16000000000003,
@@ -372,7 +348,6 @@
        "releve_fin": null,
        "releve_fin_ts": null
       },
-      "tarif": null,
       "taux_autoproduction": 34.27492008137169,
       "total": 344.1
      },
@@ -394,13 +369,6 @@
       },
       "en_cours": true,
       "facturable": false,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [
         "relevé de fin vieux de 4 j (trou de collecte)"
@@ -421,7 +389,6 @@
        "releve_fin": 1777.085,
        "releve_fin_ts": 1793494800
       },
-      "tarif": null,
       "taux_autoproduction": 0.0,
       "total": 0.7999999999999545
      }
@@ -470,13 +437,6 @@
       },
       "en_cours": false,
       "facturable": false,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [
         "pas de relevé avant le début de la période"
@@ -497,7 +457,6 @@
        "releve_fin": 1800.0,
        "releve_fin_ts": 1788210000
       },
-      "tarif": null,
       "taux_autoproduction": null,
       "total": null
      },
@@ -513,13 +472,6 @@
       },
       "en_cours": false,
       "facturable": true,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [],
        "kwh": 263.0619999999999,
@@ -536,7 +488,6 @@
        "releve_fin": 1997.138,
        "releve_fin_ts": 1790802000
       },
-      "tarif": null,
       "taux_autoproduction": 42.83746197305519,
       "total": 460.1999999999998
      },
@@ -563,13 +514,6 @@
       },
       "en_cours": false,
       "facturable": false,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [],
        "kwh": null,
@@ -586,7 +530,6 @@
        "releve_fin": null,
        "releve_fin_ts": null
       },
-      "tarif": null,
       "taux_autoproduction": null,
       "total": null
      },
@@ -608,13 +551,6 @@
       },
       "en_cours": true,
       "facturable": false,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [
         "relevé de fin vieux de 4 j (trou de collecte)"
@@ -635,7 +571,6 @@
        "releve_fin": 2228.462,
        "releve_fin_ts": 1793494800
       },
-      "tarif": null,
       "taux_autoproduction": 0.0,
       "total": 1.199999999999818
      }
@@ -684,13 +619,6 @@
       },
       "en_cours": false,
       "facturable": false,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [
         "pas de relevé avant le début de la période"
@@ -711,7 +639,6 @@
        "releve_fin": 2100.0,
        "releve_fin_ts": 1788210000
       },
-      "tarif": null,
       "taux_autoproduction": null,
       "total": null
      },
@@ -727,13 +654,6 @@
       },
       "en_cours": false,
       "facturable": true,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [],
        "kwh": 102.67999999999984,
@@ -750,7 +670,6 @@
        "releve_fin": 2177.07,
        "releve_fin_ts": 1790802000
       },
-      "tarif": null,
       "taux_autoproduction": 42.876216968011214,
       "total": 179.75
      },
@@ -766,13 +685,6 @@
       },
       "en_cours": false,
       "facturable": true,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [],
        "kwh": 114.2,
@@ -789,7 +701,6 @@
        "releve_fin": null,
        "releve_fin_ts": null
       },
-      "tarif": null,
       "taux_autoproduction": 38.60215053763441,
       "total": 186.0
      },
@@ -811,13 +722,6 @@
       },
       "en_cours": true,
       "facturable": false,
-      "montants": {
-       "detail_reseau": null,
-       "detail_solaire": null,
-       "ht": null,
-       "ttc": null,
-       "tva": null
-      },
       "reseau": {
        "alertes": [
         "relevé de fin vieux de 4 j (trou de collecte)"
@@ -838,7 +742,6 @@
        "releve_fin": 2268.066,
        "releve_fin_ts": 1793494800
       },
-      "tarif": null,
       "taux_autoproduction": 0.0,
       "total": 0.5
      }

@@ -30,37 +30,6 @@ from loxone_collector.services.billing.releves import (
 KWH_DECIMALES = 2
 
 
-def tarif_for(tarifs: list[dict], start_ts: int, tz_name: str = TIMEZONE) -> dict | None:
-    """Tarif applicable à un mois : le plus récent dont la date de prise
-    d'effet est antérieure ou égale au DÉBUT de la période. Prendre le début
-    (et pas la fin) garantit qu'une hausse de prix décidée en cours de mois
-    ne s'applique pas rétroactivement à tout le mois."""
-    day = datetime.fromtimestamp(start_ts, ZoneInfo(tz_name)).strftime("%Y-%m-%d")
-    applicable = [t for t in tarifs if t["valid_from"] <= day]
-    return applicable[-1] if applicable else None
-
-
-def montants(reseau_kwh: float | None, solaire_kwh: float | None,
-              tarif: dict | None) -> dict:
-    """Montants d'une ligne de décompte. Retourne des None (et pas des 0)
-    quand la consommation ou le tarif manque : un montant à 0 CHF affiché
-    faute de données se confond avec un montant à 0 CHF réellement dû."""
-    if tarif is None or reseau_kwh is None or solaire_kwh is None:
-        return {"ht": None, "tva": None, "ttc": None,
-                "detail_reseau": None, "detail_solaire": None}
-    detail_reseau = reseau_kwh * tarif["prix_reseau"]
-    detail_solaire = solaire_kwh * tarif["prix_solaire"]
-    ht = detail_reseau + detail_solaire
-    tva = ht * tarif["taux_tva"] / 100.0
-    return {
-        "ht": ht,
-        "tva": tva,
-        "ttc": ht + tva,
-        "detail_reseau": detail_reseau,
-        "detail_solaire": detail_solaire,
-    }
-
-
 def taux(numerateur: float | None, denominateur: float | None) -> float | None:
     """Ratio en %, ou None si incalculable. Un dénominateur nul (aucune
     production en décembre, par exemple) donne None et pas 0 % : "pas de
@@ -71,8 +40,7 @@ def taux(numerateur: float | None, denominateur: float | None) -> float | None:
     return numerateur / denominateur * 100.0
 
 
-def compute_decompte(conn, series: list[dict], periods: list[dict],
-                      tarifs: list[dict], now_ts: int,
+def compute_decompte(conn, series: list[dict], periods: list[dict], now_ts: int,
                       tz_name: str = TIMEZONE,
                       fenetre: tuple[int, int] | None = None) -> dict:
     """Décompte complet : pour chaque zone et chaque mois, la part réseau et
@@ -126,10 +94,10 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
             evaluation = evaluations[p["key"]]
             if evaluation["source_recommandee"] == "calculee":
                 z["periodes"][p["key"]] = _zone_period_calculee(
-                    conn, z, p, tarifs, now_ts, tz_name, evaluation,
+                    conn, z, p, now_ts, evaluation,
                 )
             else:
-                z["periodes"][p["key"]] = _zone_period(conn, z, p, tarifs, now_ts, tz_name)
+                z["periodes"][p["key"]] = _zone_period(conn, z, p, now_ts)
 
     batiment = {"sources": batiment_src, "periodes": {}}
     for p in periods:
@@ -140,7 +108,6 @@ def compute_decompte(conn, series: list[dict], periods: list[dict],
         "periodes": periods,
         "zones": zones,
         "batiment": batiment,
-        "tarifs": tarifs,
         "generated_at": now_ts,
         "repartition": {k: _repartition_payload(ev) for k, ev in evaluations.items()},
         "reserves": [RESERVES_ZONES[z["zone"]] for z in zones if z["zone"] in RESERVES_ZONES],
@@ -205,7 +172,6 @@ def _cumul_zone(entries: list[dict], labels: list[str]) -> dict:
     reseau = _cumul_lecture([e["reseau"] for e in entries], labels)
     solaire = _cumul_lecture([e["solaire"] for e in entries], labels)
     total = _somme_ou_rien([e["total"] for e in entries])
-    tarif = entries[0]["tarif"]
     return {
         "reseau": reseau,
         "solaire": solaire,
@@ -214,9 +180,6 @@ def _cumul_zone(entries: list[dict], labels: list[str]) -> dict:
         "taux_autoproduction": taux(solaire["kwh"], total),
         "en_cours": any(e["en_cours"] for e in entries),
         "facturable": all(e["facturable"] for e in entries),
-        "tarif": tarif,
-        "tarifs_differents": any(e["tarif"] != tarif for e in entries),
-        "montants": montants(reseau["kwh"], solaire["kwh"], tarif),
         "alertes": [f"{lbl} : {a}" for lbl, e in zip(labels, entries) for a in e["alertes"]],
     }
 
@@ -303,8 +266,7 @@ def _lecture_zone(conn, src: dict, p: dict, now_ts: int) -> dict:
     return reading_delta(conn, src["series_id"], start, p["end"], now_ts, statistics=True)
 
 
-def _zone_period(conn, zone: dict, p: dict, tarifs: list[dict], now_ts: int,
-                  tz_name: str) -> dict:
+def _zone_period(conn, zone: dict, p: dict, now_ts: int) -> dict:
     src = zone["sources"]
 
     def delta(key):
@@ -315,8 +277,6 @@ def _zone_period(conn, zone: dict, p: dict, tarifs: list[dict], now_ts: int,
     r, s = reseau["kwh"], solaire["kwh"]
     total = (r + s) if (r is not None and s is not None) else None
 
-    tarif = tarif_for(tarifs, p["start"], tz_name)
-    m = montants(r, s, tarif)
     en_cours = p["end"] > now_ts
 
     alertes = []
@@ -334,8 +294,6 @@ def _zone_period(conn, zone: dict, p: dict, tarifs: list[dict], now_ts: int,
         "taux_autoproduction": taux(s, total),
         "en_cours": en_cours,
         "facturable": bool(total is not None and not en_cours),
-        "tarif": tarif,
-        "montants": m,
         "alertes": alertes,
     }
 
@@ -421,8 +379,7 @@ def _lecture_calculee(kwh: float | None) -> dict:
     }
 
 
-def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
-                          now_ts: int, tz_name: str, evaluation: dict) -> dict:
+def _zone_period_calculee(conn, zone: dict, p: dict, now_ts: int, evaluation: dict) -> dict:
     """Même forme que `_zone_period`, mais réseau et solaire sont la part
     du relevé du lot. Leur somme est ce relevé, arrondi à KWH_DECIMALES.
     """
@@ -462,7 +419,6 @@ def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
 
     r, s = reseau["kwh"], solaire["kwh"]
     parts_ok = r is not None and s is not None
-    tarif = tarif_for(tarifs, p["start"], tz_name)
     return {
         "reseau": reseau,
         "solaire": solaire,
@@ -471,7 +427,5 @@ def _zone_period_calculee(conn, zone: dict, p: dict, tarifs: list[dict],
         "taux_autoproduction": taux(s, total) if parts_ok else None,
         "en_cours": en_cours,
         "facturable": bool(parts_ok and not en_cours),
-        "tarif": tarif,
-        "montants": montants(r, s, tarif),
         "alertes": alertes,
     }

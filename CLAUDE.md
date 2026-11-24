@@ -636,8 +636,16 @@ Avancement :
   Frais supplémentaires = frais saisis. CSV : section Récapitulatif. Le
   site de test « Ref » a des paramètres depuis le 01.01.2026 ; la
   référence a changé (montants, récapitulatif), pas les kWh.
-  `/api/tarifs` et la table `tarifs` ne servent plus à l'export : à
-  retirer au commit suivant.
+- Nettoyage (fait) : `/api/tarifs` (GET, POST, DELETE) retiré, avec
+  `db.list_tarifs` / `upsert_tarif` / `delete_tarif`, `billing.tarif_for`,
+  l'ancienne fonction `billing.montants` et le paramètre `tarifs` de
+  `compute_decompte` et `historique_mensuel` ; `/api/decompte` ne renvoie
+  plus `tarifs`, ni `tarif` / `montants` par zone. Côté frontend :
+  `fetchTarifs`, `saveTarif`, `deleteTarif` et les types `Tarif`,
+  `Montants`. **La table `tarifs` reste en base** (jamais de DROP), lue
+  une seule fois par `db._creer_parametres`. Les sections plus anciennes
+  qui citent `/api/tarifs` ou « le seul moyen de saisir les prix » sont
+  dépassées : les prix se saisissent dans `parametres`.
 
 ### Fonctionnalité demandée pour plus tard : liaison de compteurs
 

@@ -1,5 +1,5 @@
 /**
- * Formes exactes renvoyées par /api/decompte et /api/tarifs -- voir
+ * Formes exactes renvoyées par /api/decompte -- voir
  * billing.py::compute_decompte pour la source de vérité côté serveur.
  * Le frontend ne fait QUE afficher ce payload, jamais recalculer une part
  * de cette logique (voir CLAUDE.md, "Choix de stack figé").
@@ -24,25 +24,6 @@ export interface SourceRef {
 import type { ReadingDelta } from '@shared/types/series'
 export type { ReadingDelta }
 
-export interface Montants {
-  ht: number | null
-  tva: number | null
-  ttc: number | null
-  detail_reseau: number | null
-  detail_solaire: number | null
-}
-
-export interface Tarif {
-  id: number
-  miniserver: string
-  valid_from: string
-  prix_reseau: number
-  prix_solaire: number
-  taux_tva: number
-  note: string
-  updated_at?: number
-}
-
 export interface ZonePeriod {
   reseau: ReadingDelta
   solaire: ReadingDelta
@@ -51,8 +32,6 @@ export interface ZonePeriod {
   taux_autoproduction: number | null
   en_cours: boolean
   facturable: boolean
-  tarif: Tarif | null
-  montants: Montants
   alertes: string[]
 }
 
@@ -106,7 +85,6 @@ export interface DecomptePayload {
   periodes: Period[]
   zones: Zone[]
   batiment: Batiment
-  tarifs: Tarif[]
   generated_at: number
   miniserver: string
   /** Un verdict par mois (clé YYYY-MM) : un mois faux ne juge pas les autres. */

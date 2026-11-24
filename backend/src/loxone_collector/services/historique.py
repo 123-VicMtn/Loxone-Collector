@@ -159,17 +159,17 @@ def _mois_vide(p: dict, now_ts: int) -> dict:
     }
 
 
-def historique_mensuel(conn, series: list[dict], tarifs: list[dict], now_ts: int,
+def historique_mensuel(conn, series: list[dict], now_ts: int,
                        tz_name: str = billing.TIMEZONE) -> list[dict]:
     """Les `NB_MOIS` derniers mois, du plus ancien au plus récent ; un mois
     sans relevé est vide (`vide`)."""
     fenetre_affichee = _derniers_mois(now_ts, tz_name)
-    mesures = {m["key"]: m for m in _mois_mesures(conn, series, tarifs, now_ts, tz_name,
+    mesures = {m["key"]: m for m in _mois_mesures(conn, series, now_ts, tz_name,
                                                    fenetre_affichee[0]["start"])}
     return [mesures.get(p["key"]) or _mois_vide(p, now_ts) for p in fenetre_affichee]
 
 
-def _mois_mesures(conn, series: list[dict], tarifs: list[dict], now_ts: int,
+def _mois_mesures(conn, series: list[dict], now_ts: int,
                   tz_name: str, depuis_ts: int) -> list[dict]:
     """Chiffres des mois relevés depuis `depuis_ts`."""
     zones = billing.resolve_zones(series)
@@ -186,7 +186,7 @@ def _mois_mesures(conn, series: list[dict], tarifs: list[dict], now_ts: int,
         return []
     complets = billing.periods_covering(premier_ts, dernier_ts, tz_name)
     payload = billing.compute_decompte(
-        conn, series, periodes, tarifs, now_ts, tz_name,
+        conn, series, periodes, now_ts, tz_name,
         fenetre=(complets[0]["start"], complets[-1]["end"]),
     )
     sans_parts = _site_sans_parts(payload["zones"])

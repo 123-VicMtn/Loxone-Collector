@@ -1,4 +1,4 @@
-"""Décompte de charges : calcul, exports Excel et CSV, tarifs."""
+"""Décompte de charges : calcul, exports Excel et CSV."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from flask_login import current_user, login_required
 from loxone_collector import db
 from loxone_collector.api import access
 from loxone_collector.api.access import (
-    admin_required,
     current_cfg,
     read_conn,
     resolve_miniserver,
@@ -59,7 +58,6 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
     le 2026-10-28, chaque affichage attendait le Miniserver)."""
     with closing(read_conn()) as conn:
         series = _series_du_site(conn, ms_name)
-        tarifs = db.list_tarifs(conn, ms_name)
         try:
             for cle in ("from", "to"):
                 if request.args.get(cle):
@@ -77,7 +75,7 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
 
         rng = billing.available_range(conn, zones, batiment_src)
         if rng is None:
-            return finaliser(billing.compute_decompte(conn, series, [], tarifs, now))
+            return finaliser(billing.compute_decompte(conn, series, [], now))
         first_ts, last_ts = rng
 
         try:
@@ -94,7 +92,7 @@ def _decompte_payload(ms_name: str, now: int) -> dict:
             abort(400, "la période de début est postérieure à la période de fin")
 
         periods = billing.periods_covering(first_ts, last_ts)
-        return finaliser(billing.compute_decompte(conn, series, periods, tarifs, now))
+        return finaliser(billing.compute_decompte(conn, series, periods, now))
 
 
 @bp.route("/api/historique")
@@ -107,7 +105,7 @@ def api_historique():
     with closing(read_conn()) as conn:
         series = _series_du_site(conn, ms_name)
         mois = historique.historique_mensuel(
-            conn, series, db.list_tarifs(conn, ms_name), access.maintenant(),
+            conn, series, access.maintenant(),
         )
     return jsonify({"miniserver": ms_name, "mois": mois})
 
@@ -207,7 +205,6 @@ def _export_payload(ms_name: str, now: int, start: int, end: int, cle: str,
     début)."""
     with closing(read_conn()) as conn:
         series = _series_du_site(conn, ms_name)
-        tarifs = db.list_tarifs(conn, ms_name)
         zones = billing.resolve_zones(series)
         rng = billing.available_range(conn, zones, billing.resolve_batiment(series))
         if rng is None or rng[0] >= end or rng[1] < start:
@@ -217,7 +214,7 @@ def _export_payload(ms_name: str, now: int, start: int, end: int, cle: str,
         mois_donnees = billing.periods_covering(*rng)
         fenetre = (min(mois_donnees[0]["start"], start), max(mois_donnees[-1]["end"], end))
         periods = billing.periodes_plage(start, end)
-        payload = billing.compute_decompte(conn, series, periods, tarifs, now, fenetre=fenetre)
+        payload = billing.compute_decompte(conn, series, periods, now, fenetre=fenetre)
         if len(periods) == 1:
             cle = periods[0]["key"]
         else:
@@ -321,60 +318,3 @@ def api_decompte_xlsx():
         as_attachment=True,
         download_name=_nom_fichier(ms_name, suffixe, "xlsx", zone),
     )
-
-
-@bp.route("/api/tarifs", methods=["GET", "POST"])
-@login_required
-def api_tarifs():
-    """Tarifs appliqués au décompte d'UN site (chaque site peut avoir un
-    fournisseur/contrat différent). Stockés en base (et non dans le
-    navigateur) pour qu'un mois déjà facturé reste reproductible à
-    l'identique après un changement de prix -- voir la table `tarifs`.
-
-    GET : lecture seule, ouverte à tout compte ayant accès à ce site
-    (`_resolve_miniserver` filtre déjà par _allowed_miniservers). POST :
-    admin uniquement -- un compte 'user' ne modifie jamais les tarifs
-    (décision explicite, voir CLAUDE.md "Rôles utilisateurs"). Une seule
-    fonction de vue plutôt que @admin_required en décorateur : GET et POST
-    n'ont pas les mêmes droits ici, contrairement aux autres routes."""
-    if request.method == "GET":
-        ms_name = resolve_miniserver(request.args.get("miniserver"))
-        with closing(read_conn()) as conn:
-            return jsonify(db.list_tarifs(conn, ms_name))
-
-    if not current_user.is_admin:
-        return jsonify({"error": "forbidden"}), 403
-
-    payload = request.get_json(force=True, silent=True) or {}
-    ms_name = resolve_miniserver(payload.get("miniserver"))
-    valid_from = str(payload.get("valid_from", "")).strip()
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", valid_from):
-        abort(400, "valid_from requis, au format YYYY-MM-DD")
-    try:
-        prix_reseau = float(payload.get("prix_reseau", 0))
-        prix_solaire = float(payload.get("prix_solaire", 0))
-        taux_tva = float(payload.get("taux_tva", 0))
-    except (TypeError, ValueError):
-        abort(400, "prix_reseau, prix_solaire et taux_tva doivent être numériques")
-    if min(prix_reseau, prix_solaire, taux_tva) < 0:
-        abort(400, "les prix et le taux de TVA ne peuvent pas être négatifs")
-
-    with closing(read_conn()) as conn:
-        db.upsert_tarif(
-            conn, ms_name, valid_from, prix_reseau, prix_solaire, taux_tva,
-            str(payload.get("note", "")),
-        )
-        return jsonify(db.list_tarifs(conn, ms_name))
-
-
-@bp.route("/api/tarifs/<int:tarif_id>", methods=["DELETE"])
-@admin_required
-def api_tarif_delete(tarif_id: int):
-    ms_name = resolve_miniserver(request.args.get("miniserver"))
-    with closing(read_conn()) as conn:
-        # Avant, la suppression ne regardait que l'identifiant : le tarif
-        # d'un autre site partait, quel que soit `miniserver`.
-        if not db.delete_tarif(conn, ms_name, tarif_id):
-            abort(404, "tarif introuvable pour ce site")
-        return jsonify(db.list_tarifs(conn, ms_name))
-

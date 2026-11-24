@@ -669,51 +669,6 @@ def query_value_at(conn: sqlite3.Connection, series_id: str, ts: int) -> tuple[i
     return max(candidates, key=lambda r: r[0])
 
 
-def list_tarifs(conn: sqlite3.Connection, miniserver: str) -> list[dict]:
-    """Tarifs d'UN site, du plus ancien au plus récent -- chaque site
-    (miniserver) a son propre historique de prix, voir SCHEMA."""
-    cur = conn.execute(
-        "SELECT id, miniserver, valid_from, prix_reseau, prix_solaire, taux_tva, note, updated_at "
-        "FROM tarifs WHERE miniserver = ? ORDER BY valid_from ASC",
-        (miniserver,),
-    )
-    cols = [c[0] for c in cur.description]
-    return [dict(zip(cols, row)) for row in cur.fetchall()]
-
-
-def upsert_tarif(conn: sqlite3.Connection, miniserver: str, valid_from: str,
-                  prix_reseau: float, prix_solaire: float, taux_tva: float,
-                  note: str = "") -> None:
-    """Crée ou remplace le tarif d'un site applicable à partir de
-    `valid_from` ('YYYY-MM-DD'). Une seule ligne par (site, date de prise
-    d'effet) (contrainte UNIQUE) : ré-enregistrer la même date pour le même
-    site corrige le tarif au lieu d'en empiler un doublon."""
-    conn.execute(
-        """
-        INSERT INTO tarifs (miniserver, valid_from, prix_reseau, prix_solaire, taux_tva, note, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(miniserver, valid_from) DO UPDATE SET
-            prix_reseau=excluded.prix_reseau,
-            prix_solaire=excluded.prix_solaire,
-            taux_tva=excluded.taux_tva,
-            note=excluded.note,
-            updated_at=excluded.updated_at
-        """,
-        (miniserver, valid_from, prix_reseau, prix_solaire, taux_tva, note, int(time.time())),
-    )
-    conn.commit()
-
-
-def delete_tarif(conn: sqlite3.Connection, miniserver: str, tarif_id: int) -> bool:
-    """Supprime le tarif `tarif_id` seulement s'il appartient à ce site.
-    Retourne False si aucun tarif de ce site ne porte cet identifiant."""
-    cur = conn.execute(
-        "DELETE FROM tarifs WHERE id = ? AND miniserver = ?", (tarif_id, miniserver),
-    )
-    conn.commit()
-    return cur.rowcount > 0
-
-
 def _lignes(cur: sqlite3.Cursor) -> list[dict]:
     cols = [c[0] for c in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]

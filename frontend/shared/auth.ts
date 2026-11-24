@@ -5,8 +5,9 @@
  * connexion (`src/pages/auth/LoginPage.vue`).
  *
  * Deux rôles (voir CLAUDE.md, "Rôles utilisateurs") : 'admin' (tous les
- * sites, peut modifier classification/tarifs) et 'user' (lecture seule,
- * uniquement les sites listés dans `miniservers` -- déjà résolu par le
+ * sites, modifie tout, y compris la classification et les paramètres
+ * globaux) et 'user' (lecture seule, sauf les paramètres et frais de ses
+ * sites ; uniquement les sites listés dans `miniservers` -- déjà résolu par le
  * backend, `/api/login`/`/api/me` renvoient la liste effective, pas besoin
  * de distinguer admin/user côté frontend pour savoir quels sites afficher).
  */

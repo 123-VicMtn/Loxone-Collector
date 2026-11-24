@@ -41,9 +41,6 @@ ROUTES_CONNECTEES = [
     ("post", "/api/decompte/actualiser"),
     ("get", "/api/decompte/export.csv?mois=2026-10"),
     ("get", "/api/decompte/export.xlsx?mois=2026-10"),
-    ("get", "/api/tarifs"),
-    ("post", "/api/tarifs"),
-    ("delete", "/api/tarifs/1"),
     ("get", "/api/parametres/catalogue"),
     ("get", "/api/parametres"),
     ("post", "/api/parametres"),
@@ -183,7 +180,8 @@ def test_puissance_sans_serie(client_user):
     "/api/decompte",
     "/api/decompte/export.csv?mois=2026-10",
     "/api/decompte/export.xlsx?mois=2026-10",
-    "/api/tarifs",
+    "/api/parametres",
+    "/api/frais",
 ])
 def test_decompte_site_non_accorde_ou_inconnu_meme_reponse(client_user, client_admin, url):
     # Un user ne doit pas pouvoir distinguer un site inexistant d'un site
@@ -279,36 +277,9 @@ def test_nom_de_fichier_d_un_appartement(client_user, fmt):
 
 # --- Écritures : admin seulement ------------------------------------------------
 
-TARIF = {"miniserver": ref.SITE, "valid_from": "2026-01-01",
-         "prix_reseau": 0.3, "prix_solaire": 0.2, "taux_tva": 8.1}
-
-
-def test_tarifs_lecture_user_ecriture_admin(client_user, client_admin):
-    assert client_user.get(f"/api/tarifs?miniserver={ref.SITE}").get_json() == []
-    assert client_user.post("/api/tarifs", json=TARIF).status_code == 403
-    tarifs = client_admin.post("/api/tarifs", json=TARIF).get_json()
-    assert [(t["valid_from"], t["prix_reseau"]) for t in tarifs] == [("2026-01-01", 0.3)]
-    tarif_id = tarifs[0]["id"]
-    assert client_user.delete(f"/api/tarifs/{tarif_id}?miniserver={ref.SITE}").status_code == 403
-    assert client_admin.delete(f"/api/tarifs/{tarif_id}?miniserver={ref.SITE}").get_json() == []
-
-
-def test_suppression_dun_tarif_limitee_a_son_site(client_admin):
-    tarif_autre = client_admin.post("/api/tarifs", json={**TARIF, "miniserver": ref.AUTRE}).get_json()[0]
-    res = client_admin.delete(f"/api/tarifs/{tarif_autre['id']}?miniserver={ref.SITE}")
-    assert (res.status_code, res.get_json()) == (404, {"error": "tarif introuvable pour ce site"})
-    assert [t["id"] for t in client_admin.get(f"/api/tarifs?miniserver={ref.AUTRE}").get_json()] == [tarif_autre["id"]]
-    res = client_admin.delete(f"/api/tarifs/{tarif_autre['id']}?miniserver={ref.AUTRE}")
-    assert res.get_json() == []
-
-
-@pytest.mark.parametrize("modif", [
-    {"valid_from": "01.01.2026"},
-    {"prix_reseau": "cher"},
-    {"taux_tva": -1},
-])
-def test_tarifs_invalides_400(client_admin, modif):
-    assert client_admin.post("/api/tarifs", json={**TARIF, **modif}).status_code == 400
+def test_routes_des_tarifs_retirees(client_admin):
+    # Remplacées par /api/parametres (page Paramètres, 2026-11-24).
+    assert client_admin.get(f"/api/tarifs?miniserver={ref.SITE}").status_code == 404
 
 
 def test_classification_admin_seulement(client_user, client_admin):

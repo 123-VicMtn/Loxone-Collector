@@ -98,9 +98,7 @@ from loxone_collector.services.billing.decompte import (
     WALLBOX_VALID_FROM,
     compute_decompte,
     cumul_periodes,
-    montants,
     repartition_du_mois,
-    tarif_for,
     taux,
 )
 from loxone_collector.services.billing.periodes import (
@@ -168,7 +166,6 @@ __all__ = [
     "delta_compteurs_successifs",
     "lecture_absente",
     "min_drop_for_resource_type",
-    "montants",
     "parse_jour",
     "parse_period_key",
     "period_bounds",
@@ -188,7 +185,6 @@ __all__ = [
     "series_du_decompte",
     "series_total",
     "source_ref",
-    "tarif_for",
     "taux",
     "zone_label",
     "zone_sort_key",

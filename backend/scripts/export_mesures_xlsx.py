@@ -551,7 +551,7 @@ def main() -> None:
             sys.exit(1)
         window = (periods[0]["start"], periods[-1]["end"])
 
-    decompte = billing.compute_decompte(conn, series, periods, [], now_ts)
+    decompte = billing.compute_decompte(conn, series, periods, now_ts)
 
     wb = Workbook()
     wb.remove(wb.active)

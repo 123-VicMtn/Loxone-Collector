@@ -291,7 +291,7 @@ class TestResolutionDesSeries(unittest.TestCase):
             s("pac", "PAC (total)", "energie_consommee", ""),
             s("c", "Commun (total)", "energie_consommee", "COMMUN"),
         ]
-        payload = billing.compute_decompte(conn, series, [], [], ts(2026, 10, 27))
+        payload = billing.compute_decompte(conn, series, [], ts(2026, 10, 27))
         conn.close()
         self.assertEqual(payload["reserves"], [billing.RESERVES_ZONES["PAC"]])
         notes = [texte for texte, _ in decompte_xlsx._notes_classeur(payload, "2026-10", [])]
@@ -302,7 +302,7 @@ class TestResolutionDesSeries(unittest.TestCase):
         conn = sqlite3.connect(":memory:")
         conn.executescript(db.SCHEMA)
         series = [s("c", "Commun (total)", "energie_consommee", "COMMUN")]
-        payload = billing.compute_decompte(conn, series, [], [], ts(2026, 10, 27))
+        payload = billing.compute_decompte(conn, series, [], ts(2026, 10, 27))
         conn.close()
         self.assertEqual(payload["reserves"], [])
 
@@ -431,35 +431,6 @@ class TestConsommationDunePeriode(unittest.TestCase):
         self.assertEqual(res["alertes"], [])
 
 
-class TestTarifsEtMontants(unittest.TestCase):
-    TARIFS = [
-        {"valid_from": "2025-01-01", "prix_reseau": 0.25, "prix_solaire": 0.12, "taux_tva": 8.1},
-        {"valid_from": "2026-01-01", "prix_reseau": 0.30, "prix_solaire": 0.15, "taux_tva": 8.1},
-    ]
-
-    def test_tarif_choisi_sur_le_debut_de_periode(self):
-        # Une hausse au 01.01.2026 ne doit pas s'appliquer à décembre 2025.
-        t = billing.tarif_for(self.TARIFS, billing.period_bounds(2025, 12)[0])
-        self.assertEqual(t["prix_reseau"], 0.25)
-        t = billing.tarif_for(self.TARIFS, billing.period_bounds(2026, 1)[0])
-        self.assertEqual(t["prix_reseau"], 0.30)
-
-    def test_aucun_tarif_avant_la_premiere_date(self):
-        self.assertIsNone(billing.tarif_for(self.TARIFS, billing.period_bounds(2024, 1)[0]))
-
-    def test_montants(self):
-        m = billing.montants(100.0, 50.0, self.TARIFS[1])
-        self.assertAlmostEqual(m["ht"], 100 * 0.30 + 50 * 0.15)
-        self.assertAlmostEqual(m["tva"], m["ht"] * 0.081)
-        self.assertAlmostEqual(m["ttc"], m["ht"] + m["tva"])
-
-    def test_montant_absent_plutot_que_zero(self):
-        # Un montant nul faute de données ne doit pas se confondre avec un
-        # montant nul réellement dû.
-        self.assertIsNone(billing.montants(None, 50.0, self.TARIFS[1])["ttc"])
-        self.assertIsNone(billing.montants(100.0, 50.0, None)["ttc"])
-
-
 class TestExportLignes(unittest.TestCase):
     def test_lignes_et_total(self):
         payload = {
@@ -493,13 +464,8 @@ class TestExportLignes(unittest.TestCase):
 
 class TestDecompteWorkbook(unittest.TestCase):
     """Le classeur doit s'ouvrir déjà lisible : titre, colonnes assez larges,
-    nombres en kWh, prix préremplis, montants en formules, relevés dans
-    un second onglet, mois en cours borné au dernier relevé."""
-
-    TARIF = {
-        "prix_reseau": 0.25, "prix_solaire": 0.12, "taux_tva": 8.1,
-        "valid_from": "2026-01-01",
-    }
+    nombres en kWh, paramètres et montants calculés par l'application,
+    relevés dans un dernier onglet, mois en cours borné au dernier relevé."""
 
     def setUp(self):
         self.payload = {
@@ -530,14 +496,12 @@ class TestDecompteWorkbook(unittest.TestCase):
                     },
                     "total": 15.004,
                     "facturable": True, "en_cours": False,
-                    "tarif": self.TARIF,
                 }}},
                 {"zone": "APP2", "label": "App 2", "periodes": {"2026-05": {
                     "reseau": {"kwh": None, "alertes": ["pas de relevé dans la période"]},
                     "solaire": {"kwh": 2.0, "alertes": []},
                     "total": None,
                     "facturable": False, "en_cours": False,
-                    "tarif": self.TARIF,
                 }}},
             ],
         }
@@ -789,7 +753,7 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
             s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
         ]
         payload = billing.compute_decompte(
-            self.conn, series, billing.periods_covering(t0, t0 + 7200), [], ts(2026, 6, 1),
+            self.conn, series, billing.periods_covering(t0, t0 + 7200), ts(2026, 6, 1),
         )
         self.assertEqual(payload["repartition"]["2026-01"]["source"], "calculee")
         self.assertEqual(payload["batiment"]["sources"]["production"]["series_id"], "prod")
@@ -820,7 +784,7 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
             s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
         ]
         payload = billing.compute_decompte(
-            self.conn, series, billing.periods_covering(t0, t0 + 3600), [], ts(2026, 6, 1),
+            self.conn, series, billing.periods_covering(t0, t0 + 3600), ts(2026, 6, 1),
         )
         self.assertEqual(payload["repartition"]["2026-01"]["source"], "loxone")
         e = payload["zones"][0]["periodes"]["2026-01"]
@@ -848,7 +812,7 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
             s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
         ]
         payload = billing.compute_decompte(
-            self.conn, series, billing.periods_covering(t0, f0 + 3600), [], ts(2026, 6, 1),
+            self.conn, series, billing.periods_covering(t0, f0 + 3600), ts(2026, 6, 1),
         )
         janvier, fevrier = payload["repartition"]["2026-01"], payload["repartition"]["2026-02"]
         self.assertEqual(janvier["source"], "calculee")
@@ -887,7 +851,7 @@ class TestRepartitionDansLeDecompte(unittest.TestCase):
             s("sol", "App 1 Solaire (total)", "energie_solaire", "APP1"),
         ]
         payload = billing.compute_decompte(
-            self.conn, series, billing.periods_covering(t0, t0 + 10800), [], ts(2026, 10, 2),
+            self.conn, series, billing.periods_covering(t0, t0 + 10800), ts(2026, 10, 2),
         )
         self.assertEqual(payload["repartition"]["2026-09"]["source"], "calculee")
         e = payload["zones"][0]["periodes"]["2026-09"]

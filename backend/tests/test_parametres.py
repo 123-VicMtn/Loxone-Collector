@@ -155,7 +155,10 @@ def _base_avant_parametres(chemin):
     table `parametres`."""
     with closing(db.get_connection(chemin)) as c:
         c.execute("DROP TABLE parametres")
-        db.upsert_tarif(c, "Sequoia", "2026-01-01", 0.25, 0.17, 8.1, note="contrat")
+        c.execute(
+            "INSERT INTO tarifs (miniserver, valid_from, prix_reseau, prix_solaire, taux_tva, note) "
+            "VALUES ('Sequoia', '2026-01-01', 0.25, 0.17, 8.1, 'contrat')"
+        )
         c.commit()
 
 
