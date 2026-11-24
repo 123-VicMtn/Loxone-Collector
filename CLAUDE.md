@@ -613,6 +613,15 @@ Avancement :
   `user` modifie les paramètres et frais de ses sites (seule exception à
   sa lecture seule), l'admin seul les valeurs globales. `/api/tarifs` est
   laissé tel quel jusqu'à l'étape 4 (le décompte lit encore `tarifs`).
+- Étape 3 (fait) : `services/billing/chiffrage.py` (pas `montants.py` :
+  `billing.montants` est déjà une fonction réexportée qui masquerait le
+  module), sans accès à la base. `entrees_du_decompte` (payload →
+  quantités), `calculer_montants` (électricité, location au prorata des
+  lots, coût PAC → clé chauffage / eau chaude → prorata avec reste
+  d'arrondi à la plus grosse quantité, buanderie, frais, récapitulatif
+  sans ligne PAC), `fraction_annee`, `repartir`. Arrondi au centime demi
+  supérieur (`Decimal`). Cas de référence La Calbasse dans
+  `tests/test_chiffrage.py`, montants calculés à la main.
 
 ### Fonctionnalité demandée pour plus tard : liaison de compteurs
 
