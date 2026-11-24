@@ -220,7 +220,9 @@ def calculer_montants(entrees: dict, valeurs: dict, fraction: float) -> dict:
                 par_zone, erreur = _repartir_poste(couts[poste], quantites)
                 if erreur:
                     messages.append(f"{libelle} : {erreur}, coût non réparti.")
-                resultats[poste] = {"cout": couts[poste], "par_zone": par_zone}
+                total_q = None if None in quantites.values() else sum(quantites.values())
+                resultats[poste] = {"cout": couts[poste], "par_zone": par_zone,
+                                    "quantite_totale": total_q}
             chauffage, eau_chaude = resultats["chauffage"], resultats["eau_chaude"]
 
     # Buanderie : cycles (montant final, sans TVA) + kWh au prix réseau.

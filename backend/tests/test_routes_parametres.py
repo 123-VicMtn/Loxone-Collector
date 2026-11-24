@@ -15,7 +15,10 @@ FRAIS = {"miniserver": ref.SITE, "du": "2026-10-01", "au": "2026-10-31", "zone":
 
 
 def _version(etat, cle):
-    return next(v for v in etat["versions"] + etat["globales"] if v["cle"] == cle)
+    """Version la plus récente de `cle` (le site « Ref » a déjà des
+    paramètres depuis le 01.01.2026)."""
+    return max((v for v in etat["versions"] + etat["globales"] if v["cle"] == cle),
+               key=lambda v: v["valid_from"])
 
 
 def test_catalogue(client_user):
@@ -50,10 +53,10 @@ def test_valeurs_globales_reservees_a_l_admin(client_user, client_admin):
     assert client_user.post("/api/parametres", json=TVA_GLOBALE).status_code == 403
     res = client_admin.post("/api/parametres", json=TVA_GLOBALE)
     assert res.status_code == 200
-    gid = _version(res.get_json(), "taux_tva")["id"]
+    gid = next(v["id"] for v in res.get_json()["globales"] if v["valid_from"] == "2024-01-01")
     # Le user voit la valeur globale héritée, mais ne peut pas la supprimer.
     etat = client_user.get(f"/api/parametres?miniserver={ref.SITE}").get_json()
-    assert etat["globales"][0]["valeur"] == 8.1
+    assert [v["valeur"] for v in etat["globales"] if v["id"] == gid] == [8.1]
     assert client_user.delete(f"/api/parametres/{gid}?miniserver={ref.SITE}").status_code == 403
     assert client_admin.delete(f"/api/parametres/{gid}?miniserver={ref.SITE}").status_code == 200
 
@@ -76,7 +79,8 @@ def test_pas_de_valeur_globale_pour_un_prix(client_admin):
 def test_supprimer_une_version(client_user):
     vid = _version(client_user.post("/api/parametres", json=PRIX).get_json(), "prix_reseau")["id"]
     res = client_user.delete(f"/api/parametres/{vid}?miniserver={ref.SITE}")
-    assert res.status_code == 200 and res.get_json()["versions"] == []
+    assert res.status_code == 200
+    assert vid not in [v["id"] for v in res.get_json()["versions"]]
     assert client_user.delete(f"/api/parametres/{vid}?miniserver={ref.SITE}").status_code == 404
 
 

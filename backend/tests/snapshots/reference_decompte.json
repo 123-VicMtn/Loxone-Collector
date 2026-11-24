@@ -23,7 +23,14 @@
   "Mois;Zone;Cycles;Énergie (kWh);État",
   "Septembre 2026;App 1;15;18,00;facturable",
   "Septembre 2026;App 2;10;12,00;facturable",
-  "Septembre 2026;Total immeuble;25;30,00;"
+  "Septembre 2026;Total immeuble;25;30,00;",
+  "",
+  "Récapitulatif (CHF)",
+  "Zone;Électricité TTC;Chauffage TTC;Eau chaude TTC;Buanderie TTC;Total HT;TVA;Total TTC",
+  "App 1;87,82;;;37,86;;;",
+  "App 2;115,42;;;25,24;;;",
+  "Communs;40,85;;;;38,77;2,08;40,85",
+  "Total immeuble;;;;;;;"
  ],
  "csv 2026-10": [
   "Électricité",
@@ -49,7 +56,14 @@
   "Mois;Zone;Cycles;Énergie (kWh);État",
   "Octobre 2026;App 1;15;18,00;facturable",
   "Octobre 2026;App 2;10;12,00;facturable",
-  "Octobre 2026;Total immeuble;25;30,00;"
+  "Octobre 2026;Total immeuble;25;30,00;",
+  "",
+  "Récapitulatif (CHF)",
+  "Zone;Électricité TTC;Chauffage TTC;Eau chaude TTC;Buanderie TTC;Total HT;TVA;Total TTC",
+  "App 1;91,98;;;37,86;;;",
+  "App 2;;;;25,24;;;",
+  "Communs;43,07;;;;40,76;2,31;43,07",
+  "Total immeuble;;;;;;;"
  ],
  "decompte": {
   "batiment": {
@@ -856,15 +870,57 @@
     "Buanderie — Ref",
     null,
     null,
+    null,
+    null,
+    null,
+    null,
     null
    ],
    [
     "Septembre 2026  ·  01.09.2026 → 30.09.2026 (heure de Suisse)",
     null,
     null,
+    null,
+    null,
+    null,
+    null,
     null
    ],
    [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix du cycle (CHF)",
+    2.2,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Énergie",
+    "au prix du kWh réseau, TVA en sus ; cycles sans TVA (montant final).",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
     null,
     null,
     null,
@@ -874,27 +930,47 @@
     "Zone",
     "Cycles",
     "Énergie (kWh)",
+    "Cycles (CHF)",
+    "Énergie HT (CHF)",
+    "TVA (CHF)",
+    "Total TTC (CHF)",
     "État"
    ],
    [
     "App 1",
     15,
     18,
+    33,
+    4.5,
+    0.36,
+    37.86,
     "facturable"
    ],
    [
     "App 2",
     10,
     12,
+    22,
+    3,
+    0.24,
+    25.24,
     "facturable"
    ],
    [
     "Total immeuble",
     25,
     30,
+    55,
+    7.5,
+    0.6,
+    63.1,
     null
    ],
    [
+    null,
+    null,
+    null,
+    null,
     null,
     null,
     null,
@@ -904,10 +980,18 @@
     "Énergie (CEnergieAppXX) et nombre de cycles (CNrMachineAppXX) de la buanderie commune, attribués à chaque appartement par badge.",
     null,
     null,
+    null,
+    null,
+    null,
+    null,
     null
    ],
    [
     "Cette énergie passe par le compteur des Communs : elle n'est pas dans la consommation électrique du lot, et n'est pas déduite des Communs.",
+    null,
+    null,
+    null,
+    null,
     null,
     null,
     null
@@ -920,7 +1004,6 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
@@ -929,7 +1012,6 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
@@ -938,29 +1020,9 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
-    "Prix chauffage HT (CHF/kWh th)",
-    null,
-    "Montant TTC = énergie × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité, un prix ou une TVA vide ne donne pas de montant.",
-    null,
-    null,
-    null,
-    null
-   ],
-   [
-    "TVA (%)",
-    null,
-    null,
-    null,
-    null,
-    null,
-    null
-   ],
-   [
-    null,
     null,
     null,
     null,
@@ -974,7 +1036,6 @@
     "Index début (kWh th)",
     "Index fin (kWh th)",
     "Énergie (kWh th)",
-    "Montant TTC (CHF)",
     "État"
    ],
    [
@@ -983,7 +1044,6 @@
     2200.3,
     2308.15,
     107.85,
-    "=IF(OR(E8=\"\",$B$4=\"\",$B$5=\"\"),\"\",E8*$B$4*(1+$B$5/100))",
     "facturable"
    ],
    [
@@ -992,7 +1052,6 @@
     2600.5,
     2780.25,
     179.75,
-    "=IF(OR(E9=\"\",$B$4=\"\",$B$5=\"\"),\"\",E9*$B$4*(1+$B$5/100))",
     "facturable"
    ],
    [
@@ -1001,11 +1060,9 @@
     null,
     null,
     287.6,
-    "=IF(COUNT(F8:F9)=0,\"\",SUM(F8:F9))",
     null
    ],
    [
-    null,
     null,
     null,
     null,
@@ -1019,12 +1076,18 @@
     null,
     null,
     null,
+    null
+   ],
+   [
+    "Coût non réparti : voir « À compléter » dans l'onglet Récapitulatif.",
+    null,
+    null,
+    null,
     null,
     null
    ],
    [
     "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
-    null,
     null,
     null,
     null,
@@ -1039,7 +1102,6 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
@@ -1048,7 +1110,6 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
@@ -1057,29 +1118,9 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
-    "Prix eau chaude HT (CHF/m³)",
-    null,
-    "Montant TTC = volume × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité, un prix ou une TVA vide ne donne pas de montant.",
-    null,
-    null,
-    null,
-    null
-   ],
-   [
-    "TVA (%)",
-    null,
-    null,
-    null,
-    null,
-    null,
-    null
-   ],
-   [
-    null,
     null,
     null,
     null,
@@ -1093,7 +1134,6 @@
     "Index début (m³)",
     "Index fin (m³)",
     "Volume (m³)",
-    "Montant TTC (CHF)",
     "État"
    ],
    [
@@ -1102,7 +1142,6 @@
     2300.002,
     2301.022,
     1.02,
-    "=IF(OR(E8=\"\",$B$4=\"\",$B$5=\"\"),\"\",E8*$B$4*(1+$B$5/100))",
     "facturable"
    ],
    [
@@ -1111,7 +1150,6 @@
     2700.002,
     2701.022,
     1.02,
-    "=IF(OR(E9=\"\",$B$4=\"\",$B$5=\"\"),\"\",E9*$B$4*(1+$B$5/100))",
     "facturable"
    ],
    [
@@ -1120,11 +1158,9 @@
     null,
     null,
     2.04,
-    "=IF(COUNT(F8:F9)=0,\"\",SUM(F8:F9))",
     null
    ],
    [
-    null,
     null,
     null,
     null,
@@ -1138,12 +1174,18 @@
     null,
     null,
     null,
+    null
+   ],
+   [
+    "Coût non réparti : voir « À compléter » dans l'onglet Récapitulatif.",
+    null,
+    null,
+    null,
     null,
     null
    ],
    [
     "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
-    null,
     null,
     null,
     null,
@@ -1158,6 +1200,8 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
@@ -1166,9 +1210,13 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
+    null,
+    null,
     null,
     null,
     null,
@@ -1178,45 +1226,17 @@
    ],
    [
     "Zone",
-    "Location des compteurs (CHF)",
-    "Frais exceptionnels (CHF)",
-    "Autres frais (CHF)",
-    "Total frais (CHF)",
+    "Libellé",
+    "Du",
+    "Au",
+    "Montant HT (CHF)",
+    "TVA (CHF)",
+    "Montant TTC (CHF)",
     "Remarque"
    ],
    [
-    "App 1",
     null,
     null,
-    null,
-    "=IF(COUNT(B5:D5)=0,\"\",SUM(B5:D5))",
-    null
-   ],
-   [
-    "App 2",
-    null,
-    null,
-    null,
-    "=IF(COUNT(B6:D6)=0,\"\",SUM(B6:D6))",
-    null
-   ],
-   [
-    "Communs",
-    null,
-    null,
-    null,
-    "=IF(COUNT(B7:D7)=0,\"\",SUM(B7:D7))",
-    null
-   ],
-   [
-    "Total immeuble",
-    "=IF(COUNT(B5:B7)=0,\"\",SUM(B5:B7))",
-    "=IF(COUNT(C5:C7)=0,\"\",SUM(C5:C7))",
-    "=IF(COUNT(D5:D7)=0,\"\",SUM(D5:D7))",
-    "=IF(COUNT(E5:E7)=0,\"\",SUM(E5:E7))",
-    null
-   ],
-   [
     null,
     null,
     null,
@@ -1225,15 +1245,9 @@
     null
    ],
    [
-    "Tableau à remplir : les cases jaunes sont vides à la génération. Reporter les montants à facturer en CHF, TVA comprise.",
+    "Aucun frais accessoire saisi pour cette période. Ils s'ajoutent dans la page Paramètres (zone, période, libellé, montant HT, TVA oui ou non).",
     null,
     null,
-    null,
-    null,
-    null
-   ],
-   [
-    "Le nom de chaque zone renvoie à sa ligne dans l'onglet Électricité. Le total de la ligne et celui de l'immeuble se calculent seuls.",
     null,
     null,
     null,
@@ -1277,9 +1291,153 @@
    "lignes": 4324,
    "sha256": "3160f6b7a60c05de3f9dab66e8bf3c875eee153c9c7f0f1e0b77be0a6f27c569"
   },
+  "Récapitulatif": [
+   [
+    "Récapitulatif — Ref",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Septembre 2026  ·  01.09.2026 → 30.09.2026 (heure de Suisse)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Électricité TTC (CHF)",
+    "Chauffage TTC (CHF)",
+    "Eau chaude TTC (CHF)",
+    "Buanderie TTC (CHF)",
+    "Total HT (CHF)",
+    "TVA (CHF)",
+    "Total TTC (CHF)"
+   ],
+   [
+    "App 1",
+    87.82,
+    null,
+    null,
+    37.86,
+    null,
+    null,
+    null
+   ],
+   [
+    "App 2",
+    115.42,
+    null,
+    null,
+    25.24,
+    null,
+    null,
+    null
+   ],
+   [
+    "Communs",
+    40.85,
+    null,
+    null,
+    null,
+    38.77,
+    2.08,
+    40.85
+   ],
+   [
+    "Total immeuble",
+    244.09,
+    null,
+    null,
+    63.1,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Montants calculés par l'application avec les paramètres de la page Paramètres (détail dans chaque onglet).",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Location de compteurs : 120,00 CHF HT par lot et par an, soit 10,00 CHF HT sur la période (lots seulement), comprise dans l'électricité.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Une case vide n'est pas un zéro : un relevé ou un paramètre manque, et le total de la ligne reste vide.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "À compléter",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Pas de compteur de PAC : chauffage et eau chaude sans montant.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ],
   "Électricité": [
    [
     "Décompte de charges — Ref",
+    null,
+    null,
     null,
     null,
     null,
@@ -1298,9 +1456,13 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
+    null,
+    null,
     null,
     null,
     null,
@@ -1313,8 +1475,10 @@
    ],
    [
     "Prix réseau HT (CHF/kWh)",
+    0.25,
+    "depuis le 01.01.2026",
     null,
-    "Aucun tarif enregistré pour ce mois. Les montants sont TTC : kWh × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité vide ne donne pas de montant.",
+    null,
     null,
     null,
     null,
@@ -1324,6 +1488,8 @@
    ],
    [
     "Prix solaire HT (CHF/kWh)",
+    0.17,
+    "depuis le 01.01.2026",
     null,
     null,
     null,
@@ -1335,6 +1501,8 @@
    ],
    [
     "TVA (%)",
+    8.1,
+    "depuis le 01.01.2026 (valeur commune à tous les sites)",
     null,
     null,
     null,
@@ -1345,6 +1513,47 @@
     null
    ],
    [
+    "TVA sur le solaire",
+    "non",
+    "valeur par défaut",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Location de compteurs (CHF HT par lot et par an)",
+    120,
+    "depuis le 01.01.2026",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Paramètres de la page Paramètres, en vigueur au premier jour de la période. Pour corriger un prix, le modifier dans la page et télécharger à nouveau le décompte.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
     null,
     null,
     null,
@@ -1361,8 +1570,10 @@
     "Solaire (kWh)",
     "Réseau (kWh)",
     "Buanderie (kWh)",
-    "Réseau TTC (CHF)",
-    "Solaire TTC (CHF)",
+    "Solaire HT (CHF)",
+    "Réseau HT (CHF)",
+    "Location HT (CHF)",
+    "TVA (CHF)",
     "Total TTC (CHF)",
     "État"
    ],
@@ -1372,9 +1583,11 @@
     128.45,
     204.15,
     18,
-    "=IF(OR(D9=\"\",$B$4=\"\",$B$6=\"\"),\"\",D9*$B$4*(1+$B$6/100))",
-    "=IF(OR(C9=\"\",$B$5=\"\",$B$6=\"\"),\"\",C9*$B$5*(1+$B$6/100))",
-    "=IF(OR(F9=\"\",G9=\"\"),\"\",F9+G9)",
+    21.84,
+    51.04,
+    10,
+    4.94,
+    87.82,
     "facturable"
    ],
    [
@@ -1383,9 +1596,11 @@
     197.14,
     263.06,
     12,
-    "=IF(OR(D10=\"\",$B$4=\"\",$B$6=\"\"),\"\",D10*$B$4*(1+$B$6/100))",
-    "=IF(OR(C10=\"\",$B$5=\"\",$B$6=\"\"),\"\",C10*$B$5*(1+$B$6/100))",
-    "=IF(OR(F10=\"\",G10=\"\"),\"\",F10+G10)",
+    33.51,
+    65.77,
+    10,
+    6.14,
+    115.42,
     "facturable"
    ],
    [
@@ -1394,9 +1609,11 @@
     77.07,
     102.68,
     null,
-    "=IF(OR(D11=\"\",$B$4=\"\",$B$6=\"\"),\"\",D11*$B$4*(1+$B$6/100))",
-    "=IF(OR(C11=\"\",$B$5=\"\",$B$6=\"\"),\"\",C11*$B$5*(1+$B$6/100))",
-    "=IF(OR(F11=\"\",G11=\"\"),\"\",F11+G11)",
+    13.1,
+    25.67,
+    null,
+    2.08,
+    40.85,
     "facturable"
    ],
    [
@@ -1405,12 +1622,16 @@
     402.66,
     569.89,
     30,
-    "=IF(COUNT(F9:F11)=0,\"\",SUM(F9:F11))",
-    "=IF(COUNT(G9:G11)=0,\"\",SUM(G9:G11))",
-    "=IF(COUNT(H9:H11)=0,\"\",SUM(H9:H11))",
+    68.45,
+    142.48,
+    20,
+    13.16,
+    244.09,
     null
    ],
    [
+    null,
+    null,
     null,
     null,
     null,
@@ -1430,9 +1651,13 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
+    null,
+    null,
     null,
     null,
     null,
@@ -1452,10 +1677,14 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
-    "La colonne Buanderie est l'électricité de la buanderie commune attribuée au lot (CEnergieAppXX). Elle passe par le compteur des Communs : elle n'est ni dans la consommation totale du lot, ni dans les montants, ni déduite des Communs. Détail dans l'onglet Buanderie.",
+    "La colonne Buanderie est l'électricité de la buanderie commune attribuée au lot (CEnergieAppXX). Elle passe par le compteur des Communs : elle n'est ni dans la consommation totale du lot, ni dans les montants de cet onglet, ni déduite des Communs. Elle est facturée dans l'onglet Buanderie.",
+    null,
+    null,
     null,
     null,
     null,
@@ -1474,10 +1703,27 @@
     null,
     null,
     null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Montants HT : kWh × prix HT. TVA sur le réseau et la location ; pas de TVA sur le solaire.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
     null
    ],
    [
     "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
+    null,
+    null,
     null,
     null,
     null,
@@ -1496,6 +1742,8 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ]
   ]
@@ -1506,15 +1754,57 @@
     "Buanderie — Ref",
     null,
     null,
+    null,
+    null,
+    null,
+    null,
     null
    ],
    [
     "Octobre 2026  ·  01.10.2026 → 31.10.2026 (heure de Suisse)",
     null,
     null,
+    null,
+    null,
+    null,
+    null,
     null
    ],
    [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Prix du cycle (CHF)",
+    2.2,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Énergie",
+    "au prix du kWh réseau, TVA en sus ; cycles sans TVA (montant final).",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
     null,
     null,
     null,
@@ -1524,27 +1814,47 @@
     "Zone",
     "Cycles",
     "Énergie (kWh)",
+    "Cycles (CHF)",
+    "Énergie HT (CHF)",
+    "TVA (CHF)",
+    "Total TTC (CHF)",
     "État"
    ],
    [
     "App 1",
     15,
     18,
+    33,
+    4.5,
+    0.36,
+    37.86,
     "facturable"
    ],
    [
     "App 2",
     10,
     12,
+    22,
+    3,
+    0.24,
+    25.24,
     "facturable"
    ],
    [
     "Total immeuble",
     25,
     30,
+    55,
+    7.5,
+    0.6,
+    63.1,
     null
    ],
    [
+    null,
+    null,
+    null,
+    null,
     null,
     null,
     null,
@@ -1554,10 +1864,18 @@
     "Énergie (CEnergieAppXX) et nombre de cycles (CNrMachineAppXX) de la buanderie commune, attribués à chaque appartement par badge.",
     null,
     null,
+    null,
+    null,
+    null,
+    null,
     null
    ],
    [
     "Cette énergie passe par le compteur des Communs : elle n'est pas dans la consommation électrique du lot, et n'est pas déduite des Communs.",
+    null,
+    null,
+    null,
+    null,
     null,
     null,
     null
@@ -1570,7 +1888,6 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
@@ -1579,7 +1896,6 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
@@ -1588,29 +1904,9 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
-    "Prix chauffage HT (CHF/kWh th)",
-    null,
-    "Montant TTC = énergie × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité, un prix ou une TVA vide ne donne pas de montant.",
-    null,
-    null,
-    null,
-    null
-   ],
-   [
-    "TVA (%)",
-    null,
-    null,
-    null,
-    null,
-    null,
-    null
-   ],
-   [
-    null,
     null,
     null,
     null,
@@ -1624,7 +1920,6 @@
     "Index début (kWh th)",
     "Index fin (kWh th)",
     "Énergie (kWh th)",
-    "Montant TTC (CHF)",
     "État"
    ],
    [
@@ -1633,7 +1928,6 @@
     2308.3,
     2754.7,
     446.4,
-    "=IF(OR(E8=\"\",$B$4=\"\",$B$5=\"\"),\"\",E8*$B$4*(1+$B$5/100))",
     "facturable"
    ],
    [
@@ -1642,7 +1936,6 @@
     2780.5,
     3524.5,
     744,
-    "=IF(OR(E9=\"\",$B$4=\"\",$B$5=\"\"),\"\",E9*$B$4*(1+$B$5/100))",
     "facturable"
    ],
    [
@@ -1651,11 +1944,9 @@
     null,
     null,
     1190.4,
-    "=IF(COUNT(F8:F9)=0,\"\",SUM(F8:F9))",
     null
    ],
    [
-    null,
     null,
     null,
     null,
@@ -1669,12 +1960,18 @@
     null,
     null,
     null,
+    null
+   ],
+   [
+    "Coût non réparti : voir « À compléter » dans l'onglet Récapitulatif.",
+    null,
+    null,
+    null,
     null,
     null
    ],
    [
     "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
-    null,
     null,
     null,
     null,
@@ -1689,7 +1986,6 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
@@ -1698,7 +1994,6 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
@@ -1707,29 +2002,9 @@
     null,
     null,
     null,
-    null,
     null
    ],
    [
-    "Prix eau chaude HT (CHF/m³)",
-    null,
-    "Montant TTC = volume × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité, un prix ou une TVA vide ne donne pas de montant.",
-    null,
-    null,
-    null,
-    null
-   ],
-   [
-    "TVA (%)",
-    null,
-    null,
-    null,
-    null,
-    null,
-    null
-   ],
-   [
-    null,
     null,
     null,
     null,
@@ -1743,7 +2018,6 @@
     "Index début (m³)",
     "Index fin (m³)",
     "Volume (m³)",
-    "Montant TTC (CHF)",
     "État"
    ],
    [
@@ -1752,7 +2026,6 @@
     2301.022,
     2302.076,
     1.054,
-    "=IF(OR(E8=\"\",$B$4=\"\",$B$5=\"\"),\"\",E8*$B$4*(1+$B$5/100))",
     "facturable"
    ],
    [
@@ -1761,7 +2034,6 @@
     2701.022,
     2702.076,
     1.054,
-    "=IF(OR(E9=\"\",$B$4=\"\",$B$5=\"\"),\"\",E9*$B$4*(1+$B$5/100))",
     "facturable"
    ],
    [
@@ -1770,11 +2042,9 @@
     null,
     null,
     2.108,
-    "=IF(COUNT(F8:F9)=0,\"\",SUM(F8:F9))",
     null
    ],
    [
-    null,
     null,
     null,
     null,
@@ -1788,12 +2058,18 @@
     null,
     null,
     null,
+    null
+   ],
+   [
+    "Coût non réparti : voir « À compléter » dans l'onglet Récapitulatif.",
+    null,
+    null,
+    null,
     null,
     null
    ],
    [
     "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
-    null,
     null,
     null,
     null,
@@ -1808,6 +2084,8 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
@@ -1816,9 +2094,13 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
+    null,
+    null,
     null,
     null,
     null,
@@ -1828,45 +2110,17 @@
    ],
    [
     "Zone",
-    "Location des compteurs (CHF)",
-    "Frais exceptionnels (CHF)",
-    "Autres frais (CHF)",
-    "Total frais (CHF)",
+    "Libellé",
+    "Du",
+    "Au",
+    "Montant HT (CHF)",
+    "TVA (CHF)",
+    "Montant TTC (CHF)",
     "Remarque"
    ],
    [
-    "App 1",
     null,
     null,
-    null,
-    "=IF(COUNT(B5:D5)=0,\"\",SUM(B5:D5))",
-    null
-   ],
-   [
-    "App 2",
-    null,
-    null,
-    null,
-    "=IF(COUNT(B6:D6)=0,\"\",SUM(B6:D6))",
-    null
-   ],
-   [
-    "Communs",
-    null,
-    null,
-    null,
-    "=IF(COUNT(B7:D7)=0,\"\",SUM(B7:D7))",
-    null
-   ],
-   [
-    "Total immeuble",
-    "=IF(COUNT(B5:B7)=0,\"\",SUM(B5:B7))",
-    "=IF(COUNT(C5:C7)=0,\"\",SUM(C5:C7))",
-    "=IF(COUNT(D5:D7)=0,\"\",SUM(D5:D7))",
-    "=IF(COUNT(E5:E7)=0,\"\",SUM(E5:E7))",
-    null
-   ],
-   [
     null,
     null,
     null,
@@ -1875,15 +2129,9 @@
     null
    ],
    [
-    "Tableau à remplir : les cases jaunes sont vides à la génération. Reporter les montants à facturer en CHF, TVA comprise.",
+    "Aucun frais accessoire saisi pour cette période. Ils s'ajoutent dans la page Paramètres (zone, période, libellé, montant HT, TVA oui ou non).",
     null,
     null,
-    null,
-    null,
-    null
-   ],
-   [
-    "Le nom de chaque zone renvoie à sa ligne dans l'onglet Électricité. Le total de la ligne et celui de l'immeuble se calculent seuls.",
     null,
     null,
     null,
@@ -1927,9 +2175,163 @@
    "lignes": 2239,
    "sha256": "cde8be16cf1a7a4095c75c3bf533f3b063e4c1be74b383274477a7704a451f22"
   },
+  "Récapitulatif": [
+   [
+    "Récapitulatif — Ref",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Octobre 2026  ·  01.10.2026 → 31.10.2026 (heure de Suisse)",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Zone",
+    "Électricité TTC (CHF)",
+    "Chauffage TTC (CHF)",
+    "Eau chaude TTC (CHF)",
+    "Buanderie TTC (CHF)",
+    "Total HT (CHF)",
+    "TVA (CHF)",
+    "Total TTC (CHF)"
+   ],
+   [
+    "App 1",
+    91.98,
+    null,
+    null,
+    37.86,
+    null,
+    null,
+    null
+   ],
+   [
+    "App 2",
+    null,
+    null,
+    null,
+    25.24,
+    null,
+    null,
+    null
+   ],
+   [
+    "Communs",
+    43.07,
+    null,
+    null,
+    null,
+    40.76,
+    2.31,
+    43.07
+   ],
+   [
+    "Total immeuble",
+    135.05,
+    null,
+    null,
+    63.1,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Montants calculés par l'application avec les paramètres de la page Paramètres (détail dans chaque onglet).",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Location de compteurs : 120,00 CHF HT par lot et par an, soit 10,00 CHF HT sur la période (lots seulement), comprise dans l'électricité.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Une case vide n'est pas un zéro : un relevé ou un paramètre manque, et le total de la ligne reste vide.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "À compléter",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "App 2 : relevé électrique incomplet.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Pas de compteur de PAC : chauffage et eau chaude sans montant.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ]
+  ],
   "Électricité": [
    [
     "Décompte de charges — Ref",
+    null,
+    null,
     null,
     null,
     null,
@@ -1948,9 +2350,13 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
+    null,
+    null,
     null,
     null,
     null,
@@ -1963,8 +2369,10 @@
    ],
    [
     "Prix réseau HT (CHF/kWh)",
+    0.25,
+    "depuis le 01.01.2026",
     null,
-    "Aucun tarif enregistré pour ce mois. Les montants sont TTC : kWh × prix HT × (1 + TVA). Les cases jaunes sont modifiables : les montants se recalculent. Une quantité vide ne donne pas de montant.",
+    null,
     null,
     null,
     null,
@@ -1974,6 +2382,8 @@
    ],
    [
     "Prix solaire HT (CHF/kWh)",
+    0.17,
+    "depuis le 01.01.2026",
     null,
     null,
     null,
@@ -1985,6 +2395,8 @@
    ],
    [
     "TVA (%)",
+    8.1,
+    "depuis le 01.01.2026 (valeur commune à tous les sites)",
     null,
     null,
     null,
@@ -1995,6 +2407,47 @@
     null
    ],
    [
+    "TVA sur le solaire",
+    "non",
+    "valeur par défaut",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Location de compteurs (CHF HT par lot et par an)",
+    120,
+    "depuis le 01.01.2026",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Paramètres de la page Paramètres, en vigueur au premier jour de la période. Pour corriger un prix, le modifier dans la page et télécharger à nouveau le décompte.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    null,
+    null,
     null,
     null,
     null,
@@ -2011,8 +2464,10 @@
     "Solaire (kWh)",
     "Réseau (kWh)",
     "Buanderie (kWh)",
-    "Réseau TTC (CHF)",
-    "Solaire TTC (CHF)",
+    "Solaire HT (CHF)",
+    "Réseau HT (CHF)",
+    "Location HT (CHF)",
+    "TVA (CHF)",
     "Total TTC (CHF)",
     "État"
    ],
@@ -2022,9 +2477,11 @@
     117.94,
     226.16,
     18,
-    "=IF(OR(D9=\"\",$B$4=\"\",$B$6=\"\"),\"\",D9*$B$4*(1+$B$6/100))",
-    "=IF(OR(C9=\"\",$B$5=\"\",$B$6=\"\"),\"\",C9*$B$5*(1+$B$6/100))",
-    "=IF(OR(F9=\"\",G9=\"\"),\"\",F9+G9)",
+    20.05,
+    56.54,
+    10,
+    5.39,
+    91.98,
     "facturable"
    ],
    [
@@ -2033,9 +2490,11 @@
     null,
     null,
     12,
-    "=IF(OR(D10=\"\",$B$4=\"\",$B$6=\"\"),\"\",D10*$B$4*(1+$B$6/100))",
-    "=IF(OR(C10=\"\",$B$5=\"\",$B$6=\"\"),\"\",C10*$B$5*(1+$B$6/100))",
-    "=IF(OR(F10=\"\",G10=\"\"),\"\",F10+G10)",
+    null,
+    null,
+    null,
+    null,
+    null,
     "données incomplètes"
    ],
    [
@@ -2044,9 +2503,11 @@
     71.8,
     114.2,
     null,
-    "=IF(OR(D11=\"\",$B$4=\"\",$B$6=\"\"),\"\",D11*$B$4*(1+$B$6/100))",
-    "=IF(OR(C11=\"\",$B$5=\"\",$B$6=\"\"),\"\",C11*$B$5*(1+$B$6/100))",
-    "=IF(OR(F11=\"\",G11=\"\"),\"\",F11+G11)",
+    12.21,
+    28.55,
+    null,
+    2.31,
+    43.07,
     "facturable"
    ],
    [
@@ -2055,12 +2516,16 @@
     189.74,
     340.36,
     30,
-    "=IF(COUNT(F9:F11)=0,\"\",SUM(F9:F11))",
-    "=IF(COUNT(G9:G11)=0,\"\",SUM(G9:G11))",
-    "=IF(COUNT(H9:H11)=0,\"\",SUM(H9:H11))",
+    32.26,
+    85.09,
+    10,
+    7.7,
+    135.05,
     null
    ],
    [
+    null,
+    null,
     null,
     null,
     null,
@@ -2080,9 +2545,13 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
+    null,
+    null,
     null,
     null,
     null,
@@ -2102,10 +2571,14 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
-    "La colonne Buanderie est l'électricité de la buanderie commune attribuée au lot (CEnergieAppXX). Elle passe par le compteur des Communs : elle n'est ni dans la consommation totale du lot, ni dans les montants, ni déduite des Communs. Détail dans l'onglet Buanderie.",
+    "La colonne Buanderie est l'électricité de la buanderie commune attribuée au lot (CEnergieAppXX). Elle passe par le compteur des Communs : elle n'est ni dans la consommation totale du lot, ni dans les montants de cet onglet, ni déduite des Communs. Elle est facturée dans l'onglet Buanderie.",
+    null,
+    null,
     null,
     null,
     null,
@@ -2124,10 +2597,27 @@
     null,
     null,
     null,
+    null,
+    null,
+    null
+   ],
+   [
+    "Montants HT : kWh × prix HT. TVA sur le réseau et la location ; pas de TVA sur le solaire.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
     null
    ],
    [
     "Une case vide n'est pas un zéro : le relevé manque, et le total ne compte que les relevés présents.",
+    null,
+    null,
     null,
     null,
     null,
@@ -2146,6 +2636,8 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
@@ -2157,10 +2649,14 @@
     null,
     null,
     null,
+    null,
+    null,
     null
    ],
    [
     "App 2 : compteur : 1 rupture(s) de compteur dans la période -> consommation non calculable",
+    null,
+    null,
     null,
     null,
     null,

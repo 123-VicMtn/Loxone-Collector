@@ -23,7 +23,8 @@ from loxone_collector.api.access import (
 )
 from loxone_collector.exports import decompte as decompte_export
 from loxone_collector.exports import decompte_xlsx
-from loxone_collector.services import billing, historique, statistics_sync
+from loxone_collector.services import billing, historique, parametres, statistics_sync
+from loxone_collector.services.billing import chiffrage
 
 logger = logging.getLogger("app")
 
@@ -231,7 +232,25 @@ def _export_payload(ms_name: str, now: int, start: int, end: int, cle: str,
             payload["postes"] = {cle: billing.compute_postes(
                 conn, billing.resolve_postes(series), {"key": cle, "start": start, "end": end}, now,
             )}
+            payload["chiffrage"] = {cle: _chiffrage(conn, ms_name, payload, cle, start, end)}
         return payload, cle
+
+
+def _chiffrage(conn, ms_name: str, payload: dict, cle: str, start: int, end: int) -> dict:
+    """Montants de la période [start, end[ avec les paramètres du site
+    (page Paramètres). Calculés sur tout l'immeuble : le coût de la PAC se
+    répartit entre toutes les zones, même pour l'export d'une seule."""
+    tz = ZoneInfo(billing.TIMEZONE)
+    du = datetime.fromtimestamp(start, tz).date().isoformat()
+    au = datetime.fromtimestamp(end - 1, tz).date().isoformat()
+    params = parametres.parametres_periode(conn, ms_name, du, au)
+    valeurs = {c: v["valeur"] for c, v in params["valeurs"].items()}
+    entrees = chiffrage.entrees_du_decompte(payload, cle, params["frais"])
+    return {
+        "du": du, "au": au,
+        "parametres": params,
+        "montants": chiffrage.calculer_montants(entrees, valeurs, chiffrage.fraction_annee(du, au)),
+    }
 
 
 def _nom_fichier(ms_name: str, suffixe: str, ext: str, zone: str | None = None) -> str:
@@ -264,7 +283,8 @@ def _export_demande(ms_name: str) -> tuple[dict, str, str, str, str | None]:
 def api_decompte_csv():
     """Période demandée (`mois=YYYY-MM`, ou `du` / `au`) : une section par
     tableau (électricité, détail par mois s'il y en a plusieurs, chauffage,
-    eau chaude, buanderie). `zone` : une seule zone."""
+    eau chaude, buanderie, récapitulatif des montants). `zone` : une seule
+    zone."""
     ms_name = resolve_miniserver(request.args.get("miniserver"))
     payload, cle, _titre, suffixe, zone = _export_demande(ms_name)
     rows = decompte_export.export_csv_lignes(payload, cle, methode=current_user.is_admin)
@@ -280,12 +300,13 @@ def api_decompte_csv():
 @bp.route("/api/decompte/export.xlsx")
 @login_required
 def api_decompte_xlsx():
-    """Même période que le CSV. Onglet Électricité : kWh, buanderie, prix et
-    montants. Onglet Détail par mois si la période en couvre plusieurs.
-    Onglets Chauffage, Eau chaude, Buanderie quand le site en a. Onglet
-    Frais supplémentaires : tableau vide par zone, à remplir. Onglet
-    Relevés : un point horaire des statistiques par ligne. `zone` : une
-    seule zone, avec son nom dans les titres."""
+    """Même période que le CSV. Onglet Récapitulatif : montants par zone.
+    Onglet Électricité : kWh, buanderie, paramètres appliqués et montants.
+    Onglet Détail par mois si la période en couvre plusieurs. Onglets
+    Chauffage, Eau chaude, Buanderie quand le site en a (coût de la PAC
+    réparti). Onglet Frais supplémentaires : frais saisis dans la page
+    Paramètres. Onglet Relevés : un point horaire des statistiques par
+    ligne. `zone` : une seule zone, avec son nom dans les titres."""
     ms_name = resolve_miniserver(request.args.get("miniserver"))
     payload, cle, titre, suffixe, zone = _export_demande(ms_name)
     with closing(read_conn()) as conn:

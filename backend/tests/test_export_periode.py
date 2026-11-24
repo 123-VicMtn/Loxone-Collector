@@ -90,7 +90,7 @@ def test_classeur_avec_onglet_detail(client_admin, client_user):
     res = client_admin.get(URL.format("xlsx") + "&du=2026-09-01&au=2026-10-31")
     assert res.status_code == 200
     wb = load_workbook(io.BytesIO(res.get_data()))
-    assert wb.sheetnames[:2] == ["Électricité", "Détail par mois"]
+    assert wb.sheetnames[:3] == ["Récapitulatif", "Électricité", "Détail par mois"]
     notes = " ".join(str(c.value) for row in wb["Électricité"].iter_rows() for c in row if c.value)
     assert "Selon le mois, ces parts sont calculées" in notes
     un_mois = load_workbook(io.BytesIO(client_user.get(URL.format("xlsx") + "&mois=2026-10").get_data()))
@@ -148,10 +148,11 @@ def test_une_zone_seule_dans_le_classeur(client_user):
     wb = load_workbook(io.BytesIO(res.get_data()))
     elec = wb["Électricité"]
     assert elec["A1"].value == "Décompte de charges — Ref — App 1"
-    zones = [elec.cell(r, 1).value for r in range(9, elec.max_row + 1)]
-    assert zones[:2] == ["App 1", "Total"]
-    frais = [wb["Frais supplémentaires"].cell(r, 1).value for r in range(5, 7)]
-    assert frais == ["App 1", "Total"]
+    colonne_a = [elec.cell(r, 1).value for r in range(1, elec.max_row + 1)]
+    entete = colonne_a.index("Zone")
+    assert colonne_a[entete + 1:entete + 3] == ["App 1", "Total"]
+    recap = wb["Récapitulatif"]
+    assert [recap.cell(r, 1).value for r in (5, 6)] == ["App 1", "Total"]
     assert {row[0] for row in wb["Relevés"].iter_rows(min_row=5, values_only=True)} == {"App 1"}
 
 

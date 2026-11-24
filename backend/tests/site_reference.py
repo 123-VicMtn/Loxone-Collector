@@ -10,7 +10,10 @@ décompte qui comptent :
 - octobre 2026 : séries fausses à la manière de Sequoia (production brute
   répartie, injection comptée en Grid) -> répartition recalculée ; le
   compteur de l'APP2 est remplacé le 20 (rupture d'index) ;
-- chauffage, eau chaude et buanderie par appartement sur les deux mois.
+- chauffage, eau chaude et buanderie par appartement sur les deux mois ;
+- paramètres du décompte (prix, TVA globale, location, buanderie) : les
+  montants de l'électricité et de la buanderie sont calculés ; pas de PAC,
+  donc chauffage et eau chaude sans montant.
 
 Un second site, « Autre », n'a qu'un compteur : il sert aux tests d'accès.
 """
@@ -21,6 +24,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from loxone_collector import db
+from loxone_collector.services import parametres
 
 TZ = ZoneInfo("Europe/Zurich")
 SITE = "Ref"
@@ -140,6 +144,12 @@ def construire(conn) -> None:
                           "Compteur (total)", "", "Energie", "Meter", "kWh",
                           "APP9", "energie_consommee")
     db.insert_readings_batch(conn, [(f"{AUTRE}:u1:total", NOW - 7200, 5.0, None)])
+
+    for site, cle, valeur in ((SITE, "prix_reseau", "0,25"), (SITE, "prix_solaire", "0,17"),
+                              (parametres.GLOBAL, "taux_tva", "8,1"),
+                              (SITE, "location_compteurs_an", "120"),
+                              (SITE, "buanderie_prix_cycle", "2,2")):
+        parametres.ajouter_version(conn, site, cle, "2026-01-01", valeur, updated_by="test")
     conn.commit()
 
 

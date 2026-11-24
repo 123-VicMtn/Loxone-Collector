@@ -1,7 +1,11 @@
 """
-Classeur Excel du décompte d'un mois : onglets Électricité, Chauffage, Eau
-chaude, Buanderie, Frais supplémentaires et Relevés. Mise en forme seulement :
-les lignes viennent de exports/decompte.py, les kWh de services/billing.py.
+Classeur Excel du décompte d'une période : onglets Récapitulatif,
+Électricité, (Détail par mois), Chauffage, Eau chaude, Buanderie, Frais
+supplémentaires et Relevés. Mise en forme seulement : les lignes viennent de
+exports/decompte.py, les kWh de services/billing, les montants de
+services/billing/chiffrage.py (valeurs calculées par l'application avec les
+paramètres de la page Paramètres, pas des formules : décision du
+2026-11-24).
 """
 
 from __future__ import annotations
@@ -23,14 +27,17 @@ from loxone_collector.exports.decompte import (
     _fr,
     _mois_label,
     _postes_du_mois,
+    chiffrage_du_mois,
     etat_zone,
     libelle_total,
     lignes_buanderie,
     lignes_compteurs,
     lignes_detail,
+    lignes_recapitulatif,
 )
 from loxone_collector.services.billing import (
     TIMEZONE,
+    ZONE_PAC,
     parse_period_key,
     period_bounds,
     repartition_du_mois,
@@ -47,17 +54,16 @@ _ELEC_COLONNES = {
     "solaire": ("Solaire (kWh)", 18),
     "reseau": ("Réseau (kWh)", 18),
     "buanderie": (_BUANDERIE_HEADER, 18),
-    "chf_reseau": ("Réseau TTC (CHF)", 18),
-    "chf_solaire": ("Solaire TTC (CHF)", 18),
+    "chf_solaire": ("Solaire HT (CHF)", 16),
+    "chf_reseau": ("Réseau HT (CHF)", 16),
+    "chf_location": ("Location HT (CHF)", 16),
+    "tva": ("TVA (CHF)", 14),
     "ttc": ("Total TTC (CHF)", 18),
     "etat": ("État", 24),
 }
 _ELEC_KWH = ("total", "solaire", "reseau", "buanderie")
-_ELEC_CHF = ("chf_reseau", "chf_solaire", "ttc")
-_PRIX_RESEAU_ROW = 4
-_PRIX_SOLAIRE_ROW = 5
-_TVA_ROW = 6
-_XLSX_HEADER_ROW = 8
+_ELEC_CHF = ("chf_solaire", "chf_reseau", "chf_location", "tva", "ttc")
+_PARAMS_ROW = 4
 _KWH_FMT = "#,##0.00"
 _M3_FMT = "#,##0.000"
 _CYCLES_FMT = "#,##0"
@@ -213,7 +219,8 @@ def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
             "La colonne Buanderie est l'électricité de la buanderie commune "
             "attribuée au lot (CEnergieAppXX). Elle passe par le compteur des "
             "Communs : elle n'est ni dans la consommation totale du lot, ni "
-            "dans les montants, ni déduite des Communs. Détail dans l'onglet Buanderie.",
+            "dans les montants de cet onglet, ni déduite des Communs. Elle est "
+            "facturée dans l'onglet Buanderie.",
             "note",
         ))
     elif postes and postes.get("buanderie_avant_mise_en_service"):
@@ -244,6 +251,21 @@ def _notes_classeur(payload: dict, period_key: str, manquants: list[str],
             "Selon le mois, ces parts sont calculées (compteur du lot réparti selon le "
             "mix du bâtiment) ou mesurées par le Miniserver : voir la colonne « Parts "
             "réseau / solaire » de l'onglet Détail par mois.",
+            "note",
+        ))
+    c = chiffrage_du_mois(payload, period_key)
+    if c and any(z.get("zone") == ZONE_PAC for z in payload.get("zones") or []):
+        notes.append((
+            "Ligne PAC : son électricité est le coût de la chaleur. Elle est répartie "
+            "entre le chauffage et l'eau chaude des lots (onglet Récapitulatif) et "
+            "n'est pas facturée telle quelle.",
+            "note",
+        ))
+    if c:
+        notes.append((
+            "Montants HT : kWh × prix HT. TVA sur le réseau et la location"
+            + (", et sur le solaire." if c["parametres"]["valeurs"]["tva_solaire"]["valeur"]
+               else " ; pas de TVA sur le solaire."),
             "note",
         ))
     if payload.get("detail"):
@@ -280,21 +302,6 @@ def _style_kwh(cell, value) -> None:
         cell.alignment = _ALIGN_RIGHT
 
 
-def _tarifs_differents(entries: list) -> bool:
-    return any(e.get("tarifs_differents") for _, e in entries)
-
-
-def _tarif_du_mois(entries: list) -> dict | None:
-    """Un mois n'a qu'un tarif pour le site. On prend celui déjà résolu
-    sur les zones (tarif_for au début de la période). Sur une plage de
-    plusieurs mois, celui du premier mois (voir _tarifs_differents)."""
-    for _, e in entries:
-        tarif = e.get("tarif") or None
-        if tarif and tarif.get("prix_reseau") is not None and tarif.get("prix_solaire") is not None:
-            return tarif
-    return None
-
-
 def _formule_ttc(qte: str, prix: str, tva: str) -> str:
     """Montant TTC, vide si la quantité, le prix ou la TVA manque : un
     0 CHF ne doit pas se confondre avec une ligne sans relevé."""
@@ -303,6 +310,132 @@ def _formule_ttc(qte: str, prix: str, tva: str) -> str:
 
 def _formule_somme(col: str, first: int, last: int) -> str:
     return f'=IF(COUNT({col}{first}:{col}{last})=0,"",SUM({col}{first}:{col}{last}))'
+
+
+def _jour_fr(jour: str | None) -> str:
+    return f"{jour[8:10]}.{jour[5:7]}.{jour[:4]}" if jour else ""
+
+
+# Paramètres affichés en tête de l'onglet Électricité : (clé, libellé, format).
+_PARAMS_AFFICHES = (
+    ("prix_reseau", "Prix réseau HT (CHF/kWh)", _PRIX_FMT),
+    ("prix_solaire", "Prix solaire HT (CHF/kWh)", _PRIX_FMT),
+    ("taux_tva", "TVA (%)", _TVA_FMT),
+    ("tva_solaire", "TVA sur le solaire", None),
+    ("location_compteurs_an", "Location de compteurs (CHF HT par lot et par an)", _CHF_FMT),
+)
+
+
+def _ecrire_parametres(ws, c: dict | None, ncol: int) -> int:
+    """Paramètres appliqués (page Paramètres), en lecture seule : les
+    montants du classeur sont calculés par l'application. Retourne la
+    dernière ligne écrite."""
+    row = _PARAMS_ROW
+    if not c:
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=ncol)
+        cell = ws.cell(row, 1, "Montants non calculés : paramètres du décompte indisponibles.")
+        cell.font = _FONT_SUB
+        return row
+    valeurs = c["parametres"]["valeurs"]
+    for cle, libelle, fmt in _PARAMS_AFFICHES:
+        v = valeurs[cle]
+        if cle == "location_compteurs_an" and v["valeur"] is None:
+            continue
+        ws.cell(row, 1, libelle).font = Font(bold=True, color=_NAVY)
+        valeur = v["valeur"]
+        if cle == "tva_solaire":
+            valeur = "oui" if valeur else "non"
+        cell = ws.cell(row, 2, valeur)
+        cell.alignment = _ALIGN_RIGHT
+        if fmt and isinstance(valeur, float):
+            cell.number_format = fmt
+        if v["origine"] == "defaut":
+            origine = "non renseigné" if v["valeur"] is None else "valeur par défaut"
+        else:
+            origine = f"depuis le {_jour_fr(v['depuis'])}"
+            if v["origine"] == "global":
+                origine += " (valeur commune à tous les sites)"
+        ws.cell(row, 3, origine).font = _FONT_NOTE
+        ws.row_dimensions[row].height = 18
+        row += 1
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=ncol)
+    texte = ("Paramètres de la page Paramètres, en vigueur au premier jour de la période. "
+             "Pour corriger un prix, le modifier dans la page et télécharger à nouveau le décompte.")
+    if c["parametres"]["changent"]:
+        texte += (" Attention : " + ", ".join(c["parametres"]["changent"])
+                  + " change pendant la période ; la valeur du premier jour s'applique à toute la période.")
+    cell = ws.cell(row, 1, texte)
+    cell.font = _FONT_SUB
+    cell.alignment = _ALIGN_WRAP
+    ws.row_dimensions[row].height = 32
+    return row
+
+
+def _montants_electricite(payload: dict, period_key: str, zone: str | None) -> dict:
+    """Montants d'une ligne de l'onglet Électricité (vides sans paramètres
+    ou si un relevé manque). La ligne PAC porte le coût de la chaleur."""
+    c = chiffrage_du_mois(payload, period_key)
+    if not c:
+        return {}
+    m = c["montants"]
+    e = m["pac"] if zone == ZONE_PAC else m["electricite"].get(zone)
+    if not e:
+        return {}
+    out = {
+        "chf_solaire": e["solaire"]["ht"],
+        "chf_reseau": e["reseau"]["ht"],
+        "tva": e["total"]["tva"],
+        "ttc": e["total"]["ttc"],
+    }
+    if "location" in e:
+        out["chf_location"] = e["location"]["ht"]
+    return out
+
+
+def _ecrire_onglet_recapitulatif(wb: Workbook, payload: dict, c: dict, site: str,
+                                 label: str, couverture: str) -> None:
+    """Une ligne par zone : TTC de chaque composante, puis HT, TVA, TTC."""
+    colonnes_recap, lignes, total = lignes_recapitulatif(c)
+    colonnes = [("Zone", 26, None)]
+    colonnes += [(f"{t} TTC (CHF)", 16, _CHF_FMT) for _k, t in colonnes_recap]
+    colonnes += [("Total HT (CHF)", 16, _CHF_FMT), ("TVA (CHF)", 14, _CHF_FMT),
+                 ("Total TTC (CHF)", 18, _CHF_FMT)]
+    rows = [[ln["zone"], *[ln.get(k) for k, _t in colonnes_recap], ln["ht"], ln["tva"], ln["ttc"]]
+            for ln in lignes]
+    total_row = [libelle_total(payload)]
+    total_row += [_somme_affichee([ln.get(k) for ln in lignes]) for k, _t in colonnes_recap]
+    total_row += [total["ht"], total["tva"], total["ttc"]] if total else [None, None, None]
+    m = c["montants"]
+    notes = [("Montants calculés par l'application avec les paramètres de la page "
+              "Paramètres (détail dans chaque onglet).", "note")]
+    if m["pac"] is not None and (m["chauffage"] or m["eau_chaude"]):
+        part = c["parametres"]["valeurs"]["pac_part_chauffage"]["valeur"]
+        notes.append((
+            f"Chauffage et eau chaude : électricité de la PAC ({_fr(m['pac']['total']['ttc'], 2)} "
+            f"CHF TTC) répartie à {_fr(part, 0)} % sur le chauffage, au prorata des kWh th, "
+            "et le reste sur l'eau chaude, au prorata des m³. La PAC n'a donc pas de ligne ici.",
+            "note"))
+    if m["location_periode"] is not None:
+        notes.append((
+            f"Location de compteurs : {_fr(m['location_annuelle'], 2)} CHF HT par lot et par "
+            f"an, soit {_fr(m['location_periode'], 2)} CHF HT sur la période (lots seulement), "
+            "comprise dans l'électricité.", "note"))
+    notes.append(("Une case vide n'est pas un zéro : un relevé ou un paramètre manque, "
+                  "et le total de la ligne reste vide.", "note"))
+    if m["messages"]:
+        notes.append(("À compléter", "head"))
+        notes.extend((msg, "note") for msg in m["messages"])
+    hors = c["parametres"]["frais_hors_periode"]
+    if hors:
+        notes.append(("Frais non comptés", "head"))
+        notes.extend((
+            f"{f['zone']} — {f['libelle']} ({_jour_fr(f['du'])} → {_jour_fr(f['au'])}) : "
+            "période à cheval sur celle du décompte.", "note") for f in hors)
+    _ecrire_onglet_tableau(
+        wb, "Récapitulatif", f"Récapitulatif — {site}" if site else "Récapitulatif",
+        f"{label}  ·  {couverture}", colonnes, rows, total_row, notes,
+        site, label, "Récapitulatif · CHF",
+    )
 
 
 def _mise_en_page(ws, ncol: int, last_row: int, header_row: int,
@@ -471,6 +604,65 @@ def _ecrire_notes(ws, start_row: int, notes: list[tuple[str, str]], ncol: int,
     return row - 1
 
 
+def _ecrire_tableau(ws, header_row: int, colonnes: list[tuple[str, int, str | None]],
+                   lignes: list[list], total: list | None, filtre: bool = True) -> int:
+    """En-tête en `header_row`, une ligne par entrée, puis le total.
+    `filtre` : filtre automatique sur le tableau (un seul par onglet).
+    Retourne la dernière ligne écrite."""
+    ncol = len(colonnes)
+    for c, (nom_col, _w, _f) in enumerate(colonnes, start=1):
+        cell = ws.cell(header_row, c, nom_col)
+        cell.font = _FONT_HEADER
+        cell.fill = _FILL_HEADER
+        cell.alignment = _ALIGN_CENTER
+        cell.border = _THIN
+    ws.row_dimensions[header_row].height = 32
+
+    i_etat = next((i for i, (_n, _w, f) in enumerate(colonnes) if f == "etat"), None)
+    row = header_row
+    for i, valeurs in enumerate(lignes):
+        row += 1
+        etat = valeurs[i_etat] if i_etat is not None else "facturable"
+        fill = _FILL_AMBER if etat != "facturable" else (_FILL_STRIPE if i % 2 else None)
+        for c, (value, (_n, _w, fmt)) in enumerate(zip(valeurs, colonnes), start=1):
+            formule = callable(value)
+            cell = ws.cell(row, c, value(row) if formule else value)
+            cell.border = _THIN
+            if fill is not None:
+                cell.fill = fill
+            if fmt == "etat":
+                cell.font = _FONT_ETAT.get(value, Font())
+                cell.alignment = _ALIGN_CENTER
+            elif fmt:
+                if formule or isinstance(value, (int, float)):
+                    cell.number_format = fmt
+                cell.alignment = _ALIGN_RIGHT
+            else:
+                cell.alignment = _ALIGN_LEFT
+        ws.row_dimensions[row].height = 18
+    if lignes and filtre:
+        ws.auto_filter.ref = f"A{header_row}:{get_column_letter(ncol)}{row}"
+
+    if total is not None and lignes:
+        first_data, last_data = header_row + 1, row
+        row += 1
+        for c, (value, (_n, _w, fmt)) in enumerate(zip(total, colonnes), start=1):
+            formule = callable(value)
+            cell = ws.cell(row, c, value(first_data, last_data) if formule else value)
+            cell.font = _FONT_TOTAL
+            cell.fill = _FILL_TOTAL
+            cell.border = _TOTAL_BORDER
+            if fmt and fmt != "etat":
+                if formule or isinstance(value, (int, float)):
+                    cell.number_format = fmt
+                cell.alignment = _ALIGN_RIGHT
+            else:
+                cell.alignment = _ALIGN_LEFT
+        ws.row_dimensions[row].height = 22
+
+    return row
+
+
 def _ecrire_onglet_tableau(wb: Workbook, nom: str, titre: str, sous: str,
                            colonnes: list[tuple[str, int, str | None]],
                            lignes: list[list], total: list | None,
@@ -503,56 +695,7 @@ def _ecrire_onglet_tableau(wb: Workbook, nom: str, titre: str, sous: str,
         cell.font = _FONT_SUB
         cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         header_row = last_prix + 2
-    for c, (nom_col, _w, _f) in enumerate(colonnes, start=1):
-        cell = ws.cell(header_row, c, nom_col)
-        cell.font = _FONT_HEADER
-        cell.fill = _FILL_HEADER
-        cell.alignment = _ALIGN_CENTER
-        cell.border = _THIN
-    ws.row_dimensions[header_row].height = 32
-
-    i_etat = next((i for i, (_n, _w, f) in enumerate(colonnes) if f == "etat"), None)
-    row = header_row
-    for i, valeurs in enumerate(lignes):
-        row += 1
-        etat = valeurs[i_etat] if i_etat is not None else "facturable"
-        fill = _FILL_AMBER if etat != "facturable" else (_FILL_STRIPE if i % 2 else None)
-        for c, (value, (_n, _w, fmt)) in enumerate(zip(valeurs, colonnes), start=1):
-            formule = callable(value)
-            cell = ws.cell(row, c, value(row) if formule else value)
-            cell.border = _THIN
-            if fill is not None:
-                cell.fill = fill
-            if fmt == "etat":
-                cell.font = _FONT_ETAT.get(value, Font())
-                cell.alignment = _ALIGN_CENTER
-            elif fmt:
-                if formule or isinstance(value, (int, float)):
-                    cell.number_format = fmt
-                cell.alignment = _ALIGN_RIGHT
-            else:
-                cell.alignment = _ALIGN_LEFT
-        ws.row_dimensions[row].height = 18
-    if lignes:
-        ws.auto_filter.ref = f"A{header_row}:{get_column_letter(ncol)}{row}"
-
-    if total is not None and lignes:
-        first_data, last_data = header_row + 1, row
-        row += 1
-        for c, (value, (_n, _w, fmt)) in enumerate(zip(total, colonnes), start=1):
-            formule = callable(value)
-            cell = ws.cell(row, c, value(first_data, last_data) if formule else value)
-            cell.font = _FONT_TOTAL
-            cell.fill = _FILL_TOTAL
-            cell.border = _TOTAL_BORDER
-            if fmt and fmt != "etat":
-                if formule or isinstance(value, (int, float)):
-                    cell.number_format = fmt
-                cell.alignment = _ALIGN_RIGHT
-            else:
-                cell.alignment = _ALIGN_LEFT
-        ws.row_dimensions[row].height = 22
-
+    row = _ecrire_tableau(ws, header_row, colonnes, lignes, total)
     for c, (_n, width, _f) in enumerate(colonnes, start=1):
         ws.column_dimensions[get_column_letter(c)].width = width
     last_row = _ecrire_notes(ws, row + 2, notes, ncol, sum(w for _n, w, _f in colonnes))
@@ -593,15 +736,62 @@ def _index_identiques(lignes: list[dict]) -> list[tuple[str, str]]:
     return [("Points d'attention", "head"), *notes] if notes else []
 
 
-def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
-                           couverture: str, tva_defaut: float | None = None,
-                           libelle: str = "Total immeuble") -> None:
+def _bloc_infos(ws, row: int, infos: list[tuple[str, object, str | None]], ncol: int) -> int:
+    """Lignes « libellé : valeur » au-dessus d'un tableau. Retourne la
+    dernière ligne écrite."""
+    for libelle, valeur, fmt in infos:
+        ws.cell(row, 1, libelle).font = Font(bold=True, color=_NAVY)
+        if fmt is None:
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=ncol)
+            cell = ws.cell(row, 2, valeur)
+            cell.font = _FONT_SUB
+            cell.alignment = _ALIGN_WRAP
+        else:
+            cell = ws.cell(row, 2, valeur)
+            cell.alignment = _ALIGN_RIGHT
+            if isinstance(valeur, (int, float)):
+                cell.number_format = fmt
+        ws.row_dimensions[row].height = 18
+        row += 1
+    return row - 1
+
+
+def _ecrire_onglet_poste(wb: Workbook, nom: str, titre: str, sous: str, infos: list,
+                         releves: tuple[list, list, list | None],
+                         repartition: tuple[list, list, list | None] | None,
+                         notes: list, site: str, label: str, footer: str) -> None:
+    """Onglet de poste : informations, tableau des relevés, puis (si les
+    montants sont calculés) tableau de répartition du coût, et notes."""
+    ws = wb.create_sheet(nom)
+    colonnes, lignes, total = releves
+    ncol = max(len(colonnes), len(repartition[0]) if repartition else 0)
+    _ecrire_titre(ws, titre, sous, ncol)
+    ws.row_dimensions[2].height = 36
+    row = _bloc_infos(ws, 4, infos, ncol) if infos else 3
+    header_row = row + 2
+    row = _ecrire_tableau(ws, header_row, colonnes, lignes, total)
+    largeurs = [w for _n, w, _f in colonnes]
+    if repartition:
+        r_cols, r_lignes, r_total = repartition
+        row = _ecrire_tableau(ws, row + 3, r_cols, r_lignes, r_total, filtre=False)
+        largeurs = [max(a, b) for a, b in zip(largeurs + [0] * ncol, [w for _n, w, _f in r_cols] + [0] * ncol)][:ncol]
+    for c, width in enumerate(largeurs, start=1):
+        ws.column_dimensions[get_column_letter(c)].width = width
+    last_row = _ecrire_notes(ws, row + 2, notes, ncol, sum(largeurs))
+    _mise_en_page(ws, ncol, max(last_row, header_row), header_row, site, label, footer)
+
+
+def _ecrire_onglets_postes(wb: Workbook, postes: dict, c: dict | None, site: str, label: str,
+                           couverture: str, libelle: str = "Total immeuble") -> None:
     """Onglets Chauffage, Eau chaude et Buanderie. Un onglet n'est créé que
     si le site a des compteurs de ce poste.
 
-    Chauffage et eau chaude ont leur prix HT et leur TVA en cases jaunes
-    (pas de tarif en base pour ces postes : le prix part vide, la TVA
-    reprend celle du tarif électrique s'il y en a un)."""
+    Chauffage et eau chaude : le coût est l'électricité de la PAC, réparti
+    selon la clé (page Paramètres) puis au prorata des quantités de chaque
+    zone (services/billing/chiffrage.py). Les montants sont ceux de
+    l'application, pas des formules."""
+    m = c["montants"] if c else None
+    labels = {z["zone"]: z["label"] for z in postes.get("chauffage", []) + postes.get("eau_chaude", [])}
     explications = {
         "chauffage": "Énergie de chauffage = index de fin − index de début du "
                      "compteur de chaleur. Le volume circulé n'est pas repris.",
@@ -619,20 +809,49 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
             (f"Index début ({unite})", 18, _INDEX_FMT),
             (f"Index fin ({unite})", 18, _INDEX_FMT),
             (f"{grandeur} ({unite})", 18, qte_fmt),
-            ("Montant TTC (CHF)", 18, _CHF_FMT),
             ("État", 22, "etat"),
         ]
-        # Prix en B4, TVA en B5 ; quantité en E, montant en F.
-        def montant(row):
-            return _formule_ttc(f"E{row}", "$B$4", "$B$5")
-
-        def somme_montants(first, last):
-            return _formule_somme("F", first, last)
-
-        rows = [[ln["zone"], ln["compteur"], ln["debut"], ln["fin"], ln["quantite"],
-                 montant, ln["etat"]]
+        rows = [[ln["zone"], ln["compteur"], ln["debut"], ln["fin"], ln["quantite"], ln["etat"]]
                 for ln in lignes]
+
+        poste = (m or {}).get(role)
+        infos, repartition = [], None
+        if poste:
+            part = c["parametres"]["valeurs"]["pac_part_chauffage"]["valeur"]
+            cle = part if role == "chauffage" else 100 - part
+            infos = [
+                (f"Coût {titre.lower()} HT (CHF)", poste["cout"]["ht"], _CHF_FMT),
+                ("TVA (CHF)", poste["cout"]["tva"], _CHF_FMT),
+                (f"Coût {titre.lower()} TTC (CHF)", poste["cout"]["ttc"], _CHF_FMT),
+                ("Clé", f"{_fr(cle, 0)} % de l'électricité de la PAC "
+                        f"({_fr(m['pac']['total']['ht'], 2)} CHF HT), au prorata "
+                        f"{'des kWh th' if role == 'chauffage' else 'des m³'} de chaque zone.", None),
+            ]
+            par_zone = poste["par_zone"]
+            if par_zone:
+                somme = poste["quantite_totale"]
+                r_cols = [
+                    ("Zone", 22, None),
+                    (f"{grandeur} ({unite})", 18, qte_fmt),
+                    ("Part (%)", 12, "0.00"),
+                    ("Montant HT (CHF)", 18, _CHF_FMT),
+                    ("TVA (CHF)", 18, _CHF_FMT),
+                    ("Montant TTC (CHF)", 18, _CHF_FMT),
+                ]
+                r_lignes = [[labels.get(z, z), v["quantite"], round(v["quantite"] / somme * 100, 2),
+                             v["ht"], v["tva"], v["ttc"]] for z, v in par_zone.items()]
+                r_total = [libelle, *[_somme_affichee([r[i] for r in r_lignes]) for i in (1, 2)],
+                           *[_somme_affichee([v[k] for v in par_zone.values()])
+                             for k in ("ht", "tva", "ttc")]]
+                repartition = (r_cols, r_lignes, r_total)
         notes = [(explications[role], "note")]
+        if poste and poste["par_zone"]:
+            notes.append((
+                "Répartition : le centime d'arrondi va à la plus grosse quantité, pour que "
+                "la somme des zones égale le coût. Une zone relevée à 0 ne paie rien.", "note"))
+        elif m is not None:
+            notes.append(("Coût non réparti : voir « À compléter » dans l'onglet Récapitulatif.",
+                          "note"))
         if len({ln["zone"] for ln in lignes}) < len(lignes):
             notes.append((
                 "Une zone peut avoir plusieurs compteurs : une ligne par compteur, "
@@ -644,32 +863,41 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
         ))
         notes += _index_identiques(lignes)
         notes += _notes_manquants(lignes, lambda ln: f"{ln['zone']} — {ln['compteur']}")
-        _ecrire_onglet_tableau(
-            wb, titre, f"{titre} — {site}" if site else titre,
-            f"{label}  ·  {couverture}", colonnes, rows,
-            [libelle, "", None, None, total_qte, somme_montants, ""], notes,
-            site, label, f"{titre} · {unite} et CHF",
-            prix=[
-                (f"Prix {titre.lower()} HT (CHF/{unite})", None, _PRIX_FMT),
-                ("TVA (%)", tva_defaut, _TVA_FMT),
-            ],
-            note_prix=(
-                f"Montant TTC = {grandeur.lower()} × prix HT × (1 + TVA). Les cases "
-                "jaunes sont modifiables : les montants se recalculent. Une quantité, "
-                "un prix ou une TVA vide ne donne pas de montant."
-            ),
+        _ecrire_onglet_poste(
+            wb, titre, f"{titre} — {site}" if site else titre, f"{label}  ·  {couverture}",
+            infos, (colonnes, rows, [libelle, "", None, None, total_qte, ""]), repartition,
+            notes, site, label, f"{titre} · {unite} et CHF",
         )
 
     lignes, totaux = lignes_buanderie(postes)
     if not lignes:
         return
+    montants_b = (m or {}).get("buanderie") or {}
     colonnes = [
         ("Zone", 22, None),
-        ("Cycles", 14, _CYCLES_FMT),
-        ("Énergie (kWh)", 18, _KWH_FMT),
+        ("Cycles", 12, _CYCLES_FMT),
+        ("Énergie (kWh)", 16, _KWH_FMT),
+        ("Cycles (CHF)", 16, _CHF_FMT),
+        ("Énergie HT (CHF)", 16, _CHF_FMT),
+        ("TVA (CHF)", 14, _CHF_FMT),
+        ("Total TTC (CHF)", 16, _CHF_FMT),
         ("État", 22, "etat"),
     ]
-    rows = [[ln["zone"], ln["cycles"], ln["energie"], ln["etat"]] for ln in lignes]
+    rows = []
+    for ln, b in zip(lignes, postes.get("buanderie") or []):
+        mb = montants_b.get(b["zone"])
+        rows.append([ln["zone"], ln["cycles"], ln["energie"],
+                     mb["cycles"]["ht"] if mb else None, mb["kwh"]["ht"] if mb else None,
+                     mb["total"]["tva"] if mb else None, mb["total"]["ttc"] if mb else None,
+                     ln["etat"]])
+    total = [libelle, totaux["cycles"], totaux["energie"],
+             *[_somme_affichee([r[i] for r in rows]) for i in (3, 4, 5, 6)], ""]
+    infos = []
+    if c:
+        prix_cycle = c["parametres"]["valeurs"]["buanderie_prix_cycle"]["valeur"]
+        infos = [("Prix du cycle (CHF)", prix_cycle, _CHF_FMT),
+                 ("Énergie", "au prix du kWh réseau, TVA en sus ; cycles sans TVA "
+                             "(montant final).", None)]
     notes = [
         ("Énergie (CEnergieAppXX) et nombre de cycles (CNrMachineAppXX) de la "
          "buanderie commune, attribués à chaque appartement par badge.", "note"),
@@ -682,11 +910,10 @@ def _ecrire_onglets_postes(wb: Workbook, postes: dict, site: str, label: str,
             "Avant, l'énergie s'incrémentait sur tous les lots sans cycle.", "note",
         ))
     notes += _notes_manquants(lignes, lambda ln: ln["zone"])
-    _ecrire_onglet_tableau(
+    _ecrire_onglet_poste(
         wb, "Buanderie", f"Buanderie — {site}" if site else "Buanderie",
-        f"{label}  ·  {couverture}", colonnes, rows,
-        [libelle, totaux["cycles"], totaux["energie"], ""], notes,
-        site, label, "Buanderie · kWh et cycles",
+        f"{label}  ·  {couverture}", infos, (colonnes, rows, total), None,
+        notes, site, label, "Buanderie · kWh, cycles et CHF",
     )
 
 
@@ -728,22 +955,24 @@ def _ecrire_onglet_detail(wb: Workbook, payload: dict, site: str, label: str,
 
 
 _FRAIS_COLONNES = [
-    # (titre, largeur, saisie par l'utilisateur)
-    ("Zone", 28, False),
-    ("Location des compteurs (CHF)", 20, True),
-    ("Frais exceptionnels (CHF)", 20, True),
-    ("Autres frais (CHF)", 20, True),
-    ("Total frais (CHF)", 18, False),
-    ("Remarque", 46, True),
+    ("Zone", 24, None),
+    ("Libellé", 34, None),
+    ("Du", 12, None),
+    ("Au", 12, None),
+    ("Montant HT (CHF)", 16, _CHF_FMT),
+    ("TVA (CHF)", 14, _CHF_FMT),
+    ("Montant TTC (CHF)", 16, _CHF_FMT),
+    ("Remarque", 40, None),
 ]
 
 
-def _ecrire_onglet_frais(wb: Workbook, zones: list[tuple[str, int]], site: str,
-                         label: str, couverture: str, total: str = "Total immeuble") -> None:
-    """Tableau vide, une ligne par zone de l'onglet Électricité, pour
-    reporter à la main les frais hors relevés (location des compteurs,
-    frais exceptionnels). `zones` : (nom, ligne dans Électricité) ; le nom
-    de la zone est un lien vers sa ligne."""
+def _ecrire_onglet_frais(wb: Workbook, c: dict | None, zones: dict[str, tuple[str, int]],
+                         site: str, label: str, couverture: str,
+                         total: str = "Total immeuble") -> None:
+    """Frais accessoires saisis dans la page Paramètres pour la période, un
+    par ligne. `zones` : code de zone → (libellé, ligne dans Électricité) ;
+    le nom de la zone est un lien vers sa ligne."""
+    frais = c["montants"]["frais"] if c else []
     ws = wb.create_sheet("Frais supplémentaires")
     ncol = len(_FRAIS_COLONNES)
     _ecrire_titre(
@@ -752,62 +981,33 @@ def _ecrire_onglet_frais(wb: Workbook, zones: list[tuple[str, int]], site: str,
     )
     ws.row_dimensions[2].height = 22
     header_row = 4
-    for c, (nom, _w, _s) in enumerate(_FRAIS_COLONNES, start=1):
-        cell = ws.cell(header_row, c, nom)
-        cell.font = _FONT_HEADER
-        cell.fill = _FILL_HEADER
-        cell.alignment = _ALIGN_CENTER
-        cell.border = _THIN
-    ws.row_dimensions[header_row].height = 32
-
-    first = header_row + 1
-    for i, (zone, ligne_elec) in enumerate(zones):
-        row = first + i
-        for c, (_n, _w, saisie) in enumerate(_FRAIS_COLONNES, start=1):
-            cell = ws.cell(row, c)
-            cell.border = _THIN
-            if saisie:
-                cell.fill = _FILL_EDIT
-            if c == 1:
-                cell.value = zone
-                cell.hyperlink = Hyperlink(ref=cell.coordinate,
-                                           location=f"'Électricité'!A{ligne_elec}")
-                cell.font = Font(color="0563C1", underline="single")
-                cell.alignment = _ALIGN_LEFT
-            elif c == ncol:
-                cell.alignment = _ALIGN_WRAP
-            else:
-                cell.number_format = _CHF_FMT
-                cell.alignment = _ALIGN_RIGHT
-        ws.cell(row, 5).value = f'=IF(COUNT(B{row}:D{row})=0,"",SUM(B{row}:D{row}))'
-        ws.cell(row, 5).font = Font(bold=True)
-        ws.row_dimensions[row].height = 18
-    last = first + len(zones) - 1
-
-    total_row = last + 1
-    for c in range(1, ncol + 1):
-        cell = ws.cell(total_row, c)
-        cell.font = _FONT_TOTAL
-        cell.fill = _FILL_TOTAL
-        cell.border = _TOTAL_BORDER
-        if 2 <= c <= 5:
-            cell.value = _formule_somme(get_column_letter(c), first, last)
-            cell.number_format = _CHF_FMT
-            cell.alignment = _ALIGN_RIGHT
-    ws.cell(total_row, 1, total).alignment = _ALIGN_LEFT
-    ws.row_dimensions[total_row].height = 22
-
-    for c, (_n, width, _s) in enumerate(_FRAIS_COLONNES, start=1):
-        ws.column_dimensions[get_column_letter(c)].width = width
-    notes = [
-        ("Tableau à remplir : les cases jaunes sont vides à la génération. "
-         "Reporter les montants à facturer en CHF, TVA comprise.", "note"),
-        ("Le nom de chaque zone renvoie à sa ligne dans l'onglet Électricité. "
-         + ("Les totaux se calculent seuls." if total == "Total"
-            else "Le total de la ligne et celui de l'immeuble se calculent seuls."), "note"),
-    ]
-    last_row = _ecrire_notes(ws, total_row + 2, notes, ncol,
-                             sum(w for _n, w, _s in _FRAIS_COLONNES))
+    rows = []
+    for f in frais:
+        mt = f["montant"]
+        rows.append([zones.get(f["zone"], (f["zone"], None))[0], f["libelle"],
+                     _jour_fr(f.get("du")), _jour_fr(f.get("au")),
+                     mt["ht"] if mt else None, mt["tva"] if mt else None,
+                     mt["ttc"] if mt else None, f.get("note") or ""])
+    totaux = [total, "", "", "", *[_somme_affichee([r[i] for r in rows]) for i in (4, 5, 6)], ""]
+    row = _ecrire_tableau(ws, header_row, _FRAIS_COLONNES, rows, totaux)
+    for i, f in enumerate(frais):
+        ligne_elec = zones.get(f["zone"], (None, None))[1]
+        if ligne_elec:
+            cell = ws.cell(header_row + 1 + i, 1)
+            cell.hyperlink = Hyperlink(ref=cell.coordinate, location=f"'Électricité'!A{ligne_elec}")
+            cell.font = Font(color="0563C1", underline="single")
+    for c_, (_n, width, _f) in enumerate(_FRAIS_COLONNES, start=1):
+        ws.column_dimensions[get_column_letter(c_)].width = width
+    if not c:
+        notes = [("Montants non calculés : paramètres du décompte indisponibles.", "note")]
+    elif not frais:
+        notes = [("Aucun frais accessoire saisi pour cette période. Ils s'ajoutent dans la "
+                  "page Paramètres (zone, période, libellé, montant HT, TVA oui ou non).", "note")]
+    else:
+        notes = [("Frais saisis dans la page Paramètres, dont la période est comprise dans "
+                  "celle du décompte. Ils sont repris tels quels, sans calcul, dans le "
+                  "Récapitulatif.", "note")]
+    last_row = _ecrire_notes(ws, row + 2, notes, ncol, sum(w for _n, w, _f in _FRAIS_COLONNES))
     _mise_en_page(ws, ncol, last_row, header_row, site, label, "Frais supplémentaires · CHF")
 
 
@@ -815,10 +1015,12 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
                             methode: bool = True) -> Workbook:
     """Classeur du mois choisi, ouvrable tel quel.
 
-    Onglets : Électricité (kWh, prix et montants, colonne buanderie si le
-    mois en a une), puis Chauffage, Eau chaude et Buanderie quand le site
-    a ces compteurs (`payload["postes"]`), Frais supplémentaires (tableau
-    vide à remplir) et enfin les Relevés horaires.
+    Onglets : Récapitulatif (montants par zone, si `payload["chiffrage"]`),
+    Électricité (kWh, paramètres appliqués et montants, colonne buanderie
+    si le mois en a une), puis Chauffage, Eau chaude et Buanderie quand le
+    site a ces compteurs (`payload["postes"]`), Frais supplémentaires
+    (frais saisis dans la page Paramètres) et enfin les Relevés horaires.
+    Sans `chiffrage`, les montants restent vides.
 
     Les chiffres sont ceux de `export_lignes` (donc de la page), arrondis
     au centième de kWh pour que la somme des lignes égale le total affiché.
@@ -847,21 +1049,24 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
             "total": _kwh_affiche(e.get("total")),
             "buanderie": _kwh_affiche((buanderie or {}).get(z.get("zone"))),
             "etat": etat_zone(e),
+            **_montants_electricite(payload, period_key, z.get("zone")),
         })
     totaux = {k: _somme_affichee([ln[k] for ln in lignes]) for k in _ELEC_KWH}
     taux = None
     if totaux["total"]:
         taux = (totaux["solaire"] or 0.0) / totaux["total"]
 
+    c = chiffrage_du_mois(payload, period_key)
+    m = c["montants"] if c else None
+    avec_location = bool(m and m["location_periode"] is not None)
+
     cles = ["zone", "total", "solaire", "reseau"]
     if buanderie is not None:
         cles.append("buanderie")
-    cles += [*_ELEC_CHF, "etat"]
+    cles += ["chf_solaire", "chf_reseau"] + (["chf_location"] if avec_location else [])
+    cles += ["tva", "ttc", "etat"]
     col = {k: i for i, k in enumerate(cles, start=1)}
     ncol = len(cles)
-
-    def ref(key: str, row: int) -> str:
-        return f"{get_column_letter(col[key])}{row}"
 
     wb = Workbook()
     wb.calculation.calcMode = "auto"
@@ -880,68 +1085,23 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
     ws.row_dimensions[2].height = 22
     ws.row_dimensions[3].height = 8
 
-    tarif = _tarif_du_mois(entries)
-    prix_reseau = tarif.get("prix_reseau") if tarif else None
-    prix_solaire = tarif.get("prix_solaire") if tarif else None
-    taux_tva = tarif.get("taux_tva") if tarif else None
-    ws.cell(_PRIX_RESEAU_ROW, 1, "Prix réseau HT (CHF/kWh)").font = Font(bold=True, color=_NAVY)
-    ws.cell(_PRIX_SOLAIRE_ROW, 1, "Prix solaire HT (CHF/kWh)").font = Font(bold=True, color=_NAVY)
-    ws.cell(_TVA_ROW, 1, "TVA (%)").font = Font(bold=True, color=_NAVY)
-    _prix_jaune(ws.cell(_PRIX_RESEAU_ROW, 2), prix_reseau, _PRIX_FMT)
-    _prix_jaune(ws.cell(_PRIX_SOLAIRE_ROW, 2), prix_solaire, _PRIX_FMT)
-    _prix_jaune(ws.cell(_TVA_ROW, 2), taux_tva, _TVA_FMT)
-    for r in (_PRIX_RESEAU_ROW, _PRIX_SOLAIRE_ROW, _TVA_ROW):
-        ws.row_dimensions[r].height = 20
-    vf = str((tarif or {}).get("valid_from") or "")
-    if len(vf) >= 10 and vf[4] == "-" and vf[7] == "-":
-        origine = f"Tarif en vigueur depuis le {vf[8:10]}.{vf[5:7]}.{vf[:4]}."
-    elif tarif:
-        origine = "Tarif enregistré pour ce site."
-    else:
-        origine = ("Aucun tarif enregistré pour cette période." if payload.get("detail")
-                   else "Aucun tarif enregistré pour ce mois.")
-    if _tarifs_differents(entries):
-        origine += (" Le tarif change pendant la période : les prix sont ceux du "
-                    "premier mois, à corriger au besoin.")
-    ws.merge_cells(start_row=_PRIX_RESEAU_ROW, start_column=3, end_row=_TVA_ROW, end_column=ncol)
-    note_prix = ws.cell(
-        _PRIX_RESEAU_ROW, 3,
-        f"{origine} Les montants sont TTC : kWh × prix HT × (1 + TVA). "
-        "Les cases jaunes sont modifiables : les montants se recalculent. "
-        "Une quantité vide ne donne pas de montant.",
-    )
-    note_prix.font = _FONT_SUB
-    note_prix.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-    ref_prix_reseau = f"$B${_PRIX_RESEAU_ROW}"
-    ref_prix_solaire = f"$B${_PRIX_SOLAIRE_ROW}"
-    ref_tva = f"$B${_TVA_ROW}"
+    last_param = _ecrire_parametres(ws, c, ncol)
+    header_row = last_param + 2
 
     for key in cles:
-        cell = ws.cell(_XLSX_HEADER_ROW, col[key], _ELEC_COLONNES[key][0])
+        cell = ws.cell(header_row, col[key], _ELEC_COLONNES[key][0])
         cell.font = _FONT_HEADER
         cell.fill = _FILL_HEADER
         cell.alignment = _ALIGN_CENTER
         cell.border = _THIN
-    ws.row_dimensions[_XLSX_HEADER_ROW].height = 32
+    ws.row_dimensions[header_row].height = 32
 
-    first_data = _XLSX_HEADER_ROW + 1
+    first_data = header_row + 1
     for i, ln in enumerate(lignes):
         row = first_data + i
         incomplet = ln["etat"] != "facturable"
         fill = _FILL_AMBER if incomplet else (_FILL_STRIPE if i % 2 else None)
-        chf_reseau, chf_solaire = ref("chf_reseau", row), ref("chf_solaire", row)
-        valeurs = {
-            "zone": ln["zone"],
-            "total": ln["total"],
-            "solaire": ln["solaire"],
-            "reseau": ln["reseau"],
-            "buanderie": ln["buanderie"],
-            "chf_reseau": _formule_ttc(ref("reseau", row), ref_prix_reseau, ref_tva),
-            "chf_solaire": _formule_ttc(ref("solaire", row), ref_prix_solaire, ref_tva),
-            "ttc": f'=IF(OR({chf_reseau}="",{chf_solaire}=""),"",{chf_reseau}+{chf_solaire})',
-            "etat": ln["etat"],
-        }
+        valeurs = {k: ln.get(k) for k in cles}
         for key in cles:
             cell = ws.cell(row, col[key], valeurs[key])
             cell.border = _THIN
@@ -977,15 +1137,14 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
             cell.value = totaux[key]
             _style_kwh(cell, totaux[key])
         elif key in _ELEC_CHF:
-            letter = get_column_letter(col[key])
-            cell.value = _formule_somme(letter, first_data, last_data)
+            cell.value = _somme_affichee([ln.get(key) for ln in lignes])
             cell.number_format = _CHF_FMT
             cell.alignment = _ALIGN_RIGHT
         else:
             cell.alignment = _ALIGN_CENTER
     ws.row_dimensions[total_row].height = 22
 
-    ws.auto_filter.ref = f"A{_XLSX_HEADER_ROW}:{get_column_letter(ncol)}{last_data}"
+    ws.auto_filter.ref = f"A{header_row}:{get_column_letter(ncol)}{last_data}"
 
     rate_row = total_row + 2
     if taux is not None:
@@ -1014,19 +1173,24 @@ def build_decompte_workbook(payload: dict, period_key: str, site: str, conn=None
         ws, rate_row + 2, _notes_classeur(payload, period_key, manquants, postes, methode), ncol,
         sum(largeurs.values()),
     )
-    _mise_en_page(ws, ncol, last_row, _XLSX_HEADER_ROW, site, label, "Électricité · kWh et CHF")
+    _mise_en_page(ws, ncol, last_row, header_row, site, label, "Électricité · kWh et CHF")
 
     _ecrire_onglet_detail(wb, payload, site, label, couverture, methode)
     if postes:
-        _ecrire_onglets_postes(wb, postes, site, label, couverture, taux_tva,
-                               libelle_total(payload))
+        _ecrire_onglets_postes(wb, postes, c, site, label, couverture, libelle_total(payload))
     _ecrire_onglet_frais(
-        wb, [(ln["zone"], first_data + i) for i, ln in enumerate(lignes)],
+        wb, c, {z.get("zone"): (ln["zone"], first_data + i)
+                for i, ((z, _e), ln) in enumerate(zip(entries, lignes))},
         site, label, couverture, libelle_total(payload),
     )
     _ecrire_onglet_releves(
         wb, entries, payload, period_key, site, label, couverture, tz, conn,
     )
+
+    if c:
+        _ecrire_onglet_recapitulatif(wb, payload, c, site, label, couverture)
+        wb.move_sheet("Récapitulatif", offset=-(len(wb.sheetnames) - 1))
+        wb.active = 0
 
     wb.properties.title = f"Décompte {site} {label}".strip()
     wb.properties.creator = "Loxone Collector"

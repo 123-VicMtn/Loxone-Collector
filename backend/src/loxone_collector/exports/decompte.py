@@ -45,7 +45,76 @@ def restreindre_a_zone(payload: dict, zone: str) -> dict:
             }}
             for cle, postes in payload["postes"].items()
         }
+    if payload.get("chiffrage"):
+        out["chiffrage"] = {cle: _chiffrage_de_la_zone(c, zone)
+                            for cle, c in payload["chiffrage"].items()}
     return out
+
+
+def _chiffrage_de_la_zone(c: dict, zone: str) -> dict:
+    """Montants restreints à une zone. Le coût de la PAC et celui de chaque
+    poste de chaleur restent ceux de l'immeuble : c'est ce qui a été réparti."""
+    m = c["montants"]
+    recap = [ligne for ligne in m["recapitulatif"] if ligne["zone"] == zone]
+
+    def poste(p):
+        if not p:
+            return p
+        par_zone = p["par_zone"]
+        return {**p, "par_zone": None if par_zone is None
+                else {z: v for z, v in par_zone.items() if z == zone}}
+
+    params = c["parametres"]
+    return {**c, "parametres": {
+        **params,
+        "frais": [f for f in params["frais"] if f["zone"] == zone],
+        "frais_hors_periode": [f for f in params["frais_hors_periode"] if f["zone"] == zone],
+    }, "montants": {
+        **m,
+        "electricite": {z: v for z, v in m["electricite"].items() if z == zone},
+        "chauffage": poste(m["chauffage"]),
+        "eau_chaude": poste(m["eau_chaude"]),
+        "buanderie": {z: v for z, v in m["buanderie"].items() if z == zone},
+        "frais": [f for f in m["frais"] if f["zone"] == zone],
+        "recapitulatif": recap,
+        "total": recap[0]["total"] if recap else None,
+    }}
+
+
+def chiffrage_du_mois(payload: dict, period_key: str) -> dict | None:
+    """Montants de la période exportée (`payload["chiffrage"]`), ou None
+    (payload sans paramètres : page, anciens appels)."""
+    return (payload.get("chiffrage") or {}).get(period_key)
+
+
+# Composantes du récapitulatif : (clé, titre de colonne).
+COMPOSANTES_RECAP = (
+    ("electricite", "Électricité"),
+    ("chauffage", "Chauffage"),
+    ("eau_chaude", "Eau chaude"),
+    ("buanderie", "Buanderie"),
+    ("frais", "Frais accessoires"),
+)
+
+
+def lignes_recapitulatif(c: dict | None) -> tuple[list[tuple[str, str]], list[dict], dict | None]:
+    """Colonnes présentes (une composante n'apparaît que si une zone l'a),
+    lignes `{zone, <composante>: TTC ou None, ht, tva, ttc}` et total."""
+    if not c:
+        return [], [], None
+    recap = c["montants"]["recapitulatif"]
+    colonnes = [(k, t) for k, t in COMPOSANTES_RECAP if any(k in ligne for ligne in recap)]
+    lignes = []
+    for ligne in recap:
+        out = {"zone": ligne["label"]}
+        for k, _t in colonnes:
+            if k in ligne:
+                out[k] = ligne[k]["ttc"] if ligne[k] else None
+        total = ligne["total"]
+        out.update(ht=total["ht"] if total else None, tva=total["tva"] if total else None,
+                   ttc=total["ttc"] if total else None)
+        lignes.append(out)
+    return colonnes, lignes, c["montants"]["total"]
 
 
 def libelle_total(payload: dict) -> str:
@@ -267,7 +336,7 @@ def export_csv_lignes(payload: dict, period_key: str, methode: bool = True) -> l
 
     postes = _postes_du_mois(payload, period_key)
     if not postes:
-        return out
+        return out + _csv_recapitulatif(payload, period_key)
     for role, (titre, grandeur, unite, dec) in _POSTE_TABLES.items():
         lignes, total = lignes_compteurs(postes, role)
         if not lignes:
@@ -291,5 +360,22 @@ def export_csv_lignes(payload: dict, period_key: str, methode: bool = True) -> l
                         _fr(ln["energie"], 2), ln["etat"]])
         out.append([mois_label, libelle_total(payload), _fr(totaux["cycles"], 0),
                     _fr(totaux["energie"], 2), ""])
+    return out + _csv_recapitulatif(payload, period_key)
+
+
+def _csv_recapitulatif(payload: dict, period_key: str) -> list[list[str]]:
+    """Section Récapitulatif (CHF) : TTC par composante, puis HT, TVA, TTC."""
+    colonnes, lignes, total = lignes_recapitulatif(chiffrage_du_mois(payload, period_key))
+    if not lignes:
+        return []
+    out = [[], ["Récapitulatif (CHF)"], [
+        "Zone", *[f"{t} TTC" for _k, t in colonnes], "Total HT", "TVA", "Total TTC",
+    ]]
+    for ln in lignes:
+        out.append([ln["zone"], *[_fr(ln.get(k), 2) for k, _t in colonnes],
+                    _fr(ln["ht"], 2), _fr(ln["tva"], 2), _fr(ln["ttc"], 2)])
+    out.append([libelle_total(payload), *["" for _ in colonnes],
+                *([_fr(total["ht"], 2), _fr(total["tva"], 2), _fr(total["ttc"], 2)]
+                  if total else ["", "", ""])])
     return out
 

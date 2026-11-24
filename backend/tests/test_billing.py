@@ -28,11 +28,36 @@ from loxone_collector import db
 from loxone_collector.exports import decompte as decompte_export
 from loxone_collector.exports import decompte_xlsx
 from loxone_collector.services import billing
+from loxone_collector.services.billing import chiffrage
 from loxone_collector.services.billing import decompte as billing_decompte
 
 
 def ts(year, month, day, hour=0, tz="Europe/Zurich"):
     return int(datetime(year, month, day, hour, tzinfo=ZoneInfo(tz)).timestamp())
+
+
+VALEURS_TEST = {
+    "prix_reseau": 0.25, "prix_solaire": 0.12, "taux_tva": 8.1, "tva_solaire": False,
+    "location_compteurs_an": None, "pac_part_chauffage": 80.0, "buanderie_prix_cycle": 2.2,
+}
+
+
+def ajouter_chiffrage(payload, cle, valeurs=None, frais=(), fraction=1 / 12):
+    """Montants comme les calcule la route d'export (paramètres en vigueur
+    depuis le 01.01.2026)."""
+    valeurs = dict(VALEURS_TEST if valeurs is None else valeurs)
+    params = {
+        "valeurs": {k: {"valeur": v, "depuis": None if v is None else "2026-01-01",
+                        "origine": "defaut" if v is None else "site", "id": None}
+                    for k, v in valeurs.items()},
+        "changent": [], "frais": list(frais), "frais_hors_periode": [],
+    }
+    entrees = chiffrage.entrees_du_decompte(payload, cle, list(frais))
+    payload["chiffrage"] = {cle: {
+        "du": "2026-01-01", "au": "2026-01-31", "parametres": params,
+        "montants": chiffrage.calculer_montants(entrees, valeurs, fraction),
+    }}
+    return payload
 
 
 class TestPeriodes(unittest.TestCase):
@@ -443,7 +468,7 @@ class TestExportLignes(unittest.TestCase):
                     "reseau": {"kwh": 10.0}, "solaire": {"kwh": 5.0}, "total": 15.0,
                     "taux_autoproduction": 33.333, "facturable": True, "en_cours": False,
                 }}},
-                {"label": "App 2", "periodes": {"2026-05": {
+                {"zone": "APP2", "label": "App 2", "periodes": {"2026-05": {
                     "reseau": {"kwh": None}, "solaire": {"kwh": 2.0}, "total": None,
                     "taux_autoproduction": None, "facturable": False, "en_cours": False,
                 }}},
@@ -492,7 +517,7 @@ class TestDecompteWorkbook(unittest.TestCase):
                 "raisons": ["heures d'achat au réseau impossibles"],
             }},
             "zones": [
-                {"label": "App 1", "sources": {
+                {"zone": "APP1", "label": "App 1", "sources": {
                     "controle": {"label": "Appartement 1 (total)", "series_id": "lot", "unit": "kWh"},
                 }, "periodes": {"2026-05": {
                     "reseau": {"kwh": 10.0, "alertes": []},
@@ -507,7 +532,7 @@ class TestDecompteWorkbook(unittest.TestCase):
                     "facturable": True, "en_cours": False,
                     "tarif": self.TARIF,
                 }}},
-                {"label": "App 2", "periodes": {"2026-05": {
+                {"zone": "APP2", "label": "App 2", "periodes": {"2026-05": {
                     "reseau": {"kwh": None, "alertes": ["pas de relevé dans la période"]},
                     "solaire": {"kwh": 2.0, "alertes": []},
                     "total": None,
@@ -533,24 +558,29 @@ class TestDecompteWorkbook(unittest.TestCase):
                 return r
         self.fail(f"{valeur!r} introuvable")
 
-    def test_onglet_frais_supplementaires_vide_et_lie_aux_zones(self):
-        wb = self.classeur()
-        elec, ws = wb["Électricité"], wb["Frais supplémentaires"]
+    def test_onglet_frais_sans_parametres(self):
+        ws = self.classeur()["Frais supplémentaires"]
         self.assertIn("MS-Démo", ws["A1"].value)
         self.assertEqual(
-            [ws.cell(4, c).value for c in range(1, 7)],
-            ["Zone", "Location des compteurs (CHF)", "Frais exceptionnels (CHF)",
-             "Autres frais (CHF)", "Total frais (CHF)", "Remarque"],
+            [ws.cell(4, c).value for c in range(1, 9)],
+            ["Zone", "Libellé", "Du", "Au", "Montant HT (CHF)", "TVA (CHF)",
+             "Montant TTC (CHF)", "Remarque"],
         )
-        for row, zone in ((5, "App 1"), (6, "App 2")):
-            self.assertEqual(ws.cell(row, 1).value, zone)
-            cible = ws.cell(row, 1).hyperlink.location
-            self.assertEqual(cible, f"'Électricité'!A{self._ligne(elec, zone)}")
-            for c in (2, 3, 4, 6):
-                self.assertIsNone(ws.cell(row, c).value)
-            self.assertEqual(ws.cell(row, 5).value, f'=IF(COUNT(B{row}:D{row})=0,"",SUM(B{row}:D{row}))')
-        self.assertEqual(ws["A7"].value, "Total immeuble")
-        self.assertEqual(ws["E7"].value, '=IF(COUNT(E5:E6)=0,"",SUM(E5:E6))')
+        self.assertIsNone(ws["A5"].value)
+        self.assertIn("paramètres du décompte indisponibles", ws["A6"].value)
+
+    def test_onglet_frais_saisis_et_lies_aux_zones(self):
+        frais = [{"zone": "APP1", "libelle": "Entretien", "montant_ht": 45.5, "tva": True,
+                  "du": "2026-05-01", "au": "2026-05-31", "note": "chaudière"}]
+        wb = self.classeur(ajouter_chiffrage(self.payload, "2026-05", frais=frais))
+        elec, ws = wb["Électricité"], wb["Frais supplémentaires"]
+        self.assertEqual([ws.cell(5, c).value for c in range(1, 9)],
+                         ["App 1", "Entretien", "01.05.2026", "31.05.2026", 45.5, 3.69, 49.19,
+                          "chaudière"])
+        self.assertEqual(ws["A5"].hyperlink.location, f"'Électricité'!A{self._ligne(elec, 'App 1')}")
+        self.assertEqual([ws.cell(6, c).value for c in (1, 5, 6, 7)],
+                         ["Total immeuble", 45.5, 3.69, 49.19])
+        self.assertEqual(self._ligne(wb["Récapitulatif"], "App 1"), 5)
 
     def test_titre_largeurs_et_nombres(self):
         ws = self.workbook()
@@ -561,11 +591,11 @@ class TestDecompteWorkbook(unittest.TestCase):
         self.assertIn("31.05.2026", ws["A2"].value)
         header = self._ligne(ws, "Zone")
         self.assertEqual(
-            [ws.cell(header, c).value for c in range(1, 9)],
+            [ws.cell(header, c).value for c in range(1, 10)],
             ["Zone", "Consommation totale (kWh)", "Solaire (kWh)", "Réseau (kWh)",
-             "Réseau TTC (CHF)", "Solaire TTC (CHF)", "Total TTC (CHF)", "État"],
+             "Solaire HT (CHF)", "Réseau HT (CHF)", "TVA (CHF)", "Total TTC (CHF)", "État"],
         )
-        self.assertIsNone(ws.cell(header, 9).value)
+        self.assertIsNone(ws.cell(header, 10).value)
         self.assertGreaterEqual(ws.column_dimensions["A"].width, 22)
         self.assertGreaterEqual(ws.column_dimensions["B"].width, 18)
         app1 = self._ligne(ws, "App 1")
@@ -576,7 +606,7 @@ class TestDecompteWorkbook(unittest.TestCase):
         self.assertEqual(ws.cell(app1, 4).value, 10.0)
         self.assertEqual(ws.cell(app1, 2).number_format, "#,##0.00")
         self.assertIsNone(ws.cell(app2, 4).value)
-        self.assertEqual(ws.cell(app2, 8).value, "données incomplètes")
+        self.assertEqual(ws.cell(app2, 9).value, "données incomplètes")
         self.assertEqual(ws.cell(total, 2).value, 15.0)
         self.assertEqual(ws.cell(total, 3).value, 7.0)
         self.assertEqual(ws.cell(total, 4).value, 10.0)
@@ -586,7 +616,7 @@ class TestDecompteWorkbook(unittest.TestCase):
         self.assertEqual(int(ws.page_setup.paperSize), 9)
         self.assertIn(ws.page_setup.fitToHeight, (0, None))
         self.assertFalse(ws.sheet_view.showGridLines)
-        self.assertTrue(any(str(r).startswith("A1:H") for r in ws.merged_cells.ranges))
+        self.assertTrue(any(str(r).startswith("A1:I") for r in ws.merged_cells.ranges))
 
     def test_le_total_egal_la_somme_des_lignes_affichees(self):
         ws = self.workbook()
@@ -598,40 +628,39 @@ class TestDecompteWorkbook(unittest.TestCase):
         textes = [ws.cell(r, 1).value for r in range(1, ws.max_row + 1)]
         self.assertTrue(any(isinstance(t, str) and "47 %" in t for t in textes))
 
-    def test_prix_pre_remplis_et_formules_de_montant(self):
-        ws = self.workbook()
-        self.assertEqual(ws["B4"].value, 0.25)
-        self.assertEqual(ws["B5"].value, 0.12)
-        self.assertEqual(ws["B6"].value, 8.1)
-        self.assertTrue(str(ws["B4"].fill.fgColor.rgb).endswith("FFF9C4"))
-        self.assertIn("01.01.2026", ws["C4"].value)
-        app1 = self._ligne(ws, "App 1")
-        app2 = self._ligne(ws, "App 2")
-        self.assertEqual(
-            ws.cell(app1, 5).value,
-            f'=IF(OR(D{app1}="",$B$4="",$B$6=""),"",D{app1}*$B$4*(1+$B$6/100))',
-        )
-        self.assertEqual(
-            ws.cell(app1, 6).value,
-            f'=IF(OR(C{app1}="",$B$5="",$B$6=""),"",C{app1}*$B$5*(1+$B$6/100))',
-        )
-        self.assertEqual(
-            ws.cell(app1, 7).value,
-            f'=IF(OR(E{app1}="",F{app1}=""),"",E{app1}+F{app1})',
-        )
-        self.assertIn('D{0}=""'.format(app2), ws.cell(app2, 5).value)
-        self.assertIn("Les montants sont TTC", ws["C4"].value)
+    def test_parametres_affiches_et_montants_de_l_application(self):
+        wb = self.classeur(ajouter_chiffrage(self.payload, "2026-05"))
+        self.assertEqual(wb.sheetnames[0], "Récapitulatif")
+        ws = wb["Électricité"]
+        self.assertEqual([ws.cell(r, 1).value for r in range(4, 8)],
+                         ["Prix réseau HT (CHF/kWh)", "Prix solaire HT (CHF/kWh)", "TVA (%)",
+                          "TVA sur le solaire"])
+        self.assertEqual([ws.cell(r, 2).value for r in range(4, 8)], [0.25, 0.12, 8.1, "non"])
+        self.assertEqual(ws["C4"].value, "depuis le 01.01.2026")
+        self.assertFalse(str(ws["B4"].fill.fgColor.rgb).endswith("FFF9C4"))
+        self.assertIn("modifier dans la page", ws["A8"].value)
+        app1, app2 = self._ligne(ws, "App 1"), self._ligne(ws, "App 2")
+        # 5,004 × 0,12 = 0,60 ; 10 × 0,25 = 2,50, TVA 0,2025 ; pas de TVA sur le solaire.
+        self.assertEqual([ws.cell(app1, c).value for c in range(5, 9)], [0.6, 2.5, 0.2, 3.3])
+        self.assertEqual([ws.cell(app2, c).value for c in range(5, 9)], [None] * 4)
         total = self._ligne(ws, "Total immeuble")
-        self.assertEqual(ws.cell(total, 7).value, f'=IF(COUNT(G{app1}:G{app2})=0,"",SUM(G{app1}:G{app2}))')
+        self.assertEqual(ws.cell(total, 8).value, 3.3)
+        recap = wb["Récapitulatif"]
+        self.assertEqual([recap.cell(4, c).value for c in range(1, 6)],
+                         ["Zone", "Électricité TTC (CHF)", "Total HT (CHF)", "TVA (CHF)",
+                          "Total TTC (CHF)"])
+        self.assertEqual([recap.cell(5, c).value for c in range(1, 6)], ["App 1", 3.3, 3.1, 0.2, 3.3])
+        self.assertEqual([recap.cell(6, c).value for c in range(1, 6)], ["App 2", None, None, None, None])
+        notes = " ".join(str(recap.cell(r, 1).value) for r in range(7, recap.max_row + 1))
+        self.assertIn("App 2 : relevé électrique incomplet", notes)
 
-    def test_sans_tarif_les_prix_restent_vides(self):
-        for z in self.payload["zones"]:
-            z["periodes"]["2026-05"]["tarif"] = None
-        ws = self.workbook()
-        self.assertIsNone(ws["B4"].value)
-        self.assertIsNone(ws["B5"].value)
-        self.assertIsNone(ws["B6"].value)
-        self.assertIn("Aucun tarif", ws["C4"].value)
+    def test_sans_parametres_montants_vides(self):
+        wb = self.classeur()
+        self.assertNotIn("Récapitulatif", wb.sheetnames)
+        ws = wb["Électricité"]
+        self.assertIn("paramètres du décompte indisponibles", ws["A4"].value)
+        app1 = self._ligne(ws, "App 1")
+        self.assertEqual([ws.cell(app1, c).value for c in range(5, 9)], [None] * 4)
 
     def test_onglet_releves(self):
         start, end = billing.period_bounds(2026, 5)
@@ -1045,14 +1074,15 @@ class TestExportPostes(unittest.TestCase):
             }},
         }
 
-    def classeur(self):
+    def classeur(self, payload=None):
         buf = io.BytesIO()
-        decompte_xlsx.build_decompte_workbook(self.payload, "2026-08", "MS-PPE-Sequoia").save(buf)
+        decompte_xlsx.build_decompte_workbook(payload or self.payload, "2026-08",
+                                              "MS-PPE-Sequoia").save(buf)
         buf.seek(0)
         return load_workbook(buf)
 
-    def ligne(self, ws, valeur):
-        for r in range(1, ws.max_row + 1):
+    def ligne(self, ws, valeur, debut=1):
+        for r in range(debut, ws.max_row + 1):
             if ws.cell(r, 1).value == valeur:
                 return r
         self.fail(f"{valeur!r} introuvable")
@@ -1076,62 +1106,76 @@ class TestExportPostes(unittest.TestCase):
         self.assertIsNone(ws.cell(communs, 5).value)
         self.assertEqual(ws.cell(self.ligne(ws, "Total immeuble"), 5).value, 4.5)
         # Les montants restent sur réseau et solaire, la buanderie n'y entre pas.
-        self.assertEqual(
-            ws.cell(app1, 6).value,
-            f'=IF(OR(D{app1}="",$B$4="",$B$6=""),"",D{app1}*$B$4*(1+$B$6/100))',
-        )
-        self.assertEqual(ws.cell(header, 9).value, "État")
+        self.assertEqual(ws.cell(header, 6).value, "Solaire HT (CHF)")
+        self.assertEqual(ws.cell(header, 10).value, "État")
 
     def test_onglet_chauffage(self):
         ws = self.classeur()["Chauffage"]
         self.assertIn("MS-PPE-Sequoia", ws["A1"].value)
         self.assertEqual(
-            [ws.cell(7, c).value for c in range(1, 8)],
+            [ws.cell(5, c).value for c in range(1, 7)],
             ["Zone", "Compteur", "Index début (kWh th)", "Index fin (kWh th)",
-             "Énergie (kWh th)", "Montant TTC (CHF)", "État"],
+             "Énergie (kWh th)", "État"],
         )
-        self.assertEqual(ws["B8"].value, "APP 01 compteur chaleur [5]")
-        self.assertEqual(ws["E8"].value, 250.5)
-        self.assertEqual(ws["G10"].value, "données incomplètes")
+        self.assertEqual(ws["B6"].value, "APP 01 compteur chaleur [5]")
+        self.assertEqual(ws["E6"].value, 250.5)
+        self.assertEqual(ws["F8"].value, "données incomplètes")
         total = self.ligne(ws, "Total immeuble")
         self.assertEqual(ws.cell(total, 5).value, 350.5)
         textes = "\n".join(str(ws.cell(r, 1).value) for r in range(total, ws.max_row + 1))
         self.assertIn("volume circulé n'est pas repris", textes)
         self.assertIn("Communs — Commun - Cuisine : pas de relevé dans la période", textes)
 
-    def test_prix_et_montants_ttc_du_chauffage(self):
-        ws = self.classeur()["Chauffage"]
-        self.assertEqual(ws["A4"].value, "Prix chauffage HT (CHF/kWh th)")
-        self.assertEqual(ws["A5"].value, "TVA (%)")
-        self.assertIsNone(ws["B4"].value)
-        self.assertTrue(str(ws["B4"].fill.fgColor.rgb).endswith("FFF9C4"))
-        self.assertIn("Montant TTC", ws["C4"].value)
-        self.assertEqual(ws["F8"].value, '=IF(OR(E8="",$B$4="",$B$5=""),"",E8*$B$4*(1+$B$5/100))')
-        total = self.ligne(ws, "Total immeuble")
-        self.assertEqual(ws.cell(total, 6).value, '=IF(COUNT(F8:F10)=0,"",SUM(F8:F10))')
+    def test_repartition_du_cout_de_la_pac(self):
+        postes = self.payload["postes"]["2026-08"]
+        postes["chauffage"] = postes["chauffage"][:2]          # tous relevés
+        self.payload["zones"].append({"zone": "PAC", "label": "PAC", "periodes": {"2026-08": {
+            "reseau": {"kwh": 400.0, "alertes": []}, "solaire": {"kwh": 100.0, "alertes": []},
+            "total": 500.0, "facturable": True, "en_cours": False,
+        }}})
+        wb = self.classeur(ajouter_chiffrage(self.payload, "2026-08"))
+        ws = wb["Chauffage"]
+        # PAC : 100 × 0,12 + 400 × 0,25 = 112,00 HT, TVA 8,10 ; 80 % au chauffage.
+        self.assertEqual([ws.cell(r, 2).value for r in (4, 5, 6)], [89.6, 6.48, 96.08])
+        self.assertIn("80 % de l'électricité de la PAC (112,00 CHF HT)", ws["B7"].value)
+        rep = self.ligne(ws, "Zone", debut=self.ligne(ws, "Total immeuble") + 1)
+        self.assertEqual([ws.cell(rep, c).value for c in range(1, 7)],
+                         ["Zone", "Énergie (kWh th)", "Part (%)", "Montant HT (CHF)", "TVA (CHF)",
+                          "Montant TTC (CHF)"])
+        # 89,60 × 250,5 / 350,5 = 64,04 ; 89,60 × 100 / 350,5 = 25,56.
+        self.assertEqual([ws.cell(rep + 1, c).value for c in range(1, 7)],
+                         ["App 1", 250.5, 71.47, 64.04, 4.63, 68.67])
+        self.assertEqual([ws.cell(rep + 2, c).value for c in range(1, 7)],
+                         ["Communs", 100.0, 28.53, 25.56, 1.85, 27.41])
+        self.assertEqual([ws.cell(rep + 3, c).value for c in (1, 4, 5, 6)],
+                         ["Total immeuble", 89.6, 6.48, 96.08])
+        # La PAC n'est pas une ligne du récapitulatif.
+        recap = wb["Récapitulatif"]
+        self.assertEqual([recap.cell(r, 1).value for r in range(5, 8)],
+                         ["App 1", "Communs", "Total immeuble"])
 
-    def test_tva_reprise_du_tarif_electrique(self):
-        self.payload["zones"][0]["periodes"]["2026-08"]["tarif"] = {
-            "prix_reseau": 0.25, "prix_solaire": 0.12, "taux_tva": 8.1, "valid_from": "2026-01-01",
-        }
-        wb = self.classeur()
-        self.assertEqual(wb["Chauffage"]["B5"].value, 8.1)
-        self.assertEqual(wb["Eau chaude"]["B5"].value, 8.1)
-        self.assertIsNone(wb["Eau chaude"]["B4"].value)
+
 
     def test_onglet_eau_chaude_au_litre_pres(self):
         ws = self.classeur()["Eau chaude"]
-        self.assertEqual(ws["A4"].value, "Prix eau chaude HT (CHF/m³)")
-        self.assertEqual(ws["E7"].value, "Volume (m³)")
-        self.assertEqual(ws["E8"].value, 0.875)
-        self.assertEqual(ws["E8"].number_format, "#,##0.000")
-        self.assertEqual(ws["F8"].value, '=IF(OR(E8="",$B$4="",$B$5=""),"",E8*$B$4*(1+$B$5/100))')
+        self.assertEqual(ws["E5"].value, "Volume (m³)")
+        self.assertEqual(ws["E6"].value, 0.875)
+        self.assertEqual(ws["E6"].number_format, "#,##0.000")
 
     def test_onglet_buanderie(self):
         ws = self.classeur()["Buanderie"]
-        self.assertEqual([ws.cell(4, c).value for c in range(1, 5)],
-                         ["Zone", "Cycles", "Énergie (kWh)", "État"])
-        self.assertEqual([ws.cell(5, c).value for c in range(1, 5)], ["App 1", 3.0, 4.5, "facturable"])
+        self.assertEqual([ws.cell(5, c).value for c in range(1, 9)],
+                         ["Zone", "Cycles", "Énergie (kWh)", "Cycles (CHF)", "Énergie HT (CHF)",
+                          "TVA (CHF)", "Total TTC (CHF)", "État"])
+        self.assertEqual([ws.cell(6, c).value for c in range(1, 9)],
+                         ["App 1", 3.0, 4.5, None, None, None, None, "facturable"])
+
+    def test_montants_de_la_buanderie(self):
+        ws = self.classeur(ajouter_chiffrage(self.payload, "2026-08"))["Buanderie"]
+        self.assertEqual(ws["B4"].value, 2.2)
+        # 3 × 2,20 = 6,60 sans TVA ; 4,5 × 0,25 = 1,13, TVA 0,09.
+        self.assertEqual([ws.cell(8, c).value for c in range(1, 8)],
+                         ["App 1", 3.0, 4.5, 6.6, 1.13, 0.09, 7.82])
 
     def test_csv_en_sections(self):
         rows = decompte_export.export_csv_lignes(self.payload, "2026-08")

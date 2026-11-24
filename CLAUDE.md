@@ -622,6 +622,22 @@ Avancement :
   sans ligne PAC), `fraction_annee`, `repartir`. Arrondi au centime demi
   supérieur (`Decimal`). Cas de référence La Calbasse dans
   `tests/test_chiffrage.py`, montants calculés à la main.
+- Étape 4 (fait, exports) : **décision de l'utilisateur du 2026-11-24 :
+  le classeur contient les montants calculés par l'application, plus de
+  formules ni de cases jaunes** ; pour corriger un prix, on le change dans
+  la page Paramètres et on réexporte. La route d'export ajoute
+  `payload["chiffrage"][cle]` (`du`, `au`, `parametres`, `montants`),
+  calculé sur tout l'immeuble (`restreindre_a_zone` filtre ensuite).
+  Classeur : onglet **Récapitulatif** en premier ; Électricité avec les
+  paramètres appliqués en lecture seule (« depuis le … ») et Solaire HT,
+  Réseau HT, Location HT (si paramétrée), TVA, TTC ; la ligne PAC porte le
+  coût de la chaleur ; Chauffage / Eau chaude : coût du poste, clé, relevés
+  puis tableau « Répartition » par zone ; Buanderie avec ses montants ;
+  Frais supplémentaires = frais saisis. CSV : section Récapitulatif. Le
+  site de test « Ref » a des paramètres depuis le 01.01.2026 ; la
+  référence a changé (montants, récapitulatif), pas les kWh.
+  `/api/tarifs` et la table `tarifs` ne servent plus à l'export : à
+  retirer au commit suivant.
 
 ### Fonctionnalité demandée pour plus tard : liaison de compteurs
 
