@@ -104,6 +104,24 @@ CREATE TABLE IF NOT EXISTS tarifs (
     UNIQUE(miniserver, valid_from)
 );
 
+-- Frais accessoires du décompte (page Paramètres) : un montant saisi à
+-- la main pour une zone et une période, sans calcul ni prorata (voir
+-- docs/plan-page-parametres.md, § 3.7). `du` et `au` inclus, dates
+-- locales 'YYYY-MM-DD'. `tva` : 1 si la TVA s'ajoute au montant HT.
+CREATE TABLE IF NOT EXISTS frais_accessoires (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    miniserver  TEXT NOT NULL,
+    du          TEXT NOT NULL,
+    au          TEXT NOT NULL,
+    zone        TEXT NOT NULL,
+    libelle     TEXT NOT NULL,
+    montant_ht  REAL NOT NULL,
+    tva         INTEGER NOT NULL DEFAULT 1,
+    note        TEXT NOT NULL DEFAULT '',
+    updated_at  INTEGER,
+    updated_by  TEXT NOT NULL DEFAULT ''
+);
+
 -- Comptes utilisateurs (Flask-Login, voir auth.py). Deux rôles : 'admin'
 -- (voit et modifie tous les sites) et 'user' (lecture seule, uniquement
 -- les sites listés dans user_miniservers -- app fermée, accès donné au cas
@@ -203,6 +221,50 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     if "role" not in users_cols:
         conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'")
         conn.commit()
+
+    _creer_parametres(conn)
+
+
+# Paramètres du décompte (page Paramètres, docs/plan-page-parametres.md) :
+# une ligne par version d'un paramètre, en vigueur à partir de
+# `valid_from` ('YYYY-MM-DD', heure locale) jusqu'à la version suivante.
+# `miniserver` = '' pour une valeur globale (la TVA par défaut), écrasée par
+# celle du site. `valeur` en texte, convertie par services/parametres.py ;
+# NULL = « aucune » (location de compteurs retirée à partir d'une date).
+_PARAMETRES_SQL = """
+CREATE TABLE parametres (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    miniserver  TEXT NOT NULL DEFAULT '',
+    cle         TEXT NOT NULL,
+    valid_from  TEXT NOT NULL,
+    valeur      TEXT,
+    note        TEXT NOT NULL DEFAULT '',
+    updated_at  INTEGER,
+    updated_by  TEXT NOT NULL DEFAULT '',
+    UNIQUE(miniserver, cle, valid_from)
+)
+"""
+
+
+def _creer_parametres(conn: sqlite3.Connection) -> None:
+    """Crée `parametres` si elle n'existe pas, et y recopie une seule fois
+    les prix de `tarifs` (un tarif = trois paramètres du site). Pas dans
+    SCHEMA : la recopie ne doit se faire qu'à la création, sinon une valeur
+    supprimée depuis la page reviendrait au démarrage suivant. `tarifs`
+    reste en place (jamais de DROP)."""
+    existe = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'parametres'"
+    ).fetchone()
+    if existe:
+        return
+    conn.execute(_PARAMETRES_SQL)
+    for cle in ("prix_reseau", "prix_solaire", "taux_tva"):
+        conn.execute(
+            f"INSERT INTO parametres (miniserver, cle, valid_from, valeur, note, updated_at, updated_by) "
+            f"SELECT miniserver, '{cle}', valid_from, CAST({cle} AS TEXT), note, updated_at, 'tarifs' "
+            f"FROM tarifs"
+        )
+    conn.commit()
 
 
 def get_connection(db_path: str | Path) -> sqlite3.Connection:
@@ -647,6 +709,86 @@ def delete_tarif(conn: sqlite3.Connection, miniserver: str, tarif_id: int) -> bo
     Retourne False si aucun tarif de ce site ne porte cet identifiant."""
     cur = conn.execute(
         "DELETE FROM tarifs WHERE id = ? AND miniserver = ?", (tarif_id, miniserver),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def _lignes(cur: sqlite3.Cursor) -> list[dict]:
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def list_parametres(conn: sqlite3.Connection, miniservers: list[str]) -> list[dict]:
+    """Toutes les versions des paramètres des sites donnés ('' = valeurs
+    globales), par clé puis par date de prise d'effet."""
+    marques = ",".join("?" * len(miniservers))
+    return _lignes(conn.execute(
+        "SELECT id, miniserver, cle, valid_from, valeur, note, updated_at, updated_by "
+        f"FROM parametres WHERE miniserver IN ({marques}) "
+        "ORDER BY miniserver, cle, valid_from",
+        miniservers,
+    ))
+
+
+def upsert_parametre(conn: sqlite3.Connection, miniserver: str, cle: str, valid_from: str,
+                     valeur: str | None, note: str = "", updated_by: str = "") -> None:
+    """Ajoute une version d'un paramètre. La même date pour le même site et
+    la même clé corrige la version au lieu d'en empiler une seconde."""
+    conn.execute(
+        """
+        INSERT INTO parametres (miniserver, cle, valid_from, valeur, note, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(miniserver, cle, valid_from) DO UPDATE SET
+            valeur=excluded.valeur,
+            note=excluded.note,
+            updated_at=excluded.updated_at,
+            updated_by=excluded.updated_by
+        """,
+        (miniserver, cle, valid_from, valeur, note, int(time.time()), updated_by),
+    )
+    conn.commit()
+
+
+def get_parametre(conn: sqlite3.Connection, parametre_id: int) -> dict | None:
+    lignes = _lignes(conn.execute(
+        "SELECT id, miniserver, cle, valid_from, valeur, note, updated_at, updated_by "
+        "FROM parametres WHERE id = ?", (parametre_id,),
+    ))
+    return lignes[0] if lignes else None
+
+
+def delete_parametre(conn: sqlite3.Connection, parametre_id: int) -> bool:
+    cur = conn.execute("DELETE FROM parametres WHERE id = ?", (parametre_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def list_frais(conn: sqlite3.Connection, miniserver: str) -> list[dict]:
+    """Frais accessoires d'un site, par période puis par zone."""
+    return _lignes(conn.execute(
+        "SELECT id, miniserver, du, au, zone, libelle, montant_ht, tva, note, updated_at, updated_by "
+        "FROM frais_accessoires WHERE miniserver = ? ORDER BY du, au, zone, id",
+        (miniserver,),
+    ))
+
+
+def insert_frais(conn: sqlite3.Connection, miniserver: str, du: str, au: str, zone: str,
+                 libelle: str, montant_ht: float, tva: bool, note: str = "",
+                 updated_by: str = "") -> int:
+    cur = conn.execute(
+        "INSERT INTO frais_accessoires (miniserver, du, au, zone, libelle, montant_ht, tva, "
+        "note, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (miniserver, du, au, zone, libelle, montant_ht, int(tva), note, int(time.time()), updated_by),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def delete_frais(conn: sqlite3.Connection, miniserver: str, frais_id: int) -> bool:
+    """Supprime un frais seulement s'il appartient à ce site."""
+    cur = conn.execute(
+        "DELETE FROM frais_accessoires WHERE id = ? AND miniserver = ?", (frais_id, miniserver),
     )
     conn.commit()
     return cur.rowcount > 0
